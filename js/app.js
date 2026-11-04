@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import { ic } from './ui.js';
 import { videoList, videoDetail, study } from './video.js';
-import { talk } from './talk.js';
+import { speak } from './speak.js';
 import { saved } from './saved.js';
 import { settings, videoEditor, uttEditor } from './settings.js';
 import { stopSpeak } from './speech.js';
@@ -17,7 +17,7 @@ let cleanup = null, curTab = 'video';
 function renderTabs(tab) {
   const due = D.dueList().length;
   tabbar.innerHTML = `<nav>
-    ${[['video', 'WATCH'], ['talk', 'TALK'], ['saved', 'SAVED'], ['settings', 'SETTINGS']].map(([k, l]) =>
+    ${[['video', 'WATCH'], ['speak', 'SPEAK'], ['saved', 'SAVED'], ['settings', 'SETTINGS']].map(([k, l]) =>
     `<a href="#/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${ic(k)}<span>${l}</span>${k === 'saved' && due ? `<span class="badge">${due > 99 ? '99+' : due}</span>` : ''}</a>`).join('')}
   </nav>`;
 }
@@ -33,7 +33,7 @@ function route(keepScroll) {
   view.replaceChildren(root);
   let tab = p[0] || 'video';
   switch (p[0]) {
-    case 'talk': cleanup = talk(root); break;
+    case 'talk': case 'speak': tab = 'speak'; cleanup = speak(root); break;
     case 'saved': saved(root); break;
     case 'settings':
       if (p[1] === 'video' && p[2]) cleanup = videoEditor(root, p[2]);
@@ -55,7 +55,7 @@ registerSW();
 // 다른 기기의 변경이 들어오면: 목록 화면이면 조용히 다시 그림, 학습·입력 중이면 방해하지 않고 알림만
 window.addEventListener('b2u:remote', () => {
   const h = location.hash || '#/video';
-  const busy = document.body.classList.contains('no-tab') || document.body.classList.contains('in-call') || /^#\/(study|talk|settings\/(video|utt))/.test(h)
+  const busy = document.body.classList.contains('no-tab') || document.body.classList.contains('in-call') || /^#\/(study|talk|speak|settings\/(video|utt))/.test(h)
     || document.querySelector('.sheet') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   if (busy) { renderTabs(curTab); toast('다른 기기의 변경 사항을 가져왔어요'); }
   else { const y = window.scrollY; route(true); window.scrollTo(0, y); }

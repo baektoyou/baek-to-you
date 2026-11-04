@@ -5,7 +5,7 @@ import { markPattern } from './compare.js';
 import { patternSpeak } from './apply.js';
 
 let filter = 'due';
-const KIND = { utt: '영상', talk: 'TALK', mine: '내 문장' };
+const KIND = { utt: '영상', talk: 'SPEAK', mine: '내 문장' };
 const ST = { new: ['새 문장', ''], again: ['연습 필요', 'warn'], okay: ['어느 정도', 'mid'], mastered: ['익숙해짐', 'ok'] };
 // 영상 문장은 Natural 하나만 보여줌 (예전에 Easy/Advanced로 저장했어도 Natural로 표시)
 const enOf = s => s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s));

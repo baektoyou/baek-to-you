@@ -197,6 +197,7 @@ export function videoEditor(root, vid) {
     <div class="sent-actions">
       <button class="btn sm" id="add-j">${ic('plus')} JSON 추가</button>
       <button class="btn sm soft" id="rep-j" ${us.length ? '' : 'disabled'}>${ic('refresh')} JSON으로 교체</button>
+      <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
       <button class="btn sm line danger-line" id="clr" ${us.length ? '' : 'disabled'}>${ic('trash')} 문장 전체 삭제</button>
     </div>
     ${us.length ? `<div class="ulist">${us.map(u => `<div class="uitem"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div>
@@ -217,6 +218,11 @@ export function videoEditor(root, vid) {
     const r = D.clearUtts(v.id); toast(`문장 ${r.removed}개를 삭제했어요`); reload();
   };
   $('#delv', root).onclick = async () => { if (await confirmSheet('영상과 등록된 문장을 모두 삭제할까요?', '영상 삭제', 'SAVED에 저장한 표현은 남아요.')) { pl.destroy(); D.deleteVideo(v.id); toast('영상을 삭제했어요'); location.hash = '#/settings'; } };
+  $('#cpj', root).onclick = async () => {
+    const json = exportUtts(v.id);
+    if (await copyText(json)) toast(`문장 ${us.length}개 JSON을 복사했어요 · 고친 뒤 ‘JSON으로 교체’에 붙여넣기`);
+    else { const sh = sheet(`<h3>JSON 전체</h3><p class="sheet-p">자동 복사가 막혔어요. 아래를 길게 눌러 전체 선택 → 복사해주세요.</p><textarea class="textarea mono" readonly>${esc(json)}</textarea>`); $('textarea', sh).select(); }
+  };
   $('#add-j', root).onclick = () => jsonSheet(v, 'add', reload);
   $('#rep-j', root).onclick = () => jsonSheet(v, 'replace', reload);
   return () => pl.destroy();
@@ -231,18 +237,29 @@ const PROMPT = v => `아래 YouTube 영상(${v.title} / https://youtu.be/${v.ytI
 - easy / advanced 필드는 만들지 말 것
 
 형식 (JSON만 출력):
-[{"start":"0:12","end":"0:17","ko":"한국어 원문","natural":"자연스러운 영어","pattern":"natural 문장의 핵심 패턴 (예: I've been ~ing)","patternKo":"패턴 의미 (예: 최근부터 지금까지 계속 ~하고 있어)","question":"이 패턴으로 내 이야기를 하게 하는 한국어 질문 (예: 요즘 계속하고 있는 일이 있나요?)","frame":"빈칸 문장 (예: I've been ______.)","topics":["food"],"emotion":"happy","type":"question","keywords":["eat","dinner"],"hint":"TALK 대답 힌트 (영어 2~5단어)","replies":["이 말에 팬이 할 법한 자연스러운 영어 대답 1","대답 2"]}]
+[{"start":"0:12","end":"0:17","ko":"한국어 원문","natural":"자연스러운 영어","pattern":"natural 문장의 핵심 패턴 (예: I've been ~ing)","patternKo":"패턴 의미 (예: 최근부터 지금까지 계속 ~하고 있어)","question":"이 패턴으로 내 이야기를 하게 하는 한국어 질문 (예: 요즘 계속하고 있는 일이 있나요?)","frame":"빈칸 문장 (예: I've been ______.)","topics":["food"],"emotion":"happy","type":"question","keywords":["eat","dinner"],"hint":"대답 힌트 (영어 2~5단어)","replies":["이 말에 내가(팬이) 대답할 법한, 원어민이 실제로 쓰는 자연스러운 영어 대답 1","대답 2","대답 3"]}]
+백현이가 질문하는 발화(예: 밥은 먹었어요?)는 type을 꼭 "question"으로 해줘.
 topics는 ${Object.keys(TOPICS).join(', ')} 중에서, type은 ${TYPES.join(', ')} 중에서, emotion은 ${EMOTIONS.join(', ')} 중에서 골라줘.
 
 내 발화 목록:
 0:00-0:05 (여기에 한국어 발화)`;
 
+// 이 영상 문장을 업로드 형식 그대로 내보내기 (수정 후 ‘교체’로 다시 올리기)
+const t2s = t => { const m = Math.floor(t / 60), s = Math.round((t - m * 60) * 10) / 10; return `${m}:${s < 10 ? '0' : ''}${s}`; };
+function exportUtts(vid) {
+  const keys = ['pattern', 'patternKo', 'question', 'frame', 'topics', 'emotion', 'type', 'keywords', 'hint', 'replies', 'alts'];
+  return JSON.stringify(D.uttsOf(vid).map(u => {
+    const o = { start: t2s(u.start), end: t2s(u.end), ko: u.ko, natural: u.en.natural || u.en.easy || u.en.advanced };
+    keys.forEach(k => { const v = u[k]; if (Array.isArray(v) ? v.length : v) o[k] = v; });
+    return o;
+  }), null, 2);
+}
 // mode: 'add' (기존 문장 뒤에 추가) | 'replace' (이 영상의 문장만 전부 교체)
 function jsonSheet(v, mode, done) {
   const n = D.uttsOf(v.id).length;
   const s = sheet(`<h3>${mode === 'replace' ? 'JSON으로 문장 교체' : 'JSON으로 문장 추가'}</h3>
     <p class="sheet-p">${mode === 'replace' ? `이 영상의 기존 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '기존 문장은 그대로 두고 새 문장을 <b>뒤에 추가</b>해요.'}</p>
-    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button><label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
+    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button>${mode === 'replace' ? `<button class="btn sm soft" id="ld">${ic('download')} 현재 JSON 불러오기</button>` : ''}<label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
     <textarea class="textarea mono" id="js" placeholder='[{"start":"0:12","end":"0:17","ko":"...","natural":"..."}]'></textarea>
     <div id="vres"></div>
     <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow ${mode === 'replace' ? 'danger' : ''}" id="go" disabled>${mode === 'replace' ? '교체하기' : '추가하기'}</button></div>`);
@@ -260,6 +277,7 @@ function jsonSheet(v, mode, done) {
   };
   ta.oninput = () => { checked = null; go.disabled = true; out.innerHTML = ''; };
   $('#chk', s).onclick = check;
+  $('#ld', s) && ($('#ld', s).onclick = () => { ta.value = exportUtts(v.id); checked = null; go.disabled = true; out.innerHTML = ''; toast('현재 문장을 불러왔어요 · 고친 뒤 검사하기'); });
   $('#file', s).onchange = async e => { const f = e.target.files[0]; if (!f) return; ta.value = await f.text(); e.target.value = ''; check(); };
   $('#cp', s).onclick = async () => { if (await copyText(PROMPT(v))) toast('프롬프트를 복사했어요'); else { ta.value = PROMPT(v); toast('복사가 막혀서 입력칸에 넣었어요'); } };
   go.onclick = () => {
@@ -294,13 +312,13 @@ export function uttEditor(root, vid, uttId) {
       <label class="field"><span>내 문장 만들기 질문</span><input class="input" id="q" value="${esc(u.question)}" placeholder="요즘 계속하고 있는 일이 있나요?"></label>
       <label class="field"><span>빈칸 힌트</span><input class="input en" id="frame" value="${esc(u.frame)}" placeholder="I've been ______."></label>
     </details>
-    <details class="adv"><summary>TALK 설정</summary>
-      <div class="field"><span>주제 태그 (TALK 연결에만 사용 · WATCH엔 표시 안 함)</span><div class="tagpick" id="tags">${Object.keys(TOPICS).map(t => `<button data-t="${t}" class="${tagSet.has(t) ? 'on' : ''}">${t}</button>`).join('')}</div></div>
-      <div class="two"><label class="field"><span>대화 유형</span><select class="input" id="type">${TYPES.map(t => `<option ${u.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
+    <details class="adv"><summary>SPEAK 설정 (질문·답변 예시)</summary>
+      <div class="field"><span>주제 태그</span><div class="tagpick" id="tags">${Object.keys(TOPICS).map(t => `<button data-t="${t}" class="${tagSet.has(t) ? 'on' : ''}">${t}</button>`).join('')}</div></div>
+      <div class="two"><label class="field"><span>대화 유형 (백현이 질문이면 question → SPEAK 질문으로 사용)</span><select class="input" id="type">${TYPES.map(t => `<option ${u.type === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label>
         <label class="field"><span>감정</span><select class="input" id="emo"><option value="">—</option>${EMOTIONS.map(t => `<option ${u.emotion === t ? 'selected' : ''}>${t}</option>`).join('')}</select></label></div>
       <label class="field"><span>영어 키워드 (쉼표로 구분)</span><input class="input en" id="kw" value="${esc(u.keywords.join(', '))}" placeholder="dinner, hungry, chicken"></label>
-      <label class="field"><span>대답 힌트 (TALK Hint)</span><input class="input en" id="hint" value="${esc(u.hint)}" placeholder="I had … for dinner"></label>
-      <label class="field"><span>답변 예시 (한 줄에 하나)</span><textarea class="textarea en" id="reps">${esc(u.replies.join('\n'))}</textarea></label>
+      <label class="field"><span>대답 힌트</span><input class="input en" id="hint" value="${esc(u.hint)}" placeholder="I had … for dinner"></label>
+      <label class="field"><span>원어민 답변 예시 (내가 대답할 때 참고 · 한 줄에 하나)</span><textarea class="textarea en" id="reps">${esc(u.replies.join('\n'))}</textarea></label>
       <label class="field"><span>다른 정답 표현 (한 줄에 하나)</span><textarea class="textarea en" id="alts">${esc(u.alts.join('\n'))}</textarea></label>
     </details>
     <button class="btn line block danger-line" id="del">${ic('trash')} 문장 삭제</button>
