@@ -7,7 +7,17 @@ HTML/CSS/JavaScript만 사용하고, 서버·유료 API 없이 GitHub Pages에�
 
 ---
 
-## 이번 업데이트 (2026.11.04)
+## 기기 연동 (2026.11.05 추가)
+- Firebase Google 로그인 → 같은 계정이면 컴퓨터·iPhone에서 영상, 문장, SAVED, 학습 기록, 설정이 자동 동기화
+- 이 기기 데이터가 항상 원본이고 클라우드와 항목별로 3-way 병합. 첫 로그인 때는 양쪽 데이터를 모두 합쳐서 **아무것도 지워지지 않음**
+- 무료 Spark 요금제로 운영, Firebase SDK는 `js/vendor/firebase.js`로 포함 (외부 CDN 불필요, 오프라인 캐시)
+- 홈 화면 앱용 예비 로그인: 이메일/비밀번호를 같은 계정에 연결
+- 동기화 안 되는 것: 녹음 파일, 음성 선택(기기별)
+- **설정 방법: `FIREBASE_SETUP.md`** (설정 전에는 지금처럼 이 기기에만 저장)
+
+---
+
+## 이전 업데이트 (2026.11.04)
 
 ### 1. 디자인 시스템
 - 로고: `BAEK TO YOU` 한 가지 폰트·자간, `BAEK`만 핑크
@@ -96,7 +106,7 @@ Learn(패턴·의미·원문 예문) → Understand(같은 패턴 예문 3개) �
 
 1. **먼저 기존 앱에서 SETTINGS › JSON 백업** 해 두기
 2. 저장소 루트의 기존 파일을 이 폴더의 파일로 덮어쓰기
-   - 새 파일 `js/apply.js`, `js/feedback.js`, `js/pwa.js`도 꼭 함께 올리기
+   - 새 파일 `js/apply.js`, `js/feedback.js`, `js/pwa.js`, `js/sync.js`, `js/merge.js`, `js/firebase-config.js`, `js/vendor/firebase.js`도 꼭 함께 올리기
    - `.nojekyll` 유지 (숨김 파일이라 업로드 시 빠지기 쉬움)
 3. 경로는 전부 상대 경로라 `/baek-to-you/` 하위에서 그대로 동작
 4. 배포 후 1~2분 기다렸다가 앱을 열면 자동으로 새 버전으로 한 번 새로고침됨
@@ -119,6 +129,12 @@ index.html  manifest.webmanifest  sw.js  .nojekyll
 css/style.css
 js/app.js         라우터·탭바
 js/pwa.js         서비스워커 등록·자동 업데이트
+js/sync.js        Google 로그인·클라우드 동기화
+js/merge.js       기기 간 3-way 병합
+js/firebase-config.js  ← Firebase 설정값 붙여넣는 곳
+js/vendor/firebase.js  Firebase SDK (Auth + Firestore Lite, v12.19.0)
+firestore.rules   Firestore 보안 규칙 (콘솔에 붙여넣기)
+FIREBASE_SETUP.md Firebase 설정 순서
 js/store.js       데이터·복습 주기·JSON 검사·스냅샷·백업
 js/speech.js      음성 인식(수동 종료)·TTS·녹음
 js/compare.js     단어 비교

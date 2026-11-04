@@ -45,7 +45,7 @@ export function normUtt(u) {
     type: u.type || 'statement', keywords: arr(u.keywords), hint: u.hint || '', replies: arr(u.replies),
     // APPLY용 (선택) — 없으면 앱의 패턴 사전/기본값 사용
     patternKo: u.patternKo || '', examples: arr(u.examples), question: u.question || '', frame: u.frame || '',
-    createdAt: u.createdAt || Date.now()
+    createdAt: u.createdAt || Date.now(), updatedAt: u.updatedAt || 0
   };
 }
 function arr(v) { return Array.isArray(v) ? v.filter(Boolean).map(String) : (typeof v === 'string' && v ? v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) : []); }
@@ -104,7 +104,7 @@ export function addVideo(ytId, title) {
   const v = { id: uid(), ytId, title: title || 'YouTube 영상', addedAt: Date.now() };
   db.videos.unshift(v); save(); return v;
 }
-export function updateVideo(id, patch) { const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch); save(); } }
+export function updateVideo(id, patch) { const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch, { updatedAt: Date.now() }); save(); } }
 export function deleteVideo(id) {
   snapshot('영상 삭제');
   const ids = new Set(db.utts.filter(u => u.videoId === id).map(u => u.id));
@@ -119,7 +119,7 @@ export const utt = id => db.utts.find(u => u.id === id);
 export const savedLinkedTo = vid => { const ids = new Set(db.utts.filter(u => u.videoId === vid).map(u => u.id)); return db.saved.filter(s => ids.has(s.uttId)); };
 
 export function upsertUtt(u) {
-  const n = normUtt(u);
+  const n = normUtt({ ...u, updatedAt: Date.now() });
   const i = db.utts.findIndex(x => x.id === n.id);
   if (i >= 0) db.utts[i] = n; else db.utts.push(n);
   save(); return n;
@@ -220,7 +220,22 @@ export function importJSON(text, mode = 'replace') {
   }
   save();
 }
-export function resetAll() { snapshot('전체 초기화'); db = defaults(); save(); AudioStore.clear(); }
+export function resetAll() { snapshot('전체 초기화'); db = defaults(); save(); AudioStore.clear(); window.dispatchEvent(new Event('b2u:reset')); }
+
+// ---------- 동기화용 ----------
+// 기기마다 다른 설정(음성 목록 등)은 동기화하지 않음
+export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera'];
+export function getShared() {
+  const settings = { ...db.settings }; LOCAL_ONLY_SETTINGS.forEach(k => delete settings[k]);
+  return { version: db.version, videos: db.videos, utts: db.utts, saved: db.saved, attempts: db.attempts, progress: db.progress, talkLogs: db.talkLogs, days: db.days, settings };
+}
+export const normalize = d => migrate(JSON.parse(JSON.stringify(d || {})));
+export function applyShared(data) {
+  const keep = {}; LOCAL_ONLY_SETTINGS.forEach(k => (keep[k] = db.settings[k]));
+  db = migrate({ ...data, settings: { ...(data.settings || {}), ...keep } });
+  clearTimeout(saveTimer); flush();
+  listeners.forEach(fn => fn({ remote: true }));
+}
 
 // ---------- 문장 JSON 검사 / 추가 / 교체 ----------
 // 업로드 전 전체를 검사하고, 오류가 하나라도 있으면 아무것도 바꾸지 않음

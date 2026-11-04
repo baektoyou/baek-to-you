@@ -5,6 +5,7 @@ import { parseYouTubeId, fetchTitle, thumb, Player } from './yt.js';
 import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
+import * as Y from './sync.js';
 
 const STT_LANGS = [['en-US', '영어 (미국) · 추천'], ['en-GB', '영어 (영국)'], ['en-AU', '영어 (호주)'], ['en-CA', '영어 (캐나다)'], ['en-IN', '영어 (인도)']];
 
@@ -12,6 +13,7 @@ export function settings(root) {
   const db = D.get(); const st = db.settings; const snap = D.snapshotInfo();
   root.innerHTML = `<div class="screen">
     <header class="top"><h1 class="page-title">Settings</h1></header>
+    <section class="sync-card" id="sync"></section>
     <section class="add-card">
       <span class="label">ADD VIDEO</span>
       <div class="url-row"><input class="input" id="url" type="url" placeholder="YouTube 링크 붙여넣기" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -75,6 +77,7 @@ export function settings(root) {
     </details>
     <p class="tiny muted foot-note">BAEK TO YOU · personal fan-made study app · 영상 저작권은 원저작자에게 있어요</p>
   </div>`;
+  const unsub = mountSync($('#sync', root));
   function row(ok, t, d) { return `<div><span class="${ok ? 'ok-dot' : 'no-dot'}"></span><b>${t}</b> <span class="muted tiny">${esc(d)}</span></div>`; }
 
   const urlIn = $('#url', root), addB = $('#add', root);
@@ -151,6 +154,60 @@ export function settings(root) {
   });
   $('#rst', root).onclick = async () => { if (await confirmSheet('정말 모든 데이터를 지울까요?', '모두 삭제', '먼저 JSON 백업을 권장해요. 직전 상태 1개는 자동 보관돼요.')) { D.resetAll(); toast('초기화했어요'); settings(root); } };
   $('#upd', root).onclick = async () => { const b = $('#upd', root); b.disabled = true; const r = await checkUpdate(true); b.disabled = false; toast(r); };
+  return unsub;
+}
+
+// ---------- 기기 연동 (Google 로그인 + 자동 동기화) ----------
+function ago(t) { if (!t) return ''; const s = (Date.now() - t) / 1000; if (s < 60) return '방금 전'; if (s < 3600) return `${Math.floor(s / 60)}분 전`; if (s < 86400) return `${Math.floor(s / 3600)}시간 전`; return new Date(t).toLocaleDateString('ko-KR'); }
+const GLOGO = '<svg viewBox="0 0 24 24" aria-hidden="true" style="stroke:none"><path fill="#4285F4" d="M21.6 12.2c0-.7-.1-1.4-.2-2H12v3.8h5.4a4.6 4.6 0 0 1-2 3v2.5h3.2c1.9-1.7 3-4.3 3-7.3z"/><path fill="#34A853" d="M12 22c2.7 0 5-.9 6.6-2.4l-3.2-2.5c-.9.6-2 1-3.4 1-2.6 0-4.8-1.8-5.6-4.1H3.1v2.6A10 10 0 0 0 12 22z"/><path fill="#FBBC05" d="M6.4 14a6 6 0 0 1 0-3.9V7.5H3.1a10 10 0 0 0 0 9z"/><path fill="#EA4335" d="M12 6c1.5 0 2.8.5 3.8 1.5l2.9-2.9A10 10 0 0 0 3.1 7.5l3.3 2.6C7.2 7.8 9.4 6 12 6z"/></svg>';
+const STATE_TXT = { loading: ['준비 중…', 'mid'], syncing: ['동기화 중…', 'mid'], pending: ['변경 사항 저장 대기', 'mid'], synced: ['동기화됨', 'ok'], offline: ['오프라인', 'warn'], error: ['오류', 'bad'] };
+function mountSync(el) {
+  let tick = null;
+  const render = st => {
+    if (!el.isConnected) { unsub(); clearInterval(tick); return; }
+    if (!st.configured) {
+      el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span><span class="chip">꺼짐</span></div>
+        <p class="small muted sync-p">Firebase 설정 전이라 이 기기에만 저장돼요. ZIP 안의 <b>FIREBASE_SETUP.md</b> 순서대로 설정하면 Google 로그인으로 컴퓨터와 iPhone이 자동 연동돼요.</p>`;
+      return;
+    }
+    if (!st.user) {
+      const busy = st.state === 'loading';
+      el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span>${busy ? '<span class="chip">준비 중…</span>' : ''}</div>
+        <p class="small muted sync-p">같은 계정으로 로그인하면 영상·문장·SAVED·학습 기록·설정이 컴퓨터와 iPhone에서 자동으로 맞춰져요. 지금 이 기기의 데이터는 그대로 유지되고 클라우드와 합쳐져요.</p>
+        <button class="btn line block g-btn" id="g" ${busy ? 'disabled' : ''}>${GLOGO} Google 계정으로 로그인</button>
+        ${st.state === 'error' ? `<div class="note warn mt8">${esc(st.detail)}</div>` : ''}
+        <details class="adv"><summary>홈 화면 앱에서 Google 로그인이 안 될 때 · 이메일로 로그인</summary>
+          <p class="tiny muted">먼저 Safari나 컴퓨터에서 Google로 로그인한 뒤 “이메일 로그인 추가”로 만든 이메일·비밀번호예요.</p>
+          <input class="input" id="em" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off">
+          <input class="input mt8" id="pw" type="password" autocomplete="current-password" placeholder="비밀번호">
+          <div class="row mt8"><button class="btn sm grow" id="el">이메일로 로그인</button><button class="btn sm soft" id="rp">비밀번호 재설정</button></div>
+        </details>`;
+      $('#g', el).onclick = () => Y.loginGoogle().then(() => toast('로그인했어요 · 동기화를 시작해요')).catch(e => toast(Y.authErrorText(e)));
+      $('#el', el).onclick = () => { const em = $('#em', el).value, pw = $('#pw', el).value; if (!em || !pw) return toast('이메일과 비밀번호를 입력해주세요'); Y.loginEmail(em, pw).then(() => toast('로그인했어요')).catch(e => toast(Y.authErrorText(e))); };
+      $('#rp', el).onclick = () => { const em = $('#em', el).value; if (!em) return toast('이메일을 먼저 입력해주세요'); Y.resetPassword(em).then(() => toast('재설정 메일을 보냈어요')).catch(e => toast(Y.authErrorText(e))); };
+      return;
+    }
+    const [txt, tone] = STATE_TXT[st.state] || ['', 'mid'];
+    const u = st.user; const hasPw = u.providers.includes('password');
+    el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span><span class="sync-st ${tone}"><i></i>${txt}${st.state === 'synced' && st.lastSyncAt ? ` · ${ago(st.lastSyncAt)}` : ''}</span></div>
+      <div class="row acct">${u.photo ? `<img class="av-img" src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : `<span class="av-img">${esc((u.name || u.email || '?')[0].toUpperCase())}</span>`}
+        <div class="grow"><b>${esc(u.name || u.email || '로그인됨')}</b><small>${esc(u.email || '')}</small></div></div>
+      ${st.detail && (st.state === 'error' || st.state === 'offline') ? `<div class="note ${st.state === 'error' ? 'warn' : ''}">${esc(st.detail)}</div>` : ''}
+      <div class="row"><button class="btn sm soft grow" id="sn">${ic('refresh')} 지금 동기화</button><button class="btn sm line" id="lo">로그아웃</button></div>
+      ${hasPw ? `<p class="tiny muted sync-p">이메일 로그인 연결됨 · 홈 화면 앱에서는 이메일로 로그인할 수 있어요.</p>` : `<details class="adv"><summary>홈 화면 앱용 이메일 로그인 추가</summary>
+        <p class="tiny muted">iPhone 홈 화면 앱은 Safari와 로그인 정보가 따로라서 다시 로그인해야 해요. 거기서 Google 창이 안 열리면 여기서 만든 이메일·비밀번호로 같은 계정에 로그인할 수 있어요.</p>
+        <input class="input" id="lem" type="email" autocomplete="username" value="${esc(u.email || '')}" autocapitalize="off">
+        <input class="input mt8" id="lpw" type="password" autocomplete="new-password" placeholder="새 비밀번호 (6자 이상)">
+        <button class="btn sm block mt8" id="lk">이메일 로그인 추가</button></details>`}
+      <p class="tiny muted sync-p">녹음 파일과 음성 선택은 기기마다 따로 저장돼요.</p>`;
+    $('#sn', el).onclick = () => { Y.syncNow(); };
+    $('#lo', el).onclick = async () => { if (await confirmSheet('로그아웃할까요?', '로그아웃', '이 기기의 데이터는 그대로 남아요. 다시 로그인하면 이어서 동기화돼요.')) { await Y.logout(); toast('로그아웃했어요'); } };
+    $('#lk', el) && ($('#lk', el).onclick = () => { const em = $('#lem', el).value, pw = $('#lpw', el).value; if (!em || pw.length < 6) return toast('이메일과 6자 이상 비밀번호를 입력해주세요'); Y.linkEmail(em, pw).then(() => toast('이메일 로그인을 추가했어요')).catch(e => toast(Y.authErrorText(e))); });
+  };
+  const unsub = Y.onStatus(render);
+  render(Y.status());
+  tick = setInterval(() => el.isConnected ? (Y.status().state === 'synced' && render(Y.status())) : clearInterval(tick), 30000);
+  return () => { unsub(); clearInterval(tick); };
 }
 
 // ---------- 영상 상세 / 문장 관리 ----------
