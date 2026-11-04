@@ -10,13 +10,13 @@ export function talk(root) {
   const db = D.get();
   const utts = db.utts.filter(u => u.ko && D.video(u.videoId));
   if (!utts.length) {
-    root.innerHTML = `<div class="screen"><div class="top"><div class="logo"><i>☏</i><h1>TALK</h1></div></div>
-      <div class="empty"><div class="emo">📞</div><b>통화할 영상 클립이 없어요</b>SETTINGS에서 백현이 영상 구간을 등록하면<br>영상통화처럼 영어로 대화할 수 있어요.<div style="margin-top:18px"><a class="btn" href="#/settings">영상 등록하기</a></div></div></div>`;
+    root.innerHTML = `<div class="screen"><header class="top"><h1 class="page-title">Talk</h1></header>
+      <div class="empty"><b>통화할 영상 클립이 없어요</b><p>SETTINGS에서 백현이 영상 구간을 등록하면<br>영상통화처럼 영어로 대화할 수 있어요.</p><a class="btn" href="#/settings">영상 등록하기</a></div></div>`;
     return () => { };
   }
   // 수신 화면 — 사용자의 탭으로 iOS 재생/음성 권한을 열어줌
   root.innerHTML = `<div class="ring">
-    <div class="ava">🐶</div><h2>Baekhyun</h2><p>영상통화 요청…</p>
+    <div class="ava">B</div><h2>Baekhyun</h2><p>영상통화 요청…</p>
     <p class="tiny" style="margin-top:6px">실제 영상 클립 ${utts.length}개</p>
     <div class="acts"><div><button class="no" id="dec">${ic('phoneoff')}</button><span>거절</span></div><div><button class="ok" id="acc">${ic('cam')}</button><span>수락</span></div></div>
   </div>`;
@@ -35,7 +35,7 @@ function startCall(root, utts) {
       <div class="vc"><div class="player" id="tp"></div><div class="vc-shade"></div>
         <div class="vc-top"><div class="vc-status" id="vs"><i></i><span>연결 중</span></div><div class="vc-timer" id="tm">00:00</div></div>
         <div class="vc-bottom"><div class="vc-name">Baekhyun</div><div class="vc-cap" id="cap"></div></div>
-        <div class="vc-cover" id="cover"><div class="av">🐶</div><div class="en">Connecting…</div></div>
+        <div class="vc-cover" id="cover"><div class="av">B</div><div class="en">Connecting…</div></div>
         <div class="tap-hint hide" id="taph" style="z-index:6">▶ 화면을 한 번 탭해서 영상 재생</div>
       </div>
       <div class="call-tools">
@@ -51,7 +51,7 @@ function startCall(root, utts) {
       <div class="comp-row">
         <div class="comp-side"><button class="pill" id="b-hint">${ic('bulb')} Hint</button><button class="pill" id="b-keep">${ic('next')} Keep</button></div>
         <button class="mic" id="b-mic" aria-label="말하기">${ic('mic')}</button>
-        <div class="comp-side r"><button class="pill" id="b-kbd">${ic('kbd')}</button><button class="pill" id="b-skip" aria-label="주제 바꾸기">${ic('shuffle')}</button></div>
+        <div class="comp-side r"><button class="pill" id="b-kbd" aria-label="키보드">${ic('kbd')}</button><button class="pill" id="b-skip" aria-label="주제 바꾸기">${ic('shuffle')}</button></div>
       </div>
       <div class="type-row hide" id="trow"><input class="input en" id="tin" placeholder="Reply in English…" autocomplete="off" enterkeyhint="send"><button class="send" id="tsend">${ic('send')}</button></div>
     </div>
@@ -64,14 +64,14 @@ function startCall(root, utts) {
   const status = (cls, text) => { vs.className = 'vc-status ' + cls; $('span', vs).textContent = text; };
   const scroll = () => requestAnimationFrame(() => chat.scrollTo({ top: chat.scrollHeight, behavior: 'smooth' }));
   const wait = ms => new Promise(r => setTimeout(r, ms));
-  function typing() { const t = h(`<div class="msg baek"><div class="av">🐶</div><div class="col"><div class="bub typing"><i></i><i></i><i></i></div></div></div>`); chat.appendChild(t); scroll(); return t; }
+  function typing() { const t = h(`<div class="msg baek"><div class="av">B</div><div class="col"><div class="bub typing"><i></i><i></i><i></i></div></div></div>`); chat.appendChild(t); scroll(); return t; }
 
   async function playClip(u, why = []) {
     if (cleaned) return;
     st.cur = u; st.lastBaek = u; st.used.add(u.id);
     const v = D.video(u.videoId);
     const tp = typing(); status('thinking', '연결 중'); await wait(500); tp.remove();
-    const m = h(`<div class="msg baek"><div class="av">🐶</div><div class="col"><span class="who">Baekhyun</span>
+    const m = h(`<div class="msg baek"><div class="av">B</div><div class="col"><span class="who">Baekhyun</span>
       <div class="bub">${esc(u.ko)}${u.en.natural || u.en.easy ? `<div class="tr ${st.showEn ? '' : 'hide'}">${esc(u.en.natural || u.en.easy)}</div>` : ''}</div>
       <div class="src"><i></i>${esc((v?.title || '').slice(0, 18))}${(v?.title || '').length > 18 ? '…' : ''} ${D.fmt(u.start)}</div>
       <div class="meta-row"><button class="chip" data-a="replay" aria-label="다시">${ic('replay')}</button><button class="chip" data-a="en">EN</button><button class="chip" data-a="save" aria-label="저장">${ic('bookmark')}</button></div></div></div>`);
@@ -146,19 +146,20 @@ function startCall(root, utts) {
     if (st.cap) { st.cap.stop(); return; }
     if (!S.support.stt) { toggleType(true); toast('음성 인식 미지원 · 키보드 받아쓰기(🎤)를 써보세요'); return; }
     pl.stop(); S.stopSpeak(); cap.textContent = '';
-    micB.classList.add('live'); micB.innerHTML = ic('stop'); status('listening', '듣는 중…');
+    micB.classList.add('live'); micB.innerHTML = ic('stop'); status('listening', '듣는 중 · 다 말하면 ■ 탭');
     live.textContent = '…';
-    st.cap = S.capture({ stt: true, targets: st.lastBaek?.replies || [], silenceMs: 1800, onInterim: t => (live.textContent = t) });
+    st.cap = S.capture({ stt: true, targets: st.lastBaek?.replies || [], onState: s => { if (s === 'processing') status('thinking', '정리하는 중'); else if (s === 'listening' || s === 'hearing') status('listening', '듣는 중 · 다 말하면 ■ 탭'); }, onInterim: t => (live.textContent = t) });
     const res = await st.cap.result; st.cap = null;
     micB.classList.remove('live'); micB.innerHTML = ic('mic');
     if (res.sttError && !res.text) { live.textContent = ''; status('', '내 차례'); toast(S.sttErrorText(res.sttError)); if (res.sttError === 'service-not-allowed' || res.sttError === 'not-allowed') toggleType(true); return; }
     if (!res.text) { live.textContent = ''; status('', '잘 안 들렸어요 · 다시 탭'); return; }
-    onReply(res.text);
+    // 보내기 전에 확인·수정: 입력칸에 넣고 보내기 버튼으로 전송
+    toggleType(true, false); tin.value = res.text; live.textContent = ''; status('', '확인 후 보내기 ↑ (고쳐도 돼요)');
   };
   const trow = $('#trow', root), tin = $('#tin', root);
-  function toggleType(on) {
+  function toggleType(on, focus = true) {
     const show = on === undefined ? trow.classList.contains('hide') : on;
-    trow.classList.toggle('hide', !show); $('#b-kbd', root).classList.toggle('on', show); if (show) tin.focus();
+    trow.classList.toggle('hide', !show); $('#b-kbd', root).classList.toggle('on', show); if (show && focus) tin.focus();
   }
   $('#b-kbd', root).onclick = () => toggleType();
   const sendT = () => { const t = tin.value; tin.value = ''; onReply(t); };
@@ -216,7 +217,7 @@ function startCall(root, utts) {
     pl.stop(); S.stopSpeak(); st.cap?.stop();
     const sec = Math.floor((Date.now() - st.t0) / 1000);
     D.addTalkLog({ id: D.uid(), at: Date.now(), sec, turns: st.turns, clips: st.used.size, transcript: st.transcript.slice(-60) });
-    const s = sheet(`<div style="text-align:center"><div style="font-size:40px">💗</div><h3 style="margin:8px 0 4px">통화 종료</h3><p class="muted small" style="margin:0 0 16px">${Math.floor(sec / 60)}분 ${sec % 60}초 동안 대화했어요</p></div>
+    const s = sheet(`<div style="text-align:center"><h3 style="margin:4px 0 4px">통화 종료</h3><p class="muted small" style="margin:0 0 16px">${Math.floor(sec / 60)}분 ${sec % 60}초 동안 대화했어요</p></div>
       <div class="hero" style="margin-bottom:14px"><div class="stat"><div class="big">${st.turns}</div><span>내 영어 답변</span></div><div class="stat"><div class="big">${st.used.size}</div><span>본 실제 클립</span></div><div class="stat"><div class="big">${st.saved}</div><span>저장한 표현</span></div></div>
       <div class="row"><button class="btn soft grow" id="again">다시 통화</button><a class="btn grow" href="#/saved" id="tosaved">SAVED 보기</a></div>`, { onClose: () => { } });
     $('#again', s).onclick = () => { s.close(); cleanup(); root.innerHTML = ''; location.hash = '#/talk?' + Date.now(); };

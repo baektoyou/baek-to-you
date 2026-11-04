@@ -87,6 +87,10 @@ export class Player {
     setTimeout(() => { if (this.seg && this.state !== 'playing' && this.state !== 'buffering') this.onState?.('blocked'); }, 2200);
     return done;
   }
+  // 영상만 잠깐 멈춤 (구간 정보는 유지 → resume으로 이어서 재생)
+  pause() { this.p?.pauseVideo?.(); }
+  resume() { if (this.p?.playVideo) { this.p.playVideo(); return true; } return false; }
+  get playing() { return this.state === 'playing' || this.state === 'buffering'; }
   cue(ytId, start = 0) { this.readyP.then(ok => { if (!ok) return; this.vid = ytId; this.p.cueVideoById({ videoId: ytId, startSeconds: start }); }); }
   stop() { if (this.seg) { const s = this.seg; this.seg = null; s.resolve?.('stopped'); } this.p?.pauseVideo?.(); clearInterval(this._poll); }
   rate(r) { this.p?.setPlaybackRate?.(r); }

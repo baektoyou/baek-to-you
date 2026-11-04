@@ -3,42 +3,60 @@ import { get } from './store.js';
 import { diff } from './compare.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const ua = navigator.userAgent;
 export const support = {
   stt: !!SR,
   tts: 'speechSynthesis' in window,
   rec: !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder),
   standalone: window.matchMedia('(display-mode: standalone)').matches || navigator.standalone === true,
-  ios: /iP(hone|ad|od)/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+  ios: /iP(hone|ad|od)/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1),
+  android: /Android/.test(ua),
+  browser: /CriOS/.test(ua) ? 'Chrome(iOS)' : /EdgA?\//.test(ua) ? 'Edge' : /SamsungBrowser/.test(ua) ? 'Samsung' : /Chrome\//.test(ua) ? 'Chrome' : /Firefox|FxiOS/.test(ua) ? 'Firefox' : /Safari/.test(ua) ? 'Safari' : '기타'
 };
 
 // ---------- TTS ----------
+// 목표: 부드럽고 차분한 젊은 남성 영어 음성 우선. 기기에 있는 음성 중에서만 고름 (실제 인물 목소리 복제 없음)
 let voices = [];
 function loadVoices() { voices = support.tts ? speechSynthesis.getVoices() : []; }
-if (support.tts) { loadVoices(); speechSynthesis.onvoiceschanged = loadVoices; }
+if (support.tts) { loadVoices(); speechSynthesis.addEventListener?.('voiceschanged', loadVoices); }
+const MALE = /\b(Aaron|Arthur|Daniel|Evan|Nathan|Tom|Alex|Oliver|Gordon|Lee|Rishi|Andrew|Brian|Guy|Christopher|Eric|Roger|Steffan|Ryan|Thomas|Liam|William|Davis|Jason|Tony|Noah|Elliot|Jacob|Brandon|Kai|Male)\b|en-us-x-(iom|iol|tpd)|en-gb-x-(gbd|rjs)/i;
+const SOFT = /\b(Aaron|Evan|Nathan|Andrew|Brian|Oliver|Arthur|Elliot)\b/i;
+const NOVELTY = /\b(Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley|Bahh|Bells|Boing|Bubbles|Cellos|Wobble|Zarvox|Trinoids|Whisper|Jester|Organ|Superstar|Albert|Bad News|Good News|Fred|Ralph|Junior|Kathy|Princess|Hysterical|Deranged)\b/i;
+export const isMale = v => MALE.test(v.name + ' ' + v.voiceURI);
+function score(v) {
+  let s = 0;
+  if (NOVELTY.test(v.name)) return -50;
+  if (isMale(v)) s += 6;
+  if (SOFT.test(v.name)) s += 2;
+  if (/enhanced|premium|natural|neural|online/i.test(v.name)) s += 4;
+  if (/en[-_]US/i.test(v.lang)) s += 1.5; else if (/en[-_](GB|AU|CA|IE|NZ)/i.test(v.lang)) s += 0.8;
+  if (v.localService) s += 0.3;
+  return s;
+}
 export function enVoices() {
   loadVoices();
-  return voices.filter(v => /^en[-_]/i.test(v.lang)).sort((a, b) => score(b) - score(a));
-  function score(v) { let s = 0; if (/en[-_]US/i.test(v.lang)) s += 3; if (/Samantha|Ava|Allison|Zoe|Nicky|Google US|Aaron|Evan|Nathan/i.test(v.name)) s += 2; if (/enhanced|premium|natural/i.test(v.name)) s += 3; if (/Eddy|Flo|Grandma|Grandpa|Reed|Rocko|Sandy|Shelley|Bahh|Bells|Boing|Bubbles|Cellos|Wobble|Zarvox|Trinoids|Whisper|Jester|Organ|Superstar|Albert|Bad News|Good News/i.test(v.name)) s -= 6; return s; }
+  return voices.filter(v => /^en([-_]|$)/i.test(v.lang)).sort((a, b) => score(b) - score(a));
 }
-function pickVoice() {
+export function pickVoice() {
   const want = get().settings.voiceURI;
   const list = enVoices();
-  return list.find(v => v.voiceURI === want) || list[0] || null;
+  return list.find(v => v.voiceURI === want) || list[0] || null; // 저장한 음성이 없으면 추천 1순위로 대체
 }
 
 // speak(text, {rate, onWord(i), onEnd}) → {stop, done:Promise<durationMs>}
 export function speak(text, opt = {}) {
-  if (!support.tts) { opt.onEnd?.(0); return { stop() { }, done: Promise.resolve(0) }; }
+  if (!support.tts || !text) { opt.onEnd?.(0); return { stop() { }, done: Promise.resolve(0) }; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text);
   const v = pickVoice(); if (v) { u.voice = v; u.lang = v.lang; } else u.lang = 'en-US';
-  u.rate = opt.rate || get().settings.rate || 0.95;
+  const st = get().settings;
+  u.rate = opt.rate || st.rate || 0.92;
+  u.pitch = opt.pitch || st.pitch || 1;
   const words = [...text.matchAll(/\S+/g)].map(m => ({ i: m.index, len: m[0].length }));
   let t0 = 0, gotBoundary = false, est, stopped = false;
   let resolve; const done = new Promise(r => (resolve = r));
   u.onstart = () => {
     t0 = performance.now();
-    // 경계 이벤트가 없는 브라우저용 추정 하이라이트
     const cps = 13.5 * u.rate; let k = 0;
     const tick = () => {
       if (gotBoundary || stopped || k >= words.length) return;
@@ -54,15 +72,15 @@ export function speak(text, opt = {}) {
     const k = words.findIndex((w, j) => e.charIndex >= w.i && (!words[j + 1] || e.charIndex < words[j + 1].i));
     if (k >= 0) opt.onWord?.(k);
   };
-  const fin = () => { clearTimeout(est); const d = t0 ? performance.now() - t0 : 0; opt.onEnd?.(d); resolve(d); };
+  let fired = false;
+  const fin = () => { if (fired) return; fired = true; clearTimeout(est); const d = t0 ? performance.now() - t0 : 0; opt.onEnd?.(d); resolve(d); };
   u.onend = fin; u.onerror = fin;
   speechSynthesis.speak(u);
-  return { stop() { stopped = true; speechSynthesis.cancel(); }, done };
+  return { stop() { stopped = true; speechSynthesis.cancel(); fin(); }, done };
 }
 export const stopSpeak = () => support.tts && speechSynthesis.cancel();
 
 // ---------- 인식 보정 사전 ----------
-// 기본: 자주 틀리는 고유명사 / 사용자: SETTINGS › 인식 보정 단어 ("들린 말 = 원래 단어")
 const BUILTIN_FIX = [
   [/\b(?:back|bag|bak|baek|bake|beck|pack|bike)[\s-]?(?:hyun|hyon|hyeon|hyan|hun|hin|young|yun|human|hum)\b/gi, 'Baekhyun'],
   [/\b(?:exo|x\s?o|echo)[\s-]?(?:l|el|elle)\b/gi, 'EXO-L']
@@ -80,26 +98,31 @@ export function fixText(t) {
   return t;
 }
 
-// ---------- 마이크 캡처: 녹음 + STT 동시 시도 ----------
-// capture({stt, record, onInterim, maxMs, targets, autoStop})
-//  · 기본은 사용자가 탭할 때까지 계속 들음 (중간에 쉬어도 안 끊김)
-//  · autoStop: 말이 끝나면 자동 종료 (쉐도잉)
+// ---------- 마이크 캡처 ----------
+// capture({stt, record, onInterim, onState, targets, autoStop, prefix})
+//  · 기본(수동 모드): 사용자가 '끝내기'를 누를 때까지 계속 들어요.
+//    잠깐 멈춰도 자동 종료하지 않고, 브라우저가 인식을 끊으면 이어서 다시 시작합니다.
+//  · autoStop: 말이 끝나면 자동 종료 (쉐도잉 전용)
+//  · onState: 'starting' | 'listening' | 'hearing' | 'reconnecting' | 'processing' | 'done'
 //  · targets: 예시 문장 → 인식 후보 여러 개 중 예시와 가장 가까운 걸 고름
+const FATAL = new Set(['not-allowed', 'service-not-allowed', 'audio-capture', 'network', 'language-not-supported', 'bad-grammar']);
 export function capture(opt = {}) {
   const wantStt = opt.stt !== false && support.stt;
   const wantRec = !!opt.record && support.rec;
-  const keep = !opt.autoStop;
+  const manual = !opt.autoStop;
   const targets = (opt.targets || []).filter(Boolean);
-  let silT, committed = '', session = '', conf = 0, sttError = null, userStop = false, restarts = 0, sessT0 = 0;
-  let rec, mr, stream, chunks = [], t0 = performance.now(), ended = false;
+  let committed = opt.prefix || '', session = '', conf = 0, sttError = null, userStop = false, restarts = 0, rapid = 0, sessT0 = 0, endedBy = null;
+  let rec, mr, stream, chunks = [], t0 = performance.now(), ended = false, silT;
   let resolve; const result = new Promise(r => (resolve = r));
   let sttDone = !wantStt, recDone = !wantRec, blob = null;
-  const maxT = setTimeout(() => stop(), opt.maxMs || 30000);
+  const setState = s => opt.onState?.(s);
+  const maxT = setTimeout(() => { endedBy = 'max'; stop(); }, opt.maxMs || (manual ? 180000 : 20000));
   const full = () => (committed + ' ' + session).replace(/\s+/g, ' ').trim();
 
   const finish = () => {
     if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT); clearTimeout(silT);
-    resolve({ text: fixText(full()), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob });
+    setState('done');
+    resolve({ text: fixText(full()), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
   };
   const pickAlt = r => {
     if (!targets.length || r.length < 2) return r[0].transcript;
@@ -119,11 +142,14 @@ export function capture(opt = {}) {
       mr.ondataavailable = e => e.data.size && chunks.push(e.data);
       mr.onstop = () => { blob = chunks.length ? new Blob(chunks, { type: mr.mimeType || 'audio/mp4' }) : null; stream.getTracks().forEach(t => t.stop()); recDone = true; finish(); };
       mr.start(); t0 = performance.now();
-    } catch (e) { sttError = sttError || 'mic-denied'; recDone = true; finish(); }
+      if (!wantStt) setState('listening');
+    } catch (e) { sttError = sttError || (e?.name === 'NotAllowedError' ? 'mic-denied' : 'mic-fail'); recDone = true; finish(); }
   }
   function startStt() {
     try {
-      rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = keep; rec.maxAlternatives = targets.length ? 5 : 1;
+      rec = new SR(); rec.lang = get().settings.sttLang || 'en-US'; rec.interimResults = true; rec.continuous = manual; rec.maxAlternatives = targets.length ? 5 : 1;
+      rec.onstart = () => setState('listening');
+      rec.onaudiostart = () => setState('listening');
       rec.onresult = e => {
         // 매번 전체 결과로 다시 조립 (iOS의 누적·중복 결과 대응)
         let acc = '';
@@ -136,49 +162,74 @@ export function capture(opt = {}) {
           if (r.isFinal) conf = r[0].confidence || conf;
         }
         session = acc;
+        setState('hearing');
         opt.onInterim?.(fixText(full()));
-        // 말을 멈추고 잠시 조용하면 자동 종료 (탭해도 종료)
-        clearTimeout(silT); if (keep && full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 2200);
+        if (!manual) { clearTimeout(silT); if (full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 1600); }
       };
-      rec.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') sttError = e.error; };
+      rec.onerror = e => {
+        if (e.error === 'no-speech' || e.error === 'aborted') return; // 조용함/중단 → onend에서 재시작
+        if (FATAL.has(e.error)) sttError = e.error; else sttError = sttError || e.error;
+      };
       rec.onend = () => {
-        // 탭하기 전엔 계속 듣기: 브라우저가 침묵으로 끊어도 이어서 다시 시작
-        if (keep && !userStop && !sttError && restarts < 6 && performance.now() - sessT0 > 400) {
-          committed = full(); session = ''; restarts++;
-          try { sessT0 = performance.now(); rec.start(); return; } catch { }
+        // 수동 모드: 사용자가 끝내기 전까지 계속 이어서 듣기
+        if (manual && !userStop && !FATAL.has(sttError)) {
+          committed = full(); session = '';
+          const quick = performance.now() - sessT0 < 600; rapid = quick ? rapid + 1 : 0; restarts++;
+          if (rapid < 8) {
+            setState('reconnecting');
+            setTimeout(() => {
+              if (userStop) { sttDone = true; finish(); return; }
+              try { sessT0 = performance.now(); rec.start(); } catch { sttError = sttError || 'restart-fail'; endStt(); }
+            }, quick ? 250 : 60);
+            return;
+          }
+          sttError = sttError || 'restart-fail';
         }
-        sttDone = true;
-        if (mr && mr.state === 'recording' && !keep) setTimeout(() => mr.state === 'recording' && mr.stop(), 350);
-        finish();
+        endStt();
       };
-      sessT0 = performance.now(); rec.start();
+      sessT0 = performance.now(); rec.start(); setState('starting');
     } catch (e) { sttError = 'stt-start'; sttDone = true; finish(); }
   }
-  (async () => { if (wantRec) await startRec(); if (wantStt) startStt(); if (!wantStt && !wantRec) { sttError = 'unsupported'; finish(); } })();
+  function endStt() {
+    sttDone = true;
+    // 인식이 끝났는데 녹음만 남아 있으면: 수동 모드는 녹음 계속(사용자가 끝냄), 자동 모드는 같이 종료
+    if (mr && mr.state === 'recording') { if (!manual || userStop) setTimeout(() => mr.state === 'recording' && mr.stop(), 300); else setState('rec-only'); }
+    finish();
+  }
+  (async () => {
+    setState('starting');
+    if (wantRec) await startRec();
+    if (wantStt) startStt();
+    if (!wantStt && !wantRec) { sttError = 'unsupported'; finish(); }
+  })();
 
   function stop() {
-    if (userStop) return; userStop = true; clearTimeout(silT);
+    if (userStop) return; userStop = true; clearTimeout(silT); setState('processing');
     try { rec && rec.stop(); } catch { }
     try { mr && mr.state === 'recording' && mr.stop(); } catch { }
-    setTimeout(() => { sttDone = true; recDone = recDone || !mr; finish(); }, 1800);
+    // 브라우저가 onend를 안 주는 경우 대비
+    setTimeout(() => { sttDone = true; recDone = recDone || !mr || mr.state === 'inactive'; if (!recDone) { try { mr.stop(); } catch { } recDone = true; } finish(); }, 1600);
   }
-  return { stop, result };
+  return { stop, result, get text() { return fixText(full()); } };
 }
 
 export function sttErrorText(e) {
+  const ios = support.ios;
   return ({
-    'not-allowed': '마이크/음성 인식 권한이 꺼져 있어요. 설정 > Safari > 마이크를 허용해주세요.',
-    'service-not-allowed': '음성 인식을 쓸 수 없어요. iPhone 설정 > Siri에서 Siri(받아쓰기)를 켜주세요.',
-    'mic-denied': '마이크 권한이 거부됐어요.',
-    'audio-capture': '녹음과 음성 인식이 동시에 안 돼서 녹음만 했어요.',
-    'network': '음성 인식 서버에 연결하지 못했어요.',
-    'unsupported': '이 브라우저는 음성 인식을 지원하지 않아요. 키보드 받아쓰기(🎤)로 입력해주세요.',
-    'stt-start': '음성 인식을 시작하지 못했어요.'
+    'not-allowed': ios ? '마이크 권한이 꺼져 있어요. 설정 › Safari › 마이크(또는 주소창 aA › 웹 사이트 설정)에서 허용해주세요.' : '마이크 권한이 꺼져 있어요. 주소창의 사이트 설정에서 마이크를 허용해주세요.',
+    'service-not-allowed': ios ? '음성 인식을 쓸 수 없어요. 설정 › 일반 › 키보드 › 받아쓰기 켜기, 또는 설정 › Siri를 확인해주세요.' : '이 브라우저에서 음성 인식 서비스가 막혀 있어요.',
+    'mic-denied': '마이크 권한이 거부됐어요. 브라우저 설정에서 허용해주세요.',
+    'mic-fail': '마이크를 열지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해주세요.',
+    'audio-capture': '마이크 입력을 받지 못했어요. 녹음과 인식이 충돌했을 수 있어요.',
+    'network': '음성 인식 서버에 연결하지 못했어요. 네트워크를 확인해주세요.',
+    'language-not-supported': '선택한 인식 언어를 지원하지 않아요. SETTINGS › 인식 언어를 바꿔보세요.',
+    'restart-fail': '브라우저가 음성 인식을 멈췄어요. 이어서 말하려면 “이어 말하기”를 눌러주세요.',
+    'unsupported': '이 브라우저는 음성 인식을 지원하지 않아요. 키보드의 받아쓰기(🎤)로 입력해주세요.',
+    'stt-start': '음성 인식을 시작하지 못했어요. 잠시 후 다시 눌러주세요.'
   })[e] || (e ? `음성 인식 오류: ${e}` : '');
 }
 
 // ---------- 녹음 분석 (실제 측정 가능한 항목만) ----------
-// 파형 · 발화 길이 · 쉼(0.3초 이상 무음) 횟수
 export async function analyze(blob) {
   try {
     const AC = window.AudioContext || window.webkitAudioContext;

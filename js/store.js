@@ -1,16 +1,18 @@
 // BAEK TO YOU — 데이터 저장소 (localStorage + IndexedDB 녹음 보관)
+// 키는 v1 그대로 유지 → 기존 사용자 데이터가 그대로 이어집니다.
 const KEY = 'baek-to-you:v1';
+const SNAP = 'baek-to-you:snapshot';
 
 const defaults = () => ({
-  version: 1,
+  version: 2,
   videos: [],      // {id, ytId, title, addedAt}
   utts: [],        // 발화
-  saved: [],       // 저장 표현 (SRS)
+  saved: [],       // 저장 표현 (복습)
   attempts: [],    // 말하기 기록
   progress: {},    // uttId -> {steps:{}, lastAt}
   talkLogs: [],    // TALK 세션 요약
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.95, talkShowEn: false, talkCaption: true, camera: false, sttFix: '' }
+  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true }
 });
 
 let db = load();
@@ -21,40 +23,80 @@ function load() {
     const raw = localStorage.getItem(KEY);
     if (!raw) return defaults();
     return migrate(JSON.parse(raw));
-  } catch (e) { console.warn('load fail', e); return defaults(); }
+  } catch (e) { console.error('load fail', e); return defaults(); }
 }
 function migrate(d) {
   const base = defaults();
-  const out = { ...base, ...d };
+  const out = { ...base, ...d, version: 2 };
   out.settings = { ...base.settings, ...(d.settings || {}) };
-  out.utts = (out.utts || []).map(normUtt);
+  out.videos = arrOf(out.videos);
+  out.utts = arrOf(out.utts).map(normUtt);
+  out.saved = arrOf(out.saved).map(s => normSaved(s, out));
+  out.attempts = arrOf(out.attempts); out.talkLogs = arrOf(out.talkLogs);
+  out.progress = out.progress || {}; out.days = out.days || {};
   return out;
 }
+function arrOf(v) { return Array.isArray(v) ? v : []; }
 export function normUtt(u) {
   return {
     id: u.id || uid(), videoId: u.videoId, start: +u.start || 0, end: +u.end || (+u.start || 0) + 5,
     ko: u.ko || '', en: { easy: u.en?.easy || '', natural: u.en?.natural || '', advanced: u.en?.advanced || '' },
     alts: arr(u.alts), pattern: u.pattern || '', topics: arr(u.topics), emotion: u.emotion || '',
     type: u.type || 'statement', keywords: arr(u.keywords), hint: u.hint || '', replies: arr(u.replies),
+    // APPLY용 (선택) — 없으면 앱의 패턴 사전/기본값 사용
+    patternKo: u.patternKo || '', examples: arr(u.examples), question: u.question || '', frame: u.frame || '',
     createdAt: u.createdAt || Date.now()
   };
 }
-function arr(v) { return Array.isArray(v) ? v.filter(Boolean).map(String) : (typeof v === 'string' && v ? v.split(',').map(s => s.trim()).filter(Boolean) : []); }
+function arr(v) { return Array.isArray(v) ? v.filter(Boolean).map(String) : (typeof v === 'string' && v ? v.split(/[,\n]/).map(s => s.trim()).filter(Boolean) : []); }
+
+// 저장 표현 정규화 — 예전 항목(hard, srs)도 그대로 살려서 새 필드만 채움
+function normSaved(s, d = db) {
+  const en = { easy: s.en?.easy || '', natural: s.en?.natural || '', advanced: s.en?.advanced || '' };
+  const kind = s.kind || 'utt';
+  const level = s.level || (kind === 'utt' ? 'natural' : 'mine');
+  const text = s.text || (kind === 'utt' ? (en[level] || en.natural || en.easy || en.advanced) : '');
+  const srs = { ease: 2.5, interval: 0, reps: 0, lapses: 0, due: Date.now(), ...(s.srs || {}) };
+  let status = s.status;
+  if (!status) status = s.hard ? 'again' : srs.reps >= 4 ? 'mastered' : srs.reps >= 1 ? 'okay' : 'new';
+  const out = { id: s.id || uid(), kind, level, uttId: s.uttId || null, ko: s.ko || '', en, text, pattern: s.pattern || '', note: s.note || '',
+    videoId: s.videoId || null, ytId: s.ytId || '', start: s.start ?? null, videoTitle: s.videoTitle || '',
+    createdAt: s.createdAt || Date.now(), hard: status === 'again', status, audioId: s.audioId || null, srs, history: arrOf(s.history), editedAt: s.editedAt || 0 };
+  // 원본 영상 정보 보강 (예전 항목)
+  if (out.uttId && !out.ytId) {
+    const u = d.utts?.find(x => x.id === out.uttId); const v = u && d.videos?.find(x => x.id === u.videoId);
+    if (u && v) Object.assign(out, { videoId: v.id, ytId: v.ytId, start: u.start, videoTitle: v.title });
+  }
+  return out;
+}
 
 let saveTimer;
 export function save() {
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    try { localStorage.setItem(KEY, JSON.stringify(db)); }
-    catch (e) { alert('저장 공간이 부족해요. SETTINGS에서 백업 후 기록을 정리해주세요.'); }
-  }, 60);
+  saveTimer = setTimeout(flush, 60);
   listeners.forEach(fn => fn());
 }
+function flush() {
+  try { localStorage.setItem(KEY, JSON.stringify(db)); }
+  catch (e) { alert('저장 공간이 부족해요. SETTINGS에서 백업 후 기록을 정리해주세요.'); }
+}
+window.addEventListener('pagehide', () => { clearTimeout(saveTimer); flush(); });
 export const onChange = fn => listeners.add(fn);
 export const get = () => db;
 export function uid() { return Math.random().toString(36).slice(2, 9) + Date.now().toString(36).slice(-4); }
 export const today = (d = new Date()) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export function bump() { const t = today(); db.days[t] = (db.days[t] || 0) + 1; }
+
+// ---------- 안전장치: 위험한 작업 직전 자동 스냅샷 (1개) ----------
+export function snapshot(reason) {
+  try { localStorage.setItem(SNAP, JSON.stringify({ at: Date.now(), reason, data: db })); return true; }
+  catch { return false; }
+}
+export function snapshotInfo() { try { const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); return s ? { at: s.at, reason: s.reason } : null; } catch { return null; } }
+export function restoreSnapshot() {
+  const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); if (!s?.data) throw new Error('되돌릴 기록이 없어요');
+  db = migrate(s.data); localStorage.removeItem(SNAP); save();
+}
 
 // ---------- 영상 ----------
 export function addVideo(ytId, title) {
@@ -64,6 +106,7 @@ export function addVideo(ytId, title) {
 }
 export function updateVideo(id, patch) { const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch); save(); } }
 export function deleteVideo(id) {
+  snapshot('영상 삭제');
   const ids = new Set(db.utts.filter(u => u.videoId === id).map(u => u.id));
   db.videos = db.videos.filter(v => v.id !== id);
   db.utts = db.utts.filter(u => u.videoId !== id);
@@ -73,6 +116,7 @@ export function deleteVideo(id) {
 export const video = id => db.videos.find(v => v.id === id);
 export const uttsOf = vid => db.utts.filter(u => u.videoId === vid).sort((a, b) => a.start - b.start);
 export const utt = id => db.utts.find(u => u.id === id);
+export const savedLinkedTo = vid => { const ids = new Set(db.utts.filter(u => u.videoId === vid).map(u => u.id)); return db.saved.filter(s => ids.has(s.uttId)); };
 
 export function upsertUtt(u) {
   const n = normUtt(u);
@@ -81,6 +125,16 @@ export function upsertUtt(u) {
   save(); return n;
 }
 export function deleteUtt(id) { db.utts = db.utts.filter(u => u.id !== id); db.saved.forEach(s => { if (s.uttId === id) s.uttId = null; }); save(); }
+
+// 특정 영상의 문장만 전부 삭제 (영상·다른 영상·SAVED 내용은 유지)
+export function clearUtts(vid) {
+  snapshot('문장 전체 삭제');
+  const ids = new Set(db.utts.filter(u => u.videoId === vid).map(u => u.id));
+  let detached = 0;
+  db.saved.forEach(s => { if (ids.has(s.uttId)) { s.uttId = null; detached++; } });
+  db.utts = db.utts.filter(u => u.videoId !== vid);
+  save(); return { removed: ids.size, detached };
+}
 
 // ---------- 진도 / 기록 ----------
 export function markStep(uttId, step) {
@@ -95,41 +149,53 @@ export function addAttempt(a) {
 }
 export const attemptsOf = (uttId, step) => db.attempts.filter(a => a.uttId === uttId && (!step || a.step === step));
 
-// ---------- 저장 표현 + 간격 반복(SM-2 단순화) ----------
+// ---------- 저장 표현 ----------
+// 중복 기준: 같은 원본 문장 + 같은 레벨, 또는 같은 영어 문장
+function normText(t) { return  String(t || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim(); }
+export function findDup(item) {
+  const t = normText(item.text);
+  return db.saved.find(s =>
+    (item.uttId && s.uttId === item.uttId && s.kind === item.kind && s.level === (item.level || s.level) && item.kind === 'utt') ||
+    (t && normText(s.text) === t));
+}
 export function saveExpr(item) {
-  const dup = db.saved.find(s => s.kind === item.kind && ((item.uttId && s.uttId === item.uttId && s.kind !== 'mine') || (s.text && s.text === item.text && s.ko === item.ko && !item.uttId)));
+  if (item.kind === 'utt' && !item.text) { const lv = item.level || 'natural'; item.text = item.en?.[lv] || item.en?.natural || ''; item.level = lv; }
+  const dup = findDup(item);
   if (dup) return { item: dup, dup: true };
-  const s = {
-    id: uid(), kind: 'utt', uttId: null, ko: '', en: { easy: '', natural: '', advanced: '' }, text: '', pattern: '', note: '',
-    createdAt: Date.now(), hard: false, audioId: null,
-    srs: { ease: 2.5, interval: 0, reps: 0, lapses: 0, due: Date.now() }, history: [], ...item
-  };
+  if (item.uttId && !item.ytId) { const u = utt(item.uttId); const v = u && video(u.videoId); if (v) Object.assign(item, { videoId: v.id, ytId: v.ytId, start: u.start, videoTitle: v.title }); }
+  const s = normSaved({ id: uid(), createdAt: Date.now(), ...item, status: 'new' });
   db.saved.unshift(s); save(); return { item: s, dup: false };
 }
+export function updateSaved(id, patch) { const s = db.saved.find(x => x.id === id); if (!s) return; Object.assign(s, patch, { editedAt: Date.now() }); save(); }
 export function deleteSaved(id) { const s = db.saved.find(x => x.id === id); if (s?.audioId) AudioStore.del(s.audioId); db.saved = db.saved.filter(x => x.id !== id); save(); }
-export function toggleHard(id) { const s = db.saved.find(x => x.id === id); if (s) { s.hard = !s.hard; save(); } }
-export const isSavedUtt = uttId => db.saved.some(s => s.uttId === uttId && s.kind === 'utt');
+export function toggleHard(id) { const s = db.saved.find(x => x.id === id); if (s) { s.status = s.status === 'again' ? 'okay' : 'again'; s.hard = s.status === 'again'; save(); } }
+export const isSavedUtt = (uttId, level) => db.saved.some(s => s.uttId === uttId && s.kind === 'utt' && (!level || s.level === level));
 
+// ---------- 복습 주기 ----------
+// again: 10분 뒤 다시 (오늘 안에) · okay: 1→2→4→8일… · mastered: 4→10→25일…
 const DAY = 864e5;
-export function grade(id, q) { // q: 0 again, 1 hard, 2 good, 3 easy
-  const s = db.saved.find(x => x.id === id); if (!s) return;
-  const r = s.srs;
-  if (q === 0) { r.reps = 0; r.lapses++; r.interval = 0; r.ease = Math.max(1.3, r.ease - 0.2); r.due = Date.now() + 10 * 60e3; s.hard = true; }
-  else {
-    r.ease = Math.max(1.3, r.ease + [0, -0.15, 0, 0.15][q]);
-    if (r.reps === 0) r.interval = q === 3 ? 3 : 1;
-    else if (r.reps === 1) r.interval = q === 1 ? 2 : (q === 3 ? 6 : 4);
-    else r.interval = Math.round(r.interval * (q === 1 ? 1.2 : r.ease) * (q === 3 ? 1.3 : 1));
-    r.reps++; r.due = Date.now() + r.interval * DAY;
-    if (q >= 2 && r.reps >= 3) s.hard = false;
-    if (q === 1) s.hard = true;
-  }
-  s.history.push({ at: Date.now(), q }); bump(); save();
+export const STATUS = { again: '다시 연습할래요', okay: '어느 정도 알아요', mastered: '완전히 익혔어요' };
+export function nextInterval(s, status) {
+  const iv = s.srs.interval || 0;
+  if (status === 'again') return 0;
+  if (status === 'okay') return iv < 1 ? 1 : Math.min(60, Math.round(iv * 2));
+  return iv < 4 ? 4 : Math.min(180, Math.round(iv * 2.5));
 }
-export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => (b.hard - a.hard) || (a.srs.due - b.srs.due));
+export function rate(id, status) {
+  const s = db.saved.find(x => x.id === id); if (!s) return;
+  const r = s.srs; const iv = nextInterval(s, status);
+  if (status === 'again') { r.reps = 0; r.lapses++; r.interval = 0; r.due = Date.now() + 10 * 60e3; }
+  else { r.reps++; r.interval = iv; r.due = startOfDay(Date.now() + iv * DAY) + 4 * 36e5; }
+  s.status = status; s.hard = status === 'again';
+  s.history.push({ at: Date.now(), status }); bump(); save();
+}
+function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
+// 예전 4단계 채점 호환
+export function grade(id, q) { rate(id, q === 0 ? 'again' : q === 3 ? 'mastered' : 'okay'); }
+export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due));
+export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
 export function setSetting(k, v) { db.settings[k] = v; save(); }
-
 export function addTalkLog(log) { db.talkLogs.unshift(log); db.talkLogs = db.talkLogs.slice(0, 30); bump(); save(); }
 
 // ---------- 백업 / 복원 ----------
@@ -138,43 +204,86 @@ export function importJSON(text, mode = 'replace') {
   const d = JSON.parse(text);
   if (!d || !Array.isArray(d.videos) || !Array.isArray(d.utts)) throw new Error('BAEK TO YOU 백업 파일 형식이 아니에요.');
   const inc = migrate(d);
+  snapshot('백업 복원');
   if (mode === 'replace') db = inc;
   else {
-    const have = new Set(db.videos.map(v => v.ytId));
     const vmap = {};
-    inc.videos.forEach(v => { const ex = db.videos.find(x => x.ytId === v.ytId); if (ex) vmap[v.id] = ex.id; else { db.videos.push(v); vmap[v.id] = v.id; have.add(v.ytId); } });
+    inc.videos.forEach(v => { const ex = db.videos.find(x => x.ytId === v.ytId); if (ex) vmap[v.id] = ex.id; else { db.videos.push(v); vmap[v.id] = v.id; } });
     const uids = new Set(db.utts.map(u => u.id));
     inc.utts.forEach(u => { if (!uids.has(u.id)) db.utts.push({ ...u, videoId: vmap[u.videoId] || u.videoId }); });
     const sids = new Set(db.saved.map(s => s.id));
     inc.saved.forEach(s => { if (!sids.has(s.id)) db.saved.push(s); });
-    db.attempts = db.attempts.concat(inc.attempts || []);
+    const aids = new Set(db.attempts.map(a => a.id));
+    db.attempts = db.attempts.concat(inc.attempts.filter(a => !aids.has(a.id)));
+    for (const [k, v] of Object.entries(inc.progress)) if (!db.progress[k]) db.progress[k] = v;
+    for (const [k, v] of Object.entries(inc.days)) db.days[k] = Math.max(db.days[k] || 0, v);
   }
   save();
 }
-export function resetAll() { db = defaults(); save(); AudioStore.clear(); }
+export function resetAll() { snapshot('전체 초기화'); db = defaults(); save(); AudioStore.clear(); }
 
-// 발화 일괄 추가 (JSON 배열)
-export function bulkUtts(videoId, list) {
-  if (!Array.isArray(list)) throw new Error('JSON 배열 형식이어야 해요: [ {...}, {...} ]');
-  let n = 0;
-  list.forEach(raw => {
+// ---------- 문장 JSON 검사 / 추가 / 교체 ----------
+// 업로드 전 전체를 검사하고, 오류가 하나라도 있으면 아무것도 바꾸지 않음
+export function validateUtts(input) {
+  let list = input;
+  if (typeof input === 'string') {
+    const txt = input.trim().replace(/^```(json)?/i, '').replace(/```$/, '').trim();
+    if (!txt) return { ok: false, errors: ['내용이 비어 있어요'], items: [] };
+    try { list = JSON.parse(txt); } catch (e) { return { ok: false, errors: ['JSON 문법 오류: ' + e.message.slice(0, 80)], items: [] }; }
+  }
+  if (list && !Array.isArray(list) && Array.isArray(list.utts)) list = list.utts; // {utts:[...]} 형태도 허용
+  if (!Array.isArray(list)) return { ok: false, errors: ['배열 형식이어야 해요: [ {...}, {...} ]'], items: [] };
+  const errors = [], items = [], warns = [];
+  list.forEach((raw, i) => {
+    const n = i + 1;
+    if (!raw || typeof raw !== 'object') return errors.push(`${n}번: 객체가 아니에요`);
     const start = parseTime(raw.start), end = parseTime(raw.end);
-    if (!raw.ko && !raw.en) return;
-    const en = typeof raw.en === 'string' ? { easy: '', natural: raw.en, advanced: '' } : { easy: raw.easy || raw.en?.easy, natural: raw.natural || raw.en?.natural, advanced: raw.advanced || raw.en?.advanced };
-    db.utts.push(normUtt({ ...raw, id: uid(), videoId, start, end: end > start ? end : start + 5, en })); n++;
+    if (raw.start != null && start == null) errors.push(`${n}번: start 시간 형식 오류 (${raw.start})`);
+    if (raw.end != null && end == null) errors.push(`${n}번: end 시간 형식 오류 (${raw.end})`);
+    const en = typeof raw.en === 'string' ? { easy: raw.easy || '', natural: raw.en, advanced: raw.advanced || '' }
+      : { easy: raw.easy || raw.en?.easy || '', natural: raw.natural || raw.en?.natural || '', advanced: raw.advanced || raw.en?.advanced || '' };
+    if (!raw.ko) errors.push(`${n}번: ko(한국어 원문)가 없어요`);
+    if (!en.natural && !en.easy && !en.advanced) errors.push(`${n}번: 영어 표현(natural 등)이 없어요`);
+    const s = start ?? 0, e = end ?? 0;
+    if (end != null && e <= s) warns.push(`${n}번: end가 start보다 작아 5초 구간으로 맞춰요`);
+    if (en.natural && en.advanced && normText(en.natural) === normText(en.advanced)) warns.push(`${n}번: Natural과 Advanced가 같아요`);
+    items.push({ ...raw, start: s, end: e > s ? e : s + 5, en });
   });
-  save(); return n;
+  return { ok: !errors.length && items.length > 0, errors: errors.length ? errors : (items.length ? [] : ['문장이 0개예요']), warns, items };
+}
+// mode: 'add' | 'replace'
+export function applyUtts(videoId, items, mode = 'add') {
+  snapshot(mode === 'replace' ? '문장 교체' : '문장 추가');
+  const old = db.utts.filter(u => u.videoId === videoId);
+  const fresh = items.map(raw => normUtt({ ...raw, id: uid(), videoId }));
+  let relinked = 0, detached = 0;
+  if (mode === 'replace') {
+    const oldIds = new Set(old.map(u => u.id));
+    db.saved.forEach(s => {
+      if (!oldIds.has(s.uttId)) return;
+      const o = old.find(u => u.id === s.uttId);
+      const m = fresh.find(f => f.ko.trim() === (o?.ko || s.ko).trim()) || fresh.find(f => o && Math.abs(f.start - o.start) < 0.6);
+      if (m) { s.uttId = m.id; s.start = m.start; relinked++; } else { s.uttId = null; detached++; }
+    });
+    db.utts = db.utts.filter(u => u.videoId !== videoId).concat(fresh);
+  } else db.utts = db.utts.concat(fresh);
+  save(); return { added: fresh.length, removed: mode === 'replace' ? old.length : 0, relinked, detached };
+}
+// 예전 함수 호환
+export function bulkUtts(videoId, list) {
+  const r = validateUtts(list); if (!r.ok) throw new Error(r.errors[0]);
+  return applyUtts(videoId, r.items, 'add').added;
 }
 export function parseTime(t) {
-  if (typeof t === 'number') return t;
-  if (!t) return 0;
+  if (typeof t === 'number') return isFinite(t) ? t : null;
+  if (t == null || t === '') return null;
   const p = String(t).trim().split(':').map(Number);
-  if (p.some(isNaN)) return 0;
+  if (p.some(isNaN)) return null;
   return p.reduce((a, b) => a * 60 + b, 0);
 }
-export const fmt = s => { s = Math.max(0, Math.floor(s)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
+export const fmt = s => { s = Math.max(0, Math.floor(s || 0)); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`; };
 
-// ---------- IndexedDB: 내 녹음 보관 (APPLY 문장) ----------
+// ---------- IndexedDB: 내 녹음 보관 ----------
 export const AudioStore = (() => {
   let dbp;
   const open = () => dbp || (dbp = new Promise((res, rej) => {
@@ -190,3 +299,6 @@ export const AudioStore = (() => {
     clear: () => tx('readwrite', s => s.clear()).catch(() => { })
   };
 })();
+
+// 저장 공간 보호 요청 (Safari/Chrome 지원 시)
+try { navigator.storage?.persist?.(); } catch { }

@@ -2,14 +2,16 @@
 const CONTRACTIONS = [
   [/\bwon't\b/g, 'will not'], [/\bcan't\b/g, 'can not'], [/\bcannot\b/g, 'can not'], [/\bain't\b/g, 'is not'], [/\blet's\b/g, 'let us'],
   [/n't\b/g, ' not'], [/'re\b/g, ' are'], [/'ve\b/g, ' have'], [/'ll\b/g, ' will'], [/'d\b/g, ' would'], [/'m\b/g, ' am'],
-  [/\b(it|that|what|there|he|she|who|here|how|where)'s\b/g, '$1 is'], [/\bgonna\b/g, 'going to'], [/\bwanna\b/g, 'want to'], [/\bgotta\b/g, 'got to']
+  [/\b(it|that|what|there|he|she|who|here|how|where)'s\b/g, '$1 is'], [/\bgonna\b/g, 'going to'], [/\bwanna\b/g, 'want to'], [/\bgotta\b/g, 'got to'], [/\ball right\b/g, 'alright'], [/'cause\b/g, 'because'], [/\bcuz\b/g, 'because'], [/\bokay\b/g, 'ok'], [/\bya\b/g, 'you']
 ];
 const STOP = new Set('a an the to of and or but so is am are was were be been being i you he she it we they me my your his her its our their this that these those in on at for with do does did not just very really oh um uh like yeah well okay ok'.split(' '));
 const SYN = { great: 'good', nice: 'good', awesome: 'good', fine: 'good', glad: 'happy', delighted: 'happy', sad: 'unhappy', tired: 'exhausted', sleepy: 'exhausted', huge: 'big', large: 'big', little: 'small', tiny: 'small', begin: 'start', finish: 'end', yummy: 'delicious', tasty: 'delicious', film: 'movie', fans: 'fan', guys: 'everyone', everybody: 'everyone', pal: 'friend', buddy: 'friend', want: 'like', hey: 'hi', hello: 'hi', thanks: 'thank', glad: 'happy' };
 
+const NUM = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten', 'eleven', 'twelve'];
 export function normalize(t) {
   let s = (t || '').toLowerCase().replace(/[’‘`]/g, "'");
   CONTRACTIONS.forEach(([r, v]) => (s = s.replace(r, v)));
+  s = s.replace(/&/g, ' and ').replace(/\b(\d{1,2})\b/g, (m, n) => NUM[+n] || m);
   return s.replace(/[^a-z0-9'\s]/g, ' ').replace(/'/g, '').replace(/\s+/g, ' ').trim();
 }
 export const tokens = t => normalize(t).split(' ').filter(Boolean);

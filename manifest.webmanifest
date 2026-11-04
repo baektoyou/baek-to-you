@@ -1,7 +1,8 @@
 {
   "name": "BAEK TO YOU",
   "short_name": "BAEK TO YOU",
-  "description": "Learn English by talking with Baekhyun.",
+  "description": "백현의 실제 영상으로 영어 표현을 배우고 말하는 학습 앱",
+  "id": "./",
   "start_url": "./#/video",
   "scope": "./",
   "display": "standalone",
