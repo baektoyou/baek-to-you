@@ -17,7 +17,7 @@ export function talk(root) {
   // 수신 화면 — 사용자의 탭으로 iOS 재생/음성 권한을 열어줌
   root.innerHTML = `<div class="ring">
     <div class="ava">🐶</div><h2>Baekhyun</h2><p>영상통화 요청…</p>
-    <p class="tiny" style="margin-top:6px">녹화된 실제 영상 클립 ${utts.length}개로 진행되는 연습 통화예요</p>
+    <p class="tiny" style="margin-top:6px">실제 영상 클립 ${utts.length}개</p>
     <div class="acts"><div><button class="no" id="dec">${ic('phoneoff')}</button><span>거절</span></div><div><button class="ok" id="acc">${ic('cam')}</button><span>수락</span></div></div>
   </div>`;
   document.body.classList.add('in-call');
@@ -34,8 +34,8 @@ function startCall(root, utts) {
     <div class="call-top">
       <div class="vc"><div class="player" id="tp"></div><div class="vc-shade"></div>
         <div class="vc-top"><div class="vc-status" id="vs"><i></i><span>연결 중</span></div><div class="vc-timer" id="tm">00:00</div></div>
-        <div class="vc-bottom"><div class="vc-name">Baekhyun <span style="font-size:12px;opacity:.8">♡</span></div><div class="vc-cap" id="cap"></div></div>
-        <div class="vc-cover" id="cover"><div class="av">🐶</div><div class="en">Connecting…</div><small>녹화된 실제 영상 클립</small></div>
+        <div class="vc-bottom"><div class="vc-name">Baekhyun</div><div class="vc-cap" id="cap"></div></div>
+        <div class="vc-cover" id="cover"><div class="av">🐶</div><div class="en">Connecting…</div></div>
         <div class="tap-hint hide" id="taph" style="z-index:6">▶ 화면을 한 번 탭해서 영상 재생</div>
       </div>
       <div class="call-tools">
@@ -45,7 +45,7 @@ function startCall(root, utts) {
         <button id="t-end" class="end">${ic('phoneoff')} 종료</button>
       </div>
     </div>
-    <div class="chat" id="chat"><div class="day">오늘 · 백현이 말풍선은 실제 영상 발화, 점선 말풍선은 앱이 만든 질문이에요</div></div>
+    <div class="chat" id="chat"><div class="day">실제 영상 클립으로 진행돼요 · 점선 말풍선은 앱 질문</div></div>
     <div class="composer">
       <div class="comp-live en" id="live"></div>
       <div class="comp-row">
@@ -73,15 +73,14 @@ function startCall(root, utts) {
     const tp = typing(); status('thinking', '연결 중'); await wait(500); tp.remove();
     const m = h(`<div class="msg baek"><div class="av">🐶</div><div class="col"><span class="who">Baekhyun</span>
       <div class="bub">${esc(u.ko)}${u.en.natural || u.en.easy ? `<div class="tr ${st.showEn ? '' : 'hide'}">${esc(u.en.natural || u.en.easy)}</div>` : ''}</div>
-      <div class="src"><i></i>실제 영상 발화 · ${esc((v?.title || '').slice(0, 18))}${(v?.title || '').length > 18 ? '…' : ''} ${D.fmt(u.start)}</div>
-      <div class="meta-row">${why.slice(0, 3).map(w => `<span class="chip">🔎 ${esc(w)}</span>`).join('')}
-        <button class="chip" data-a="replay">${ic('replay')} 다시</button><button class="chip" data-a="en">EN</button><button class="chip" data-a="save">♡ Save</button></div></div></div>`);
+      <div class="src"><i></i>${esc((v?.title || '').slice(0, 18))}${(v?.title || '').length > 18 ? '…' : ''} ${D.fmt(u.start)}</div>
+      <div class="meta-row"><button class="chip" data-a="replay" aria-label="다시">${ic('replay')}</button><button class="chip" data-a="en">EN</button><button class="chip" data-a="save" aria-label="저장">${ic('bookmark')}</button></div></div></div>`);
     chat.appendChild(m); scroll();
     m.addEventListener('click', e => {
       const a = e.target.closest('[data-a]')?.dataset.a; if (!a) return;
       if (a === 'replay') speakClip(u);
       if (a === 'en') { const tr = $('.tr', m); if (tr) tr.classList.toggle('hide'); else toast('등록된 영어 번역이 없어요'); }
-      if (a === 'save') { const r = D.saveExpr({ kind: 'utt', uttId: u.id, ko: u.ko, en: { ...u.en }, pattern: u.pattern }); if (!r.dup) st.saved++; toast(r.dup ? '이미 저장돼 있어요' : 'SAVED에 저장 ♡'); }
+      if (a === 'save') { const r = D.saveExpr({ kind: 'utt', uttId: u.id, ko: u.ko, en: { ...u.en }, pattern: u.pattern }); if (!r.dup) st.saved++; toast(r.dup ? '이미 저장돼 있어요' : 'SAVED에 저장했어요'); }
     });
     st.transcript.push({ who: 'baek', uttId: u.id, ko: u.ko });
     await speakClip(u);
@@ -96,8 +95,8 @@ function startCall(root, utts) {
   function yourTurn() { status('', '내 차례 · 영어로 대답해요'); micB.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.08)' }, { transform: 'scale(1)' }], { duration: 700, iterations: 2 }); }
 
   function appBubble(text, extra = '') {
-    const m = h(`<div class="msg app"><div class="av">B2U</div><div class="col"><span class="who">BAEK TO YOU 질문 · 백현이 발화 아님</span><div class="bub en">${esc(text)}</div>
-      <div class="meta-row"><button class="chip" data-a="tts">${ic('speaker')} 듣기</button>${extra}</div></div></div>`);
+    const m = h(`<div class="msg app"><div class="av">B2U</div><div class="col"><span class="who">앱 질문</span><div class="bub en">${esc(text)}</div>
+      <div class="meta-row"><button class="chip" data-a="tts" aria-label="듣기">${ic('speaker')}</button>${extra}</div></div></div>`);
     chat.appendChild(m); scroll();
     m.addEventListener('click', e => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'tts') S.speak(text); if (a === 'switch') switchTopic(); });
     st.transcript.push({ who: 'app', text }); status('', '내 차례 · 영어로 대답해요');
@@ -106,12 +105,12 @@ function startCall(root, utts) {
 
   function myBubble(text, { revised = false, replyTo } = {}) {
     const m = h(`<div class="msg me"><div class="col"><div class="bub">${esc(text)}</div>
-      <div class="meta-row" style="justify-content:flex-end">${revised ? '<span class="chip pink">✦ 다시 말한 버전</span>' : ''}<button class="chip" data-a="better">${ic('sparkle')} Say it better</button><button class="chip" data-a="save">♡</button></div></div></div>`);
+      <div class="meta-row" style="justify-content:flex-end">${revised ? '<span class="chip pink">다시 말한 버전</span>' : ''}<button class="chip" data-a="better">${ic('sparkle')} Say it better</button><button class="chip" data-a="save" aria-label="저장">${ic('bookmark')}</button></div></div></div>`);
     chat.appendChild(m); scroll();
     m.addEventListener('click', e => {
       const a = e.target.closest('[data-a]')?.dataset.a;
       if (a === 'better') sayBetter(text, replyTo);
-      if (a === 'save') { const r = D.saveExpr({ kind: 'talk', uttId: replyTo?.id || null, ko: replyTo ? `백현: ${replyTo.ko}` : '', text, en: { easy: '', natural: text, advanced: '' } }); if (!r.dup) st.saved++; toast(r.dup ? '이미 저장돼 있어요' : '내 답변을 SAVED에 저장 ♡'); }
+      if (a === 'save') { const r = D.saveExpr({ kind: 'talk', uttId: replyTo?.id || null, ko: replyTo ? `백현: ${replyTo.ko}` : '', text, en: { easy: '', natural: text, advanced: '' } }); if (!r.dup) st.saved++; toast(r.dup ? '이미 저장돼 있어요' : '내 답변을 저장했어요'); }
     });
     st.transcript.push({ who: 'me', text });
   }
@@ -131,7 +130,7 @@ function startCall(root, utts) {
     if (r.kind === 'clip') await playClip(r.u, r.why);
     else {
       const q = appQuestion(r.topics, st.usedQ); st.usedQ.add(q);
-      appBubble(q, r.candidates.length ? `<button class="chip" data-a="switch">${ic('shuffle')} 다른 영상 클립으로 주제 바꾸기</button>` : '');
+      appBubble(q, r.candidates.length ? `<button class="chip" data-a="switch">${ic('shuffle')} 다른 클립</button>` : '');
       st.lastBaek = null;
     }
   }
@@ -149,7 +148,7 @@ function startCall(root, utts) {
     pl.stop(); S.stopSpeak(); cap.textContent = '';
     micB.classList.add('live'); micB.innerHTML = ic('stop'); status('listening', '듣는 중…');
     live.textContent = '…';
-    st.cap = S.capture({ stt: true, onInterim: t => (live.textContent = t) });
+    st.cap = S.capture({ stt: true, targets: st.lastBaek?.replies || [], silenceMs: 1800, onInterim: t => (live.textContent = t) });
     const res = await st.cap.result; st.cap = null;
     micB.classList.remove('live'); micB.innerHTML = ic('mic');
     if (res.sttError && !res.text) { live.textContent = ''; status('', '내 차례'); toast(S.sttErrorText(res.sttError)); if (res.sttError === 'service-not-allowed' || res.sttError === 'not-allowed') toggleType(true); return; }
@@ -194,19 +193,19 @@ function startCall(root, utts) {
   function sayBetter(text, replyTo) {
     const mk = mistakes(text);
     const reps = replyTo?.replies || [];
-    const s = sheet(`<h3>Say it better ✦</h3>
+    const s = sheet(`<h3>Say it better</h3>
       <div class="card gray"><div class="small muted">내 답변</div><div class="en" style="font-size:16px;margin-top:4px">“${esc(text)}”</div></div>
       ${mk.length ? `<div class="note warn" style="margin-top:10px">${mk.map(x => `<b>${esc(x.from)}</b> → <b>${esc(x.to)}</b> · ${esc(x.why)}`).join('<br>')}</div>` : ''}
       <div class="sec-title label">자연스러운 답변 예시</div>
-      ${reps.length ? `<div class="stack">${reps.map(r => `<div class="card row"><div class="en grow" style="font-size:15px">${esc(r)}</div><button class="mini" data-tts="${esc(r)}">${ic('speaker')}</button></div>`).join('')}</div><div style="margin-top:10px">${compareCard(text, reps.map(r => ({ label: '예시', text: r })), { title: '예시와 비교' })}</div>`
-        : `<div class="note">${replyTo ? '이 발화에는 등록된 답변 예시가 없어요. SETTINGS › 문장 편집 › “답변 예시”에 추가하면 여기서 비교할 수 있어요.' : '앱 질문에는 답변 예시가 없어요.'}<br>자동 문장 교정은 유료 AI가 필요해서 제공하지 않아요. 위 실수 체크는 일부 패턴만 확인해요.</div>`}
+      ${reps.length ? `<div class="stack">${reps.map(r => `<div class="card row"><div class="en grow" style="font-size:15px">${esc(r)}</div><button class="mini" data-tts="${esc(r)}">${ic('speaker')}</button></div>`).join('')}</div><div style="margin-top:10px">${compareCard(text, reps.map(r => ({ label: '예시', text: r })), { title: 'VS EXAMPLE' })}</div>`
+        : `<div class="note">${replyTo ? '이 발화엔 답변 예시가 없어요 (문장 편집 › 답변 예시).' : '앱 질문엔 답변 예시가 없어요.'}</div>`}
       <button class="btn block" id="again" style="margin-top:14px">${ic('mic')} 더 좋게 다시 말하기</button>`);
     $$('[data-tts]', s).forEach(b => b.onclick = () => S.speak(b.dataset.tts));
     $('#again', s).onclick = async () => {
       const b = $('#again', s);
       if (!S.support.stt) { s.close(); toggleType(true); return; }
       b.innerHTML = `${ic('stop')} 듣는 중… 탭하면 끝`; b.classList.add('pink');
-      let c = S.capture({ stt: true }); b.onclick = () => c.stop();
+      let c = S.capture({ stt: true, targets: reps }); b.onclick = () => c.stop();
       const r = await c.result;
       if (r.text) { s.close(); myBubble(r.text, { revised: true, replyTo }); D.addAttempt({ uttId: replyTo?.id || null, step: 'talk-retry', text: r.text }); toast('다시 말한 답변을 추가했어요'); }
       else { b.innerHTML = `${ic('mic')} 다시 시도`; b.classList.remove('pink'); toast(S.sttErrorText(r.sttError) || '잘 안 들렸어요'); }

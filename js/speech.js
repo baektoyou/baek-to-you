@@ -1,5 +1,6 @@
 // 음성: STT(Web Speech API) · TTS(speechSynthesis) · 녹음(MediaRecorder) · 녹음 분석(Web Audio)
 import { get } from './store.js';
+import { diff } from './compare.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 export const support = {
@@ -60,26 +61,59 @@ export function speak(text, opt = {}) {
 }
 export const stopSpeak = () => support.tts && speechSynthesis.cancel();
 
+// ---------- 인식 보정 사전 ----------
+// 기본: 자주 틀리는 고유명사 / 사용자: SETTINGS › 인식 보정 단어 ("들린 말 = 원래 단어")
+const BUILTIN_FIX = [
+  [/\b(?:back|bag|bak|baek|bake|beck|pack|bike)[\s-]?(?:hyun|hyon|hyeon|hyan|hun|hin|young|yun|human|hum)\b/gi, 'Baekhyun'],
+  [/\b(?:exo|x\s?o|echo)[\s-]?(?:l|el|elle)\b/gi, 'EXO-L']
+];
+export function parseFixes(text) {
+  return String(text || '').split('\n').map(l => l.split('=').map(x => x.trim())).filter(p => p.length === 2 && p[0] && p[1]);
+}
+export function fixText(t) {
+  if (!t) return t;
+  BUILTIN_FIX.forEach(([r, v]) => (t = t.replace(r, v)));
+  parseFixes(get().settings.sttFix).forEach(([from, to]) => {
+    const re = new RegExp('\\b' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]*') + '\\b', 'gi');
+    t = t.replace(re, to);
+  });
+  return t;
+}
+
 // ---------- 마이크 캡처: 녹음 + STT 동시 시도 ----------
-// capture({stt:true, record:false, onInterim, maxMs}) → {stop(), result: Promise<{text, confidence, blob, url, durationMs, sttError}>}
+// capture({stt, record, onInterim, maxMs, targets, autoStop})
+//  · 기본은 사용자가 탭할 때까지 계속 들음 (중간에 쉬어도 안 끊김)
+//  · autoStop: 말이 끝나면 자동 종료 (쉐도잉)
+//  · targets: 예시 문장 → 인식 후보 여러 개 중 예시와 가장 가까운 걸 고름
 export function capture(opt = {}) {
   const wantStt = opt.stt !== false && support.stt;
   const wantRec = !!opt.record && support.rec;
-  let finalText = '', interim = '', conf = 0, sttError = null;
+  const keep = !opt.autoStop;
+  const targets = (opt.targets || []).filter(Boolean);
+  let silT, committed = '', session = '', conf = 0, sttError = null, userStop = false, restarts = 0, sessT0 = 0;
   let rec, mr, stream, chunks = [], t0 = performance.now(), ended = false;
   let resolve; const result = new Promise(r => (resolve = r));
   let sttDone = !wantStt, recDone = !wantRec, blob = null;
-  let maxT = setTimeout(() => stop(), opt.maxMs || 25000);
+  const maxT = setTimeout(() => stop(), opt.maxMs || 30000);
+  const full = () => (committed + ' ' + session).replace(/\s+/g, ' ').trim();
 
   const finish = () => {
-    if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT);
-    const text = (finalText + ' ' + interim).replace(/\s+/g, ' ').trim();
-    resolve({ text, confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob });
+    if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT); clearTimeout(silT);
+    resolve({ text: fixText(full()), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob });
+  };
+  const pickAlt = r => {
+    if (!targets.length || r.length < 2) return r[0].transcript;
+    let top = r[0].transcript, ts = -1;
+    for (let k = 0; k < r.length; k++) {
+      const t = r[k].transcript; const sc = Math.max(...targets.map(x => diff(fixText(t), x).score)) - k * 2;
+      if (sc > ts) { ts = sc; top = t; }
+    }
+    return top;
   };
 
   async function startRec() {
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
       const type = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm'].find(t => MediaRecorder.isTypeSupported?.(t));
       mr = new MediaRecorder(stream, type ? { mimeType: type } : undefined);
       mr.ondataavailable = e => e.data.size && chunks.push(e.data);
@@ -89,23 +123,41 @@ export function capture(opt = {}) {
   }
   function startStt() {
     try {
-      rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = !!opt.continuous; rec.maxAlternatives = 1;
+      rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = keep; rec.maxAlternatives = targets.length ? 5 : 1;
       rec.onresult = e => {
-        interim = '';
-        for (let i = e.resultIndex; i < e.results.length; i++) {
-          const r = e.results[i];
-          if (r.isFinal) { finalText += ' ' + r[0].transcript; conf = r[0].confidence || conf; } else interim += r[0].transcript;
+        // 매번 전체 결과로 다시 조립 (iOS의 누적·중복 결과 대응)
+        let acc = '';
+        for (let i = 0; i < e.results.length; i++) {
+          const r = e.results[i]; const t = (r.isFinal ? pickAlt(r) : r[0].transcript).trim();
+          if (!t) continue;
+          const al = acc.toLowerCase(), tl = t.toLowerCase();
+          if (acc && tl.startsWith(al)) acc = t;
+          else if (!al.endsWith(tl)) acc = (acc + ' ' + t).trim();
+          if (r.isFinal) conf = r[0].confidence || conf;
         }
-        opt.onInterim?.((finalText + ' ' + interim).trim());
+        session = acc;
+        opt.onInterim?.(fixText(full()));
+        // 말을 멈추고 잠시 조용하면 자동 종료 (탭해도 종료)
+        clearTimeout(silT); if (keep && full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 2200);
       };
       rec.onerror = e => { if (e.error !== 'no-speech' && e.error !== 'aborted') sttError = e.error; };
-      rec.onend = () => { sttDone = true; if (mr && mr.state === 'recording' && opt.autoStop !== false) setTimeout(() => mr.state === 'recording' && mr.stop(), 350); finish(); };
-      rec.start();
+      rec.onend = () => {
+        // 탭하기 전엔 계속 듣기: 브라우저가 침묵으로 끊어도 이어서 다시 시작
+        if (keep && !userStop && !sttError && restarts < 6 && performance.now() - sessT0 > 400) {
+          committed = full(); session = ''; restarts++;
+          try { sessT0 = performance.now(); rec.start(); return; } catch { }
+        }
+        sttDone = true;
+        if (mr && mr.state === 'recording' && !keep) setTimeout(() => mr.state === 'recording' && mr.stop(), 350);
+        finish();
+      };
+      sessT0 = performance.now(); rec.start();
     } catch (e) { sttError = 'stt-start'; sttDone = true; finish(); }
   }
   (async () => { if (wantRec) await startRec(); if (wantStt) startStt(); if (!wantStt && !wantRec) { sttError = 'unsupported'; finish(); } })();
 
   function stop() {
+    if (userStop) return; userStop = true; clearTimeout(silT);
     try { rec && rec.stop(); } catch { }
     try { mr && mr.state === 'recording' && mr.stop(); } catch { }
     setTimeout(() => { sttDone = true; recDone = recDone || !mr; finish(); }, 1800);

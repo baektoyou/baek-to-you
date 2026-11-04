@@ -10,7 +10,7 @@ const defaults = () => ({
   progress: {},    // uttId -> {steps:{}, lastAt}
   talkLogs: [],    // TALK 세션 요약
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.95, talkShowEn: false, talkCaption: true, camera: false }
+  settings: { voiceURI: '', rate: 0.95, talkShowEn: false, talkCaption: true, camera: false, sttFix: '' }
 });
 
 let db = load();

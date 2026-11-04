@@ -1,4 +1,4 @@
-// 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 플래시카드 · 쉐도잉 · 비교)
+// 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 정답 카드 · 쉐도잉 · 비교)
 import * as S from './speech.js';
 import { diff, best, verdict, markPattern, mistakes } from './compare.js';
 
@@ -10,7 +10,9 @@ export function h(html) { const t = document.createElement('template'); t.innerH
 const P = {
   video: '<rect x="3" y="5" width="18" height="14" rx="4"/><path d="M10 9.5v5l4.5-2.5z"/>',
   talk: '<path d="M4 6.5A3.5 3.5 0 0 1 7.5 3h9A3.5 3.5 0 0 1 20 6.5v6a3.5 3.5 0 0 1-3.5 3.5H11l-4.5 4v-4A3.5 3.5 0 0 1 4 12.5z"/><path d="M9 9.5h.01M12 9.5h.01M15 9.5h.01"/>',
-  saved: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
+  saved: '<path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v15.5L12 16.2l-6.5 4.3V5A1.5 1.5 0 0 1 7 3.5z"/>',
+  bookmark: '<path d="M7 3.5h10a1.5 1.5 0 0 1 1.5 1.5v15.5L12 16.2l-6.5 4.3V5A1.5 1.5 0 0 1 7 3.5z"/>',
+  paste: '<rect x="6" y="4" width="12" height="17" rx="2.5"/><path d="M9.5 4V3h5v1M9.5 10h5M9.5 14h5"/>',
   settings: '<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/>',
   mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/>',
   stop: '<rect x="7" y="7" width="10" height="10" rx="2.5"/>',
@@ -21,7 +23,6 @@ const P = {
   next: '<path d="M9 5l7 7-7 7"/>',
   plus: '<path d="M12 5v14M5 12h14"/>',
   x: '<path d="M6 6l12 12M18 6L6 18"/>',
-  heart: '<path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/>',
   star: '<path d="M12 3.5l2.6 5.3 5.9.9-4.3 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8L3.5 9.7l5.9-.9z"/>',
   trash: '<path d="M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13"/>',
   edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/>',
@@ -54,33 +55,36 @@ export function toast(msg) {
 export function sheet(html, { onClose } = {}) {
   const bg = h('<div class="sheet-bg"></div>'); const sh = h(`<div class="sheet"><div class="grab"></div>${html}</div>`);
   document.body.append(bg, sh); requestAnimationFrame(() => { bg.classList.add('on'); sh.classList.add('on'); });
-  const close = () => { bg.classList.remove('on'); sh.classList.remove('on'); setTimeout(() => { bg.remove(); sh.remove(); }, 320); onClose?.(); };
+  let closed = false;
+  const close = () => { if (closed) return; closed = true; bg.classList.remove('on'); sh.classList.remove('on'); setTimeout(() => { bg.remove(); sh.remove(); }, 320); onClose?.(); };
   bg.onclick = close; sh.close = close; return sh;
 }
 export function confirmSheet(msg, okLabel = '삭제') {
   return new Promise(res => {
-    const s = sheet(`<h3>${esc(msg)}</h3><div class="row"><button class="btn soft grow" data-a="0">취소</button><button class="btn grow" data-a="1">${esc(okLabel)}</button></div>`, { onClose: () => res(false) });
-    $$('[data-a]', s).forEach(b => b.onclick = () => { const v = b.dataset.a === '1'; s.close(); res(v); });
+    let v = false; // 버튼 선택값 → 닫힐 때 한 번만 resolve
+    const s = sheet(`<h3>${esc(msg)}</h3><div class="row"><button class="btn soft grow" data-a="0">취소</button><button class="btn danger grow" data-a="1">${esc(okLabel)}</button></div>`, { onClose: () => res(v) });
+    $$('[data-a]', s).forEach(b => b.onclick = () => { v = b.dataset.a === '1'; s.close(); });
   });
 }
 
 // ---------- 마이크 블록 ----------
-// mount(el, {placeholder, record, onResult(text, res)}) — STT 미지원 시 키보드 입력으로 대체
+// mount(el, {placeholder, record, targets, onResult(text, res)}) — STT 미지원 시 키보드 입력으로 대체
 export function micBlock(el, opt = {}) {
+  const idle = S.support.stt ? '탭하고 영어로 말하기' : '음성 인식 미지원 · 아래에 입력';
   el.innerHTML = `
-    <div class="mic-wrap"><button class="mic" aria-label="말하기">${ic('mic')}</button><div class="mic-state">${S.support.stt ? '탭하고 영어로 말해보세요' : '이 브라우저는 음성 인식 미지원 · 아래에 입력'}</div></div>
-    <textarea class="textarea live en" rows="2" placeholder="${esc(opt.placeholder || '인식된 문장이 여기에 나와요 · 직접 고쳐도 돼요')}"></textarea>`;
+    <div class="mic-wrap"><button class="mic" aria-label="말하기">${ic('mic')}</button><div class="mic-state">${idle}</div></div>
+    <textarea class="textarea live en" rows="2" placeholder="${esc(opt.placeholder || '인식된 문장 · 직접 고쳐도 돼요')}"></textarea>`;
   const btn = $('.mic', el), st = $('.mic-state', el), ta = $('textarea', el);
   let cap = null, lastRes = null;
   btn.onclick = async () => {
     if (cap) { cap.stop(); st.textContent = '정리하는 중…'; return; }
     S.stopSpeak(); opt.onStart?.();
-    btn.classList.add('live'); btn.innerHTML = ic('stop'); st.textContent = '듣고 있어요… 다 말하면 탭';
-    cap = S.capture({ stt: true, record: !!opt.record, onInterim: t => (ta.value = t) });
+    btn.classList.add('live'); btn.innerHTML = ic('stop'); st.textContent = '듣는 중 · 끝나면 탭';
+    cap = S.capture({ stt: true, record: !!opt.record, targets: opt.targets?.(), onInterim: t => (ta.value = t) });
     const res = await cap.result; cap = null; lastRes = res;
     btn.classList.remove('live'); btn.innerHTML = ic('mic');
     if (res.text) ta.value = res.text;
-    st.textContent = res.sttError ? S.sttErrorText(res.sttError) : (res.text ? '다시 말하려면 탭 · 틀린 단어는 직접 고쳐도 OK' : '잘 안 들렸어요. 다시 탭해서 말해보세요');
+    st.textContent = res.sttError ? S.sttErrorText(res.sttError) : (res.text ? '다시 말하려면 탭' : '잘 안 들렸어요 · 다시 탭');
     opt.onResult?.(ta.value.trim(), res);
   };
   ta.oninput = () => opt.onEdit?.(ta.value.trim());
@@ -89,52 +93,54 @@ export function micBlock(el, opt = {}) {
 
 // ---------- 비교 결과 ----------
 export function diffHTML(d) {
-  return `<div class="diff">${d.ops.map(o => `<span class="${o.op}">${esc(o.w)}</span>`).join(' ')}</div>
-  <div class="legend"><span><i style="background:#E9F8F0"></i>일치</span><span><i style="background:var(--pink)"></i>예시에 있는 단어</span><span><i style="background:#eee"></i>내가 더한 단어</span></div>`;
+  return `<div class="diff">${d.ops.map(o => `<span class="${o.op}"${o.heard ? ` title="들린 말: ${esc(o.heard)}"` : ''}>${esc(o.w)}</span>`).join(' ')}</div>`;
 }
-export function compareCard(user, cands, { title = '내 답변 vs 예시' } = {}) {
-  if (!user) return `<div class="note">아직 말한 답변이 없어요. 먼저 말해보면 예시와 비교해드려요.</div>`;
-  const b = best(user, cands); if (!b) return `<div class="note">비교할 영어 예시가 등록되지 않았어요. SETTINGS에서 추가해주세요.</div>`;
+export function compareCard(user, cands, { title = 'MY ANSWER' } = {}) {
+  if (!user) return '';
+  const b = best(user, cands); if (!b) return '';
   const v = verdict(b.d.score); const m = mistakes(user);
-  return `<div class="card stack">
-    <div class="row"><span class="label grow">${esc(title)}</span><span class="chip ${v.tone === 'great' || v.tone === 'good' ? 'pink' : ''}">${esc(b.label)}에 가장 가까움</span></div>
-    <div class="en" style="font-size:15px">“${esc(user)}”</div>
+  return `<div class="cmp">
+    <div class="cmp-head"><span class="label">${esc(title)}</span><span class="score ${v.tone}">${b.d.score}<small>%</small></span></div>
     ${diffHTML(b.d)}
-    <div><div class="metric"><span>단어 일치도 <span class="muted tiny">(텍스트 기준)</span></span><b>${b.d.score}%</b></div><div class="meter"><i style="width:${b.d.score}%"></i></div></div>
-    <div class="small">${esc(v.label)}</div>
-    ${b.d.missingKeys.length ? `<div class="small muted">예시 핵심 단어: ${b.d.missingKeys.slice(0, 6).map(w => `<span class="chip line en">${esc(w)}</span>`).join(' ')}</div>` : ''}
+    ${b.d.missingKeys.length ? `<div class="row wrap" style="gap:4px"><span class="tiny muted">빠진 단어</span>${b.d.missingKeys.slice(0, 5).map(w => `<span class="chip pink en">${esc(w)}</span>`).join('')}</div>` : ''}
     ${m.length ? `<div class="note warn">${m.map(x => `<b>${esc(x.from)}</b> → <b>${esc(x.to)}</b> · ${esc(x.why)}`).join('<br>')}</div>` : ''}
-    <div class="note">표현이 달라도 뜻이 같으면 정답이에요. 일치도는 단어 비교일 뿐, 문법·발음 채점이 아니에요.</div>
+    <div class="tiny muted">${esc(b.label)} 기준 · ${esc(v.label)}</div>
   </div>`;
 }
 export const levelsOf = u => [['easy', 'Easy'], ['natural', 'Natural'], ['advanced', 'Advanced']].filter(([k]) => u.en?.[k]).map(([k, l]) => ({ key: k, label: l, text: u.en[k] })).concat((u.alts || []).map((t, i) => ({ key: 'alt' + i, label: '다른 표현', text: t })));
+export const targetsOf = u => levelsOf(u).map(l => l.text);
 
-// ---------- 플래시카드 ----------
-export function flashcard(el, u, { getAnswer, onFlip, onShadow } = {}) {
+// ---------- 정답 카드 (CHECK) — 뒤집기 없이 바로 공개 ----------
+export function answerCard(el, u, { answer, onShadow } = {}) {
   const lv = levelsOf(u).filter(l => !l.key.startsWith('alt'));
+  const alts = (u.alts || []).filter(Boolean);
   let cur = lv.find(l => l.key === 'natural') || lv[0];
-  el.innerHTML = `<div class="flip"><div class="flip-in">
-    <div class="face front"><div class="sparkle">✦</div><div class="ko-big">${esc(u.ko)}</div><div class="chip">먼저 말해보고 탭해서 뒤집기</div></div>
-    <div class="face back"><div class="levels">${lv.map(l => `<button data-k="${l.key}">${l.label}</button>`).join('')}</div><div class="bk"></div></div>
-  </div></div><div class="cmp" style="margin-top:12px"></div>`;
-  const flip = $('.flip', el);
-  $('.front', el).onclick = () => { flip.classList.add('on'); onFlip?.(); renderCmp(); };
-  const render = () => {
-    $$('.levels button', el).forEach(b => b.classList.toggle('on', b.dataset.k === cur?.key));
-    $('.bk', el).innerHTML = cur ? `<div class="en-big">${markPattern(cur.text, u.pattern, esc)}</div>
+  if (!cur) { el.innerHTML = `<div class="note">영어 예시가 없어요.</div>`; return; }
+  el.innerHTML = `${compareCard(answer, levelsOf(u))}
+    <div class="ans">
+      ${lv.length > 1 ? `<div class="seg mini-seg">${lv.map(l => `<button data-k="${l.key}">${l.label}</button>`).join('')}</div>` : ''}
+      <div class="en-big" id="ans-t"></div>
       ${u.pattern ? `<div class="pattern"><b>PATTERN</b><span class="en">${esc(u.pattern)}</span></div>` : ''}
-      <div class="row wrap" style="margin-top:16px"><button class="btn sm" data-a="play">${ic('speaker')} 듣기</button><button class="btn sm soft" data-a="slow">0.7x</button>${onShadow ? `<button class="btn sm pink" data-a="sh">${ic('wave')} 쉐도잉</button>` : ''}<button class="btn sm line" data-a="flip">한국어</button></div>`
-      : `<div class="note">영어 예시가 없어요. SETTINGS에서 추가해주세요.</div>`;
-    $$('.bk [data-a]', el).forEach(b => b.onclick = e => {
-      e.stopPropagation(); const a = b.dataset.a;
-      if (a === 'play') S.speak(cur.text); if (a === 'slow') S.speak(cur.text, { rate: 0.7 });
-      if (a === 'sh') onShadow?.(cur.text); if (a === 'flip') flip.classList.remove('on');
-    });
+      <div class="row ans-act">
+        <button class="btn sm" data-a="play">${ic('speaker')} 듣기</button>
+        <button class="btn sm soft" data-a="slow">0.7x</button>
+        ${onShadow ? `<button class="btn sm pink grow" data-a="sh">${ic('wave')} 따라 말하기</button>` : ''}
+      </div>
+      ${alts.length ? `<div class="alts"><span class="tiny muted">이렇게도 말해요</span>${alts.map(t => `<button class="alt en" data-tts="${esc(t)}">${esc(t)}</button>`).join('')}</div>` : ''}
+    </div>`;
+  const render = () => {
+    $$('[data-k]', el).forEach(b => b.classList.toggle('on', b.dataset.k === cur.key));
+    $('#ans-t', el).innerHTML = markPattern(cur.text, u.pattern, esc);
   };
-  $$('.levels button', el).forEach(b => b.onclick = e => { e.stopPropagation(); cur = lv.find(l => l.key === b.dataset.k); render(); });
-  const renderCmp = () => { const a = getAnswer?.(); $('.cmp', el).innerHTML = a !== undefined ? compareCard(a, levelsOf(u)) : ''; };
+  el.onclick = e => {
+    const k = e.target.closest('[data-k]'); if (k) { cur = lv.find(l => l.key === k.dataset.k); render(); return; }
+    const t = e.target.closest('[data-tts]'); if (t) { S.speak(t.dataset.tts); return; }
+    const a = e.target.closest('[data-a]')?.dataset.a;
+    if (a === 'play') S.speak(cur.text); if (a === 'slow') S.speak(cur.text, { rate: 0.7 });
+    if (a === 'sh') onShadow?.(cur.text);
+  };
   render();
-  return { flip: () => { flip.classList.add('on'); renderCmp(); }, renderCmp, get level() { return cur; } };
+  return { get level() { return cur; } };
 }
 
 // ---------- 쉐도잉 ----------
@@ -142,15 +148,15 @@ export function shadowBlock(el, text, { onResult } = {}) {
   let rate = 0.9, playing = null, mine = null, nativeMs = 0, loops = 1;
   const words = text.split(/\s+/).filter(Boolean);
   el.innerHTML = `
-    <div class="card pink"><div class="karaoke">${words.map((w, i) => `<span data-i="${i}">${esc(w)}</span>`).join(' ')}</div></div>
-    <div class="row wrap" style="margin-top:12px">
-      <button class="btn sm" data-a="native">${ic('speaker')} 원어민 듣기</button>
-      <div class="seg" style="flex:1;min-width:160px">${[0.7, 0.9, 1].map(r => `<button data-r="${r}" class="${r === rate ? 'on' : ''}">${r}x</button>`).join('')}</div>
+    <div class="card pink karaoke-card"><div class="karaoke">${words.map((w, i) => `<span data-i="${i}">${esc(w)}</span>`).join(' ')}</div></div>
+    <div class="row sh-ctl">
+      <button class="btn sm" data-a="native">${ic('speaker')} 듣기</button>
+      <div class="seg grow">${[0.7, 0.9, 1].map(r => `<button data-r="${r}" class="${r === rate ? 'on' : ''}">${r}x</button>`).join('')}</div>
+      <button class="btn sm soft" data-a="loop" aria-label="반복 횟수">${ic('loop')}<span class="lp">1</span></button>
     </div>
-    <div class="row" style="margin-top:8px"><button class="btn xs soft" data-a="loop">${ic('loop')} 반복 <span class="lp">1</span>회</button><span class="muted tiny">반복 듣기로 리듬을 먼저 익혀요</span></div>
-    <div class="mic-wrap" style="margin-top:10px"><button class="mic" data-a="rec">${ic('mic')}</button><div class="mic-state">듣고 바로 따라 말하며 녹음</div></div>
-    <div class="row wrap mine-row hide" style="justify-content:center"><button class="btn sm soft" data-a="mine">${ic('play')} 내 녹음</button><button class="btn sm pink" data-a="alt">${ic('shuffle')} 번갈아 듣기</button></div>
-    <div class="sh-res" style="margin-top:12px"></div>`;
+    <div class="mic-wrap"><button class="mic" data-a="rec">${ic('mic')}</button><div class="mic-state">듣고 바로 따라 말하기</div></div>
+    <div class="row mine-row hide" style="justify-content:center"><button class="btn sm soft" data-a="mine">${ic('play')} 내 녹음</button><button class="btn sm pink" data-a="alt">${ic('shuffle')} 번갈아 듣기</button></div>
+    <div class="sh-res"></div>`;
   const kar = $('.karaoke', el), spans = $$('.karaoke span', el), st = $('.mic-state', el), recBtn = $('[data-a=rec]', el);
   const hl = i => spans.forEach((s, j) => { s.classList.toggle('on', j === i); s.classList.toggle('past', j < i); });
   const playNative = () => new Promise(res => {
@@ -169,9 +175,9 @@ export function shadowBlock(el, text, { onResult } = {}) {
     if (a === 'rec') {
       if (cap) { cap.stop(); st.textContent = '분석 중…'; return; }
       S.stopSpeak();
-      if (!S.support.rec && !S.support.stt) { st.textContent = '이 브라우저는 녹음·음성 인식을 지원하지 않아요'; return; }
-      recBtn.classList.add('live'); recBtn.innerHTML = ic('stop'); st.textContent = '따라 말하는 중… 끝나면 탭';
-      cap = S.capture({ stt: true, record: true, autoStop: true });
+      if (!S.support.rec && !S.support.stt) { st.textContent = '이 브라우저는 녹음·음성 인식 미지원'; return; }
+      recBtn.classList.add('live'); recBtn.innerHTML = ic('stop'); st.textContent = '따라 말하는 중 · 끝나면 탭';
+      cap = S.capture({ stt: true, record: true, autoStop: true, targets: [text] });
       const res = await cap.result; cap = null;
       recBtn.classList.remove('live'); recBtn.innerHTML = ic('mic');
       if (res.url) { mine = res; $('.mine-row', el).classList.remove('hide'); }
@@ -182,20 +188,17 @@ export function shadowBlock(el, text, { onResult } = {}) {
   };
   function renderRes(res, an) {
     const d = res.text ? diff(res.text, text) : null;
+    const recall = d ? Math.round(d.keyRecall * 100) : null;
     const ratio = an?.speechSec && nativeMs ? (an.speechSec * 1000) / nativeMs : null;
-    $('.sh-res', el).innerHTML = `<div class="card stack">
-      <span class="label">SHADOW FEEDBACK</span>
-      ${d ? `<div class="small muted">인식된 내 발화</div>${diffHTML(d)}<div><div class="metric"><span>단어 재현율</span><b>${Math.round(d.keyRecall * 100)}%</b></div><div class="meter"><i style="width:${Math.round(d.keyRecall * 100)}%"></i></div></div>` : `<div class="note">음성 인식 결과가 없어 단어 비교는 생략했어요. 녹음을 들으며 직접 비교해보세요.</div>`}
-      ${an?.peaks ? `<div><div class="small muted" style="margin-bottom:6px">내 녹음 파형</div><div class="wave">${an.peaks.map(p => `<i style="height:${Math.max(4, p * 100)}%"></i>`).join('')}</div></div>` : ''}
-      ${ratio ? `<div class="metric"><span>말한 길이 <span class="muted tiny">(원어민 ${rate}x 음성 대비)</span></span><b>${ratio.toFixed(2)}배</b></div><div class="small muted">${ratio > 1.25 ? '조금 느려요. 단어를 이어서 말해보세요.' : ratio < 0.8 ? '조금 빨라요. 강세 단어를 또렷하게.' : '속도가 비슷해요!'}</div>` : (an?.speechSec ? '' : '')}
-      ${an?.speechSec ? `<div class="metric"><span>0.3초 이상 끊긴 곳</span><b>${an.pauses}번</b></div>` : ''}
-      <div>
-        <div class="unsupported"><span>발음 정확도</span><span class="chip">분석 미지원</span></div>
-        <div class="unsupported"><span>억양(피치) 일치도</span><span class="chip">분석 미지원</span></div>
-      </div>
-      <div class="note">발음·억양 채점은 전용 음성 분석 엔진이 필요해 무료 브라우저 환경에선 제공하지 않아요. 대신 <b>번갈아 듣기</b>로 원어민과 내 소리를 직접 비교해보세요.</div>
+    const pace = ratio ? (ratio > 1.25 ? '조금 느려요' : ratio < 0.8 ? '조금 빨라요' : '속도 비슷해요') : null;
+    $('.sh-res', el).innerHTML = `<div class="cmp">
+      <div class="cmp-head"><span class="label">MY SHADOW</span>${recall != null ? `<span class="score">${recall}<small>%</small></span>` : ''}</div>
+      ${d ? diffHTML(d) : `<div class="small muted">인식된 말이 없어요 · 녹음을 들으며 비교해보세요</div>`}
+      ${an?.peaks ? waveHTML(an.peaks) : ''}
+      ${ratio || an?.speechSec ? `<div class="stats">${ratio ? `<div><b>${ratio.toFixed(2)}배</b><span>길이 · ${pace}</span></div>` : ''}${an?.speechSec ? `<div><b>${an.pauses}번</b><span>0.3초+ 끊김</span></div>` : ''}</div>` : ''}
+      <div class="tiny muted">발음·억양 점수는 무료 환경에서 미지원 · 번갈아 듣기로 비교해요</div>
     </div>`;
-    onResult?.({ text: res.text, recall: d ? Math.round(d.keyRecall * 100) : null, ratio, pauses: an?.pauses ?? null });
+    onResult?.({ text: res.text, recall, ratio, pauses: an?.pauses ?? null });
   }
   return { stop: () => { playing?.stop(); cap?.stop(); } };
 }

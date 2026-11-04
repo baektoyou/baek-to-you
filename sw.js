@@ -1,5 +1,5 @@
 // BAEK TO YOU service worker — 앱 셸 오프라인 캐시 (YouTube 영상은 온라인 필요)
-const CACHE = 'baek-to-you-v1';
+const CACHE = 'baek-to-you-v2';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/app.js', './js/store.js', './js/speech.js', './js/yt.js', './js/compare.js', './js/talk-engine.js',

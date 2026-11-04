@@ -23,15 +23,71 @@ export function stem(w) {
   return SYN[w] || w;
 }
 
-// 단어 LCS diff → [{w, op:'same'|'miss'|'extra'}]
+// ---------- 유사 발음 매칭 (STT가 고유명사·신조어를 다르게 받아 적어도 맞은 걸로) ----------
+function lev(a, b) {
+  const m = a.length, n = b.length; if (!m || !n) return m || n;
+  let prev = Array.from({ length: n + 1 }, (_, j) => j);
+  for (let i = 1; i <= m; i++) {
+    const cur = [i];
+    for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[n];
+}
+// 대략적인 소리 키: 철자 차이(ph/f, c/k, 모음 등)를 뭉개서 비교
+export function phon(w) {
+  return w.toLowerCase().replace(/[^a-z]/g, '')
+    .replace(/ph/g, 'f').replace(/gh/g, 'g').replace(/ck|q/g, 'k').replace(/c(?=[eiy])/g, 's').replace(/c/g, 'k')
+    .replace(/x/g, 'ks').replace(/z/g, 's').replace(/wh/g, 'w').replace(/v/g, 'b').replace(/th/g, 't')
+    .replace(/(?!^)[aeiouyhw]+/g, '').replace(/(.)\1+/g, '$1');
+}
+export function near(a, b) {
+  if (a === b) return true;
+  if (Math.min(a.length, b.length) === 3 && Math.max(a.length, b.length) === 4 && a[0] === b[0] && !STOP.has(a) && !STOP.has(b) && lev(a, b) === 1) return true;
+  if (a.length < 4 || b.length < 4) return false;
+  const sim = 1 - lev(a, b) / Math.max(a.length, b.length);
+  const pa = phon(a), pb = phon(b);
+  if (Math.max(a.length, b.length) <= 5) return sim >= 0.75 && pa === pb; // 짧은 단어는 엄격하게 (were/where 등 문법 차이 보존)
+  if (sim >= 0.75) return true;
+  return pa.length >= 3 && (pa === pb || (pa.length >= 4 && 1 - lev(pa, pb) / Math.max(pa.length, pb.length) >= 0.75 && sim >= 0.5));
+}
+// "back hyun" → "baekhyun" 처럼 띄어 받아 적은 단어를 예시 단어에 맞춰 합치기
+function mergeSplits(a, b) {
+  const bs = new Set(b.map(stem)), out = [];
+  for (let i = 0; i < a.length; i++) {
+    let hit = null;
+    for (const n of [3, 2]) {
+      if (i + n > a.length) continue;
+      const parts = a.slice(i, i + n);
+      if (parts.filter(p => bs.has(stem(p))).length > 0) continue;
+      const j = parts.join('');
+      const t = b.find(w => w.length >= 5 && !a.includes(w) && (w === j || near(j, w)));
+      if (t) { hit = { t, n, heard: parts.join(' ') }; break; }
+    }
+    if (hit) { out.push({ w: hit.t, heard: hit.heard }); i += hit.n - 1; }
+    else out.push({ w: a[i] });
+  }
+  return out;
+}
+
+// 단어 LCS diff → [{w, op:'same'|'near'|'miss'|'extra', heard?}]
 export function diff(user, target) {
-  const a = tokens(user), b = tokens(target);
+  const b = tokens(target);
+  const ua = mergeSplits(tokens(user), b);
+  const a = ua.map(x => x.w);
   const as = a.map(stem), bs = b.map(stem);
-  const n = a.length, m = b.length, L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = as[i] === bs[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const n = a.length, m = b.length;
+  const eq = (i, j) => as[i] === bs[j] ? (ua[i].heard ? 2 : 1) : (near(a[i], b[j]) || near(as[i], bs[j]) ? 2 : 0);
+  const E = Array.from({ length: n }, (_, i) => Array.from({ length: m }, (_, j) => eq(i, j)));
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = E[i][j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
   const ops = []; let i = 0, j = 0;
+  const matched = new Set();
   while (i < n && j < m) {
-    if (as[i] === bs[j]) { ops.push({ w: b[j], op: 'same' }); i++; j++; }
+    if (E[i][j] && L[i][j] === L[i + 1][j + 1] + 1) {
+      ops.push(E[i][j] === 2 ? { w: b[j], op: 'near', heard: ua[i].heard || a[i] } : { w: b[j], op: 'same' });
+      matched.add(j); i++; j++;
+    }
     else if (L[i + 1][j] >= L[i][j + 1]) { ops.push({ w: a[i], op: 'extra' }); i++; }
     else { ops.push({ w: b[j], op: 'miss' }); j++; }
   }
@@ -39,11 +95,12 @@ export function diff(user, target) {
   while (j < m) ops.push({ w: b[j++], op: 'miss' });
   const lcs = L[0][0];
   const overlap = n + m ? (2 * lcs) / (n + m) : 0;
-  const content = b.filter(w => !STOP.has(w)).map(stem);
-  const uset = new Set(as);
-  const hit = content.filter(w => uset.has(w)).length;
+  // 핵심 단어: 순서와 상관없이 비슷하게라도 말했으면 인정
+  const hitWord = w => as.some((x, k) => x === stem(w) || near(a[k], w));
+  const content = b.filter(w => !STOP.has(w));
+  const hit = content.filter(hitWord).length;
   const keyRecall = content.length ? hit / content.length : overlap;
-  const missingKeys = [...new Set(b.filter(w => !STOP.has(w) && !uset.has(stem(w))))];
+  const missingKeys = [...new Set(content.filter(w => !hitWord(w)))];
   return { ops, overlap, keyRecall, missingKeys, score: Math.round((overlap * 0.5 + keyRecall * 0.5) * 100) };
 }
 
