@@ -23,15 +23,6 @@ export function settings(root) {
     <div class="sec-title label">VIDEOS · ${db.videos.length}</div>
     ${db.videos.length ? `<div class="list">${db.videos.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
 
-    <div class="sec-title label">ENGLISH VOICE</div>
-    <div class="card stack">
-      <label class="field"><span>음성</span><select class="input" id="voice" aria-label="영어 음성"></select></label>
-      <div class="tiny muted" id="vnow"></div>
-      <div class="slider"><span>속도</span><input type="range" id="rate" min="0.6" max="1.2" step="0.02" value="${st.rate}"><b id="rv" class="en">${(+st.rate).toFixed(2)}x</b></div>
-      <div class="slider"><span>톤</span><input type="range" id="pitch" min="0.8" max="1.2" step="0.02" value="${st.pitch || 1}"><b id="pv" class="en">${(+(st.pitch || 1)).toFixed(2)}</b></div>
-      <button class="btn soft block" id="vt">${ic('speaker')} 음성 미리 듣기</button>
-      <p class="tiny muted">기기에 설치된 음성 중 부드러운 남성 영어 음성을 우선 골라요. 저장한 음성이 없는 기기에서는 추천 1순위로 자동 대체돼요. 실제 인물의 목소리를 흉내 내지 않아요.</p>
-    </div>
 
     <div class="sec-title label">SPEECH RECOGNITION</div>
     <div class="card stack">
@@ -43,17 +34,6 @@ export function settings(root) {
       <p class="tiny muted">녹음은 직접 끝내기를 눌러야만 끝나요. 브라우저가 인식을 끊으면 자동으로 다시 이어서 들어요. 비교할 때 축약형·대소문자·문장부호 차이는 무시해요.</p>
     </div>
 
-    <div class="sec-title label">YOUTUBE</div>
-    <div class="card stack yt-info">
-      <p class="small">앱 안의 영상은 YouTube 공식 임베드 플레이어예요. Premium 혜택(광고 없음)은 이 플레이어가 브라우저의 YouTube 로그인 쿠키를 읽을 수 있을 때만 적용돼요.</p>
-      <ul class="small muted bullets">
-        <li>iPhone Safari는 기본적으로 다른 사이트의 쿠키를 막아서, 앱 안 플레이어는 로그인되지 않은 상태로 재생될 가능성이 높아요 (광고가 나올 수 있음).</li>
-        <li>홈 화면 앱(PWA)은 Safari와 쿠키 저장소가 따로라 로그인이 공유되지 않아요.</li>
-        <li>광고 차단이나 로그인 우회는 하지 않아요.</li>
-      </ul>
-      <p class="small"><b>대안:</b> 각 문장 화면 오른쪽 위 ${ic('external')} 버튼으로 <b>YouTube 앱에서 그 구간</b>을 바로 열 수 있어요. 앱에서는 Premium이 그대로 적용돼요.</p>
-    </div>
-
     <div class="sec-title label">DATA</div>
     <div class="list">
       <button class="li" id="exp"><div class="ic">${ic('download')}</div><div class="grow"><b>JSON 백업</b><small>영상·문장·SAVED·학습 기록·설정 (녹음 파일 제외)</small></div></button>
@@ -62,11 +42,20 @@ export function settings(root) {
       <button class="li" id="rst"><div class="ic danger">${ic('trash')}</div><div class="grow"><b>모든 데이터 초기화</b></div></button>
     </div>
 
+    <details class="adv help"><summary>YouTube Premium 안내</summary><div class="stack yt-info">
+      <p class="small">앱 안의 영상은 YouTube 공식 임베드 플레이어예요. Premium 혜택(광고 없음)은 이 플레이어가 브라우저의 YouTube 로그인 쿠키를 읽을 수 있을 때만 적용돼요.</p>
+      <ul class="small muted bullets">
+        <li>iPhone Safari는 기본적으로 다른 사이트의 쿠키를 막아서, 앱 안 플레이어는 로그인되지 않은 상태로 재생될 가능성이 높아요 (광고가 나올 수 있음).</li>
+        <li>홈 화면 앱(PWA)은 Safari와 쿠키 저장소가 따로라 로그인이 공유되지 않아요.</li>
+        <li>광고 차단이나 로그인 우회는 하지 않아요.</li>
+        <li>시도해볼 설정: iPhone 설정 › 앱 › Safari › ‘크로스 사이트 추적 방지’ 끄기 + Safari에서 youtube.com 로그인 → 이 앱을 Safari 탭에서 열기</li>
+      </ul>
+      <p class="small"><b>대안:</b> 문장 화면의 영상 아래 ${ic('external')} 버튼으로 <b>YouTube 앱에서 그 구간</b>을 바로 열 수 있어요. 앱에서는 Premium이 그대로 적용돼요.</p>
+    </div></details>
     <details class="adv help"><summary>이 기기 · 앱 정보</summary>
       <div class="small dev-info">
         ${row(S.support.stt, '음성 인식', S.support.ios ? 'iPhone: 설정 › 일반 › 키보드 › 받아쓰기 켜기' : S.support.browser)}
-        ${row(S.support.tts, '영어 음성', `${S.enVoices().length}개 · 남성 ${S.enVoices().filter(S.isMale).length}개`)}
-        ${row(S.support.rec, '녹음', '쉐도잉 · 인식 미지원 시 녹음 모드')}
+        ${row(S.support.rec, '녹음', '음성 인식 미지원 시 녹음 모드')}
         ${row(S.support.standalone, '홈 화면 앱', S.support.standalone ? 'PWA 모드' : '공유 › 홈 화면에 추가')}
       </div>
       <div class="row ver-row"><span class="tiny muted grow">버전 <span class="en">${esc(APP_VERSION)}</span></span><button class="btn xs soft" id="upd">${ic('refresh')} 업데이트 확인</button></div>
@@ -98,20 +87,6 @@ export function settings(root) {
     catch { urlIn.focus(); toast('입력칸을 길게 눌러 붙여넣어 주세요'); }
   };
 
-  // 음성
-  const vsel = $('#voice', root);
-  const fillVoices = () => {
-    const vs = S.enVoices(); const male = vs.filter(S.isMale), other = vs.filter(v => !S.isMale(v));
-    const opt = v => `<option value="${esc(v.voiceURI)}" ${v.voiceURI === D.get().settings.voiceURI ? 'selected' : ''}>${esc(v.name)} · ${esc(v.lang)}</option>`;
-    vsel.innerHTML = vs.length ? `<option value="">자동 추천 (부드러운 남성 음성 우선)</option>${male.length ? `<optgroup label="남성 음성">${male.map(opt).join('')}</optgroup>` : ''}${other.length ? `<optgroup label="기타 영어 음성">${other.map(opt).join('')}</optgroup>` : ''}` : '<option value="">영어 음성을 찾지 못했어요</option>';
-    const cur = S.pickVoice();
-    $('#vnow', root).textContent = cur ? `지금 사용 중: ${cur.name} (${cur.lang})${S.isMale(cur) ? '' : ' · 이 기기에서 남성 음성을 찾지 못해 대체 음성을 써요'}` : '이 기기에 영어 음성이 없어요';
-  };
-  fillVoices(); setTimeout(fillVoices, 700); setTimeout(fillVoices, 2000);
-  vsel.onchange = () => { D.setSetting('voiceURI', vsel.value); fillVoices(); S.speak("Hi, it's nice to see you again."); };
-  $('#rate', root).oninput = e => { $('#rv', root).textContent = (+e.target.value).toFixed(2) + 'x'; D.setSetting('rate', +e.target.value); };
-  $('#pitch', root).oninput = e => { $('#pv', root).textContent = (+e.target.value).toFixed(2); D.setSetting('pitch', +e.target.value); };
-  $('#vt', root).onclick = () => S.speak("Hey, how was your day? I've been thinking about you guys a lot lately.");
 
   // 인식
   $('#sttlang', root).onchange = e => { D.setSetting('sttLang', e.target.value); toast('인식 언어를 바꿨어요'); };
@@ -214,7 +189,6 @@ function mountSync(el) {
 export function videoEditor(root, vid) {
   const v = D.video(vid); if (!v) { location.hash = '#/settings'; return () => { }; }
   const us = D.uttsOf(vid);
-  const dupLv = us.filter(u => u.en.natural && u.en.advanced && u.en.natural.trim().toLowerCase() === u.en.advanced.trim().toLowerCase()).length;
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>영상 관리</h2><a class="icon-btn" href="#/video/${v.id}" aria-label="학습하기">${ic('play')}</a></header>
     <div class="player" id="pl"></div>
@@ -225,7 +199,6 @@ export function videoEditor(root, vid) {
       <button class="btn sm soft" id="rep-j" ${us.length ? '' : 'disabled'}>${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm line danger-line" id="clr" ${us.length ? '' : 'disabled'}>${ic('trash')} 문장 전체 삭제</button>
     </div>
-    ${dupLv ? `<div class="note warn">${dupLv}개 문장의 Natural과 Advanced가 같아요. 새 프롬프트로 JSON을 다시 만들어 ‘교체’하거나 ✎로 직접 고칠 수 있어요.</div>` : ''}
     ${us.length ? `<div class="ulist">${us.map(u => `<div class="uitem"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div>
       <div class="ued-btns"><a class="mini" href="#/settings/utt/${v.id}/${u.id}" aria-label="편집">${ic('edit')}</a><button class="mini" data-del="${u.id}" aria-label="삭제">${ic('trash')}</button></div></div>`).join('')}</div>`
       : `<div class="note">‘JSON 추가’에서 Claude용 프롬프트를 복사해 문장을 한 번에 만들어보세요.</div>`}
@@ -251,14 +224,14 @@ export function videoEditor(root, vid) {
 
 const PROMPT = v => `아래 YouTube 영상(${v.title} / https://youtu.be/${v.ytId})에서 백현이 실제로 말한 한국어 발화를 내가 적어줄게. 각 발화를 BAEK TO YOU 앱용 JSON 배열로 만들어줘. 백현이가 하지 않은 말을 지어내지 말고, 내가 준 발화와 시간만 사용해줘.
 
-영어 레벨 규칙 (세 문장이 서로 달라야 해):
-- easy: 영어 초보자도 바로 말할 수 있는 짧고 쉬운 문장 (기본 어휘, 단순 구조)
-- natural: 원어민이 일상 대화에서 실제로 쓰는 자연스러운 문장 (축약형·구어체 OK)
-- advanced: 더 풍부한 어휘·관용 표현·다른 문장 구조를 쓴 문장. 단, 억지로 어렵게 만들지 말고 실제 회화에서 자연스럽게 쓸 수 있는 표현으로
-- natural과 advanced가 같은 문장이면 안 돼. 차이가 거의 없으면 advanced는 다른 구조/관용 표현으로 바꿔줘.
+영어 문장 규칙 (natural 하나만):
+- natural: 원어민이 일상 대화에서 실제로 쓰는 자연스러운 중급 영어 한 문장(또는 짧은 두 문장)
+- 한국어 원문의 의미를 하나도 빠뜨리지 말 것 (누가·무엇을·언제·감정·뉘앙스 모두)
+- 원문에 없는 내용은 절대 추가하지 말 것 (설명, 꾸밈말, 감탄사 덧붙이지 않기)
+- easy / advanced 필드는 만들지 말 것
 
 형식 (JSON만 출력):
-[{"start":"0:12","end":"0:17","ko":"한국어 원문","easy":"쉬운 영어","natural":"자연스러운 영어","advanced":"풍부한 영어","pattern":"핵심 패턴 (예: I've been ~ing)","patternKo":"패턴 의미 (예: 최근부터 지금까지 계속 ~하고 있어)","examples":["같은 패턴의 일상 예문 1","예문 2","예문 3"],"question":"이 패턴으로 내 이야기를 하게 하는 한국어 질문 (예: 요즘 계속하고 있는 일이 있나요?)","frame":"빈칸 문장 (예: I've been ______.)","topics":["food"],"emotion":"happy","type":"question","keywords":["eat","dinner"],"hint":"TALK 대답 힌트 (영어 2~5단어)","replies":["이 말에 팬이 할 법한 자연스러운 영어 대답 1","대답 2"]}]
+[{"start":"0:12","end":"0:17","ko":"한국어 원문","natural":"자연스러운 영어","pattern":"natural 문장의 핵심 패턴 (예: I've been ~ing)","patternKo":"패턴 의미 (예: 최근부터 지금까지 계속 ~하고 있어)","question":"이 패턴으로 내 이야기를 하게 하는 한국어 질문 (예: 요즘 계속하고 있는 일이 있나요?)","frame":"빈칸 문장 (예: I've been ______.)","topics":["food"],"emotion":"happy","type":"question","keywords":["eat","dinner"],"hint":"TALK 대답 힌트 (영어 2~5단어)","replies":["이 말에 팬이 할 법한 자연스러운 영어 대답 1","대답 2"]}]
 topics는 ${Object.keys(TOPICS).join(', ')} 중에서, type은 ${TYPES.join(', ')} 중에서, emotion은 ${EMOTIONS.join(', ')} 중에서 골라줘.
 
 내 발화 목록:
@@ -270,7 +243,7 @@ function jsonSheet(v, mode, done) {
   const s = sheet(`<h3>${mode === 'replace' ? 'JSON으로 문장 교체' : 'JSON으로 문장 추가'}</h3>
     <p class="sheet-p">${mode === 'replace' ? `이 영상의 기존 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '기존 문장은 그대로 두고 새 문장을 <b>뒤에 추가</b>해요.'}</p>
     <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button><label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
-    <textarea class="textarea mono" id="js" placeholder='[{"start":"0:12","end":"0:17","ko":"...","easy":"...","natural":"...","advanced":"..."}]'></textarea>
+    <textarea class="textarea mono" id="js" placeholder='[{"start":"0:12","end":"0:17","ko":"...","natural":"..."}]'></textarea>
     <div id="vres"></div>
     <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow ${mode === 'replace' ? 'danger' : ''}" id="go" disabled>${mode === 'replace' ? '교체하기' : '추가하기'}</button></div>`);
   let checked = null;
@@ -314,14 +287,10 @@ export function uttEditor(root, vid, uttId) {
     </div>
     <div class="row nudge-row"><button class="btn sm soft grow" id="prev">${ic('play')} 구간 미리 듣기</button><button class="btn sm soft" data-nudge="-0.5">−0.5s</button><button class="btn sm soft" data-nudge="0.5">+0.5s</button></div>
     <label class="field"><span>백현이 한국어 발화 (실제로 말한 그대로) *</span><textarea class="textarea" id="ko">${esc(u.ko)}</textarea></label>
-    <label class="field"><span>Easy · 초보자도 쉽게</span><textarea class="textarea en" id="easy">${esc(u.en.easy)}</textarea></label>
-    <label class="field"><span>Natural · 원어민 일상 대화 *</span><textarea class="textarea en" id="nat">${esc(u.en.natural)}</textarea></label>
-    <label class="field"><span>Advanced · 조금 더 풍부하게</span><textarea class="textarea en" id="adv">${esc(u.en.advanced)}</textarea></label>
-    <div class="note warn hide" id="lvwarn">Natural과 Advanced가 같아요. Advanced는 다른 구조나 관용 표현으로 바꿔보세요.</div>
+    <label class="field"><span>영어 추천 문장 (Natural) *</span><textarea class="textarea en" id="nat">${esc(u.en.natural || u.en.easy || u.en.advanced)}</textarea></label>
     <label class="field"><span>핵심 패턴 (예: I've been ~ing)</span><input class="input en" id="pat" value="${esc(u.pattern)}"></label>
-    <details class="adv" ${u.patternKo || u.examples.length || u.question ? 'open' : ''}><summary>APPLY 설정 (없으면 앱 기본값)</summary>
+    <details class="adv" ${u.patternKo || u.examples.length || u.question ? 'open' : ''}><summary>패턴 연습 설정 (없으면 앱 기본값)</summary>
       <label class="field"><span>패턴 의미</span><input class="input" id="pko" value="${esc(u.patternKo)}" placeholder="최근부터 지금까지 계속 ~하고 있어"></label>
-      <label class="field"><span>예문 (한 줄에 하나)</span><textarea class="textarea en" id="exs">${esc(u.examples.join('\n'))}</textarea></label>
       <label class="field"><span>내 문장 만들기 질문</span><input class="input" id="q" value="${esc(u.question)}" placeholder="요즘 계속하고 있는 일이 있나요?"></label>
       <label class="field"><span>빈칸 힌트</span><input class="input en" id="frame" value="${esc(u.frame)}" placeholder="I've been ______."></label>
     </details>
@@ -339,8 +308,6 @@ export function uttEditor(root, vid, uttId) {
   </div>`;
   const pl = new Player($('#pl', root)); pl.cue(v.ytId, u.start);
   const T = id => D.parseTime($('#' + id, root).value) ?? 0;
-  const lvw = () => { const a = $('#nat', root).value.trim().toLowerCase(), b = $('#adv', root).value.trim().toLowerCase(); $('#lvwarn', root).classList.toggle('hide', !(a && a === b)); };
-  $('#nat', root).oninput = lvw; $('#adv', root).oninput = lvw; lvw();
   $$('[data-now]', root).forEach(b => b.onclick = () => { const t = Math.round(pl.time() * 10) / 10; $('#' + b.dataset.now, root).value = fmtD(t); });
   $$('[data-nudge]', root).forEach(b => b.onclick = () => { const t = Math.max(0, T('en') + +b.dataset.nudge); $('#en', root).value = fmtD(t); });
   $('#prev', root).onclick = () => { const s = T('st'), e = T('en'); if (e <= s) return toast('끝 시간이 시작보다 커야 해요'); pl.playSegment(v.ytId, s, e); };
@@ -350,10 +317,11 @@ export function uttEditor(root, vid, uttId) {
     const ko = $('#ko', root).value.trim(), nat = $('#nat', root).value.trim();
     const s = T('st'), e = T('en');
     if (!ko) return toast('한국어 발화를 입력해주세요');
+    if (!nat) return toast('영어 추천 문장을 입력해주세요');
     if (e <= s) return toast('끝 시간이 시작보다 커야 해요');
     D.upsertUtt({
-      ...u, start: s, end: e, ko, en: { natural: nat, easy: $('#easy', root).value.trim(), advanced: $('#adv', root).value.trim() },
-      pattern: $('#pat', root).value.trim(), patternKo: $('#pko', root).value.trim(), examples: lines('exs'), question: $('#q', root).value.trim(), frame: $('#frame', root).value.trim(),
+      ...u, start: s, end: e, ko, en: { ...u.en, natural: nat },
+      pattern: $('#pat', root).value.trim(), patternKo: $('#pko', root).value.trim(), question: $('#q', root).value.trim(), frame: $('#frame', root).value.trim(),
       topics: [...tagSet], type: $('#type', root).value, emotion: $('#emo', root).value,
       keywords: $('#kw', root).value, hint: $('#hint', root).value.trim(), replies: lines('reps'), alts: lines('alts')
     });

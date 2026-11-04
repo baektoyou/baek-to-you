@@ -258,10 +258,10 @@ export function validateUtts(input) {
     const en = typeof raw.en === 'string' ? { easy: raw.easy || '', natural: raw.en, advanced: raw.advanced || '' }
       : { easy: raw.easy || raw.en?.easy || '', natural: raw.natural || raw.en?.natural || '', advanced: raw.advanced || raw.en?.advanced || '' };
     if (!raw.ko) errors.push(`${n}번: ko(한국어 원문)가 없어요`);
-    if (!en.natural && !en.easy && !en.advanced) errors.push(`${n}번: 영어 표현(natural 등)이 없어요`);
+    if (!en.natural && !en.easy && !en.advanced) errors.push(`${n}번: natural(영어 문장)이 없어요`);
+    else if (!en.natural) { en.natural = en.easy || en.advanced; warns.push(`${n}번: natural이 없어서 다른 영어 문장을 사용해요`); }
     const s = start ?? 0, e = end ?? 0;
     if (end != null && e <= s) warns.push(`${n}번: end가 start보다 작아 5초 구간으로 맞춰요`);
-    if (en.natural && en.advanced && normText(en.natural) === normText(en.advanced)) warns.push(`${n}번: Natural과 Advanced가 같아요`);
     items.push({ ...raw, start: s, end: e > s ? e : s + 5, en });
   });
   return { ok: !errors.length && items.length > 0, errors: errors.length ? errors : (items.length ? [] : ['문장이 0개예요']), warns, items };

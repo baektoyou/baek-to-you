@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, sheet, compareCard, h } from './ui.js';
+import { esc, $, $$, ic, toast, sheet, h } from './ui.js';
 import { pickNext, firstClip, appQuestion, hintFor, KEEP, detectTopics } from './talk-engine.js';
 import { mistakes, best } from './compare.js';
 
@@ -23,7 +23,7 @@ export function talk(root) {
   document.body.classList.add('in-call');
   let stopCall = () => { };
   $('#dec', root).onclick = () => { document.body.classList.remove('in-call'); location.hash = '#/video'; };
-  $('#acc', root).onclick = () => { if (S.support.tts) { const w = new SpeechSynthesisUtterance(' '); w.volume = 0; speechSynthesis.speak(w); } stopCall = startCall(root, utts); };
+  $('#acc', root).onclick = () => { stopCall = startCall(root, utts); };
   return () => { stopCall(); document.body.classList.remove('in-call'); };
 }
 
@@ -96,9 +96,9 @@ function startCall(root, utts) {
 
   function appBubble(text, extra = '') {
     const m = h(`<div class="msg app"><div class="av">B2U</div><div class="col"><span class="who">앱 질문</span><div class="bub en">${esc(text)}</div>
-      <div class="meta-row"><button class="chip" data-a="tts" aria-label="듣기">${ic('speaker')}</button>${extra}</div></div></div>`);
+      ${extra ? `<div class="meta-row">${extra}</div>` : ''}</div></div>`);
     chat.appendChild(m); scroll();
-    m.addEventListener('click', e => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'tts') S.speak(text); if (a === 'switch') switchTopic(); });
+    m.addEventListener('click', e => { const a = e.target.closest('[data-a]')?.dataset.a; if (a === 'switch') switchTopic(); });
     st.transcript.push({ who: 'app', text }); status('', '내 차례 · 영어로 대답해요');
     return m;
   }
@@ -198,10 +198,9 @@ function startCall(root, utts) {
       <div class="card gray"><div class="small muted">내 답변</div><div class="en" style="font-size:16px;margin-top:4px">“${esc(text)}”</div></div>
       ${mk.length ? `<div class="note warn" style="margin-top:10px">${mk.map(x => `<b>${esc(x.from)}</b> → <b>${esc(x.to)}</b> · ${esc(x.why)}`).join('<br>')}</div>` : ''}
       <div class="sec-title label">자연스러운 답변 예시</div>
-      ${reps.length ? `<div class="stack">${reps.map(r => `<div class="card row"><div class="en grow" style="font-size:15px">${esc(r)}</div><button class="mini" data-tts="${esc(r)}">${ic('speaker')}</button></div>`).join('')}</div><div style="margin-top:10px">${compareCard(text, reps.map(r => ({ label: '예시', text: r })), { title: 'VS EXAMPLE' })}</div>`
+      ${reps.length ? `<div class="stack">${reps.map(r => `<div class="card"><div class="en" style="font-size:15px">${esc(r)}</div></div>`).join('')}</div>`
         : `<div class="note">${replyTo ? '이 발화엔 답변 예시가 없어요 (문장 편집 › 답변 예시).' : '앱 질문엔 답변 예시가 없어요.'}</div>`}
       <button class="btn block" id="again" style="margin-top:14px">${ic('mic')} 더 좋게 다시 말하기</button>`);
-    $$('[data-tts]', s).forEach(b => b.onclick = () => S.speak(b.dataset.tts));
     $('#again', s).onclick = async () => {
       const b = $('#again', s);
       if (!S.support.stt) { s.close(); toggleType(true); return; }

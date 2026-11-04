@@ -2,19 +2,15 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, micBlock, levelBoard, shadowBlock, levelsOf, targetsOf, diffHTML, hintBlock, ytLink, distinctLevels } from './ui.js';
-import { best } from './compare.js';
-import { applyFlow } from './apply.js';
+import { esc, $, $$, ic, toast, micBlock, ytLink, flashcard, compareRows, natOf } from './ui.js';
+import { patternSpeak } from './apply.js';
 
-const STEPS = ['watch', 'speak', 'check', 'shadow', 'retry', 'apply'];
-const STEP_INFO = {
-  watch: ['WATCH', '백현이 목소리로 먼저 들어봐요'],
-  speak: ['SPEAK', '정답을 보기 전에 영어로 먼저 말해봐요'],
-  check: ['CHECK', '내 답과 Easy · Natural · Advanced 비교'],
-  shadow: ['SHADOW', '듣고 리듬 그대로 따라 말하기'],
-  retry: ['RETRY', '정답 없이 한 번 더'],
-  apply: ['APPLY', '배운 패턴으로 내 이야기 하기']
-};
+// 영상 듣기 → 영어로 말하기 → 추천 문장 확인 → 보고 말하기 → 안 보고 말하기 → 패턴으로 새 문장
+const STEPS = ['listen', 'speak', 'check', 'read', 'recall', 'apply'];
+const LABEL = { listen: '영상 듣기', speak: '영어로 말하기', check: '추천 문장 확인', read: '보고 말하기', recall: '안 보고 말하기', apply: '패턴으로 말하기' };
+// 예전 단계 기록도 인정 (watch→listen, shadow→read, retry→recall)
+const LEGACY = { listen: 'watch', read: 'shadow', recall: 'retry' };
+export const stepDone = (st, k) => !!(st?.[k] || st?.[LEGACY[k]]);
 export const WORDMARK = `<h1 class="logo" aria-label="BAEK TO YOU"><b>BAEK</b> TO YOU</h1>`;
 
 export function videoList(root) {
@@ -46,9 +42,9 @@ export function videoDetail(root, vid) {
     <div class="vthumb hero-thumb" style="background-image:url('${thumb(v.ytId)}')"></div>
     <div class="row between sub-row"><span class="label">SENTENCES · ${us.length}</span><a class="link-sm" href="${ytLink(v.ytId)}" target="_blank" rel="noopener">${ic('external')} YouTube 앱에서 보기</a></div>
     ${us.length ? `<div class="ulist">${us.map(u => {
-      const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => st[s]).length;
+      const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => stepDone(st, s)).length;
       return `<a class="uitem" href="#/study/${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div>
-      <div class="dots">${STEPS.map(s => `<i class="${st[s] ? 'on' : ''}"></i>`).join('')}</div></div>${n === STEPS.length ? `<span class="done-badge">${ic('check')}</span>` : D.isSavedUtt(u.id) ? `<span class="mark-saved">${ic('bookmark')}</span>` : ''}</a>`;
+      <div class="dots">${STEPS.map(s => `<i class="${stepDone(st, s) ? 'on' : ''}"></i>`).join('')}</div></div>${n === STEPS.length ? `<span class="done-badge">${ic('check')}</span>` : D.isSavedUtt(u.id) ? `<span class="mark-saved">${ic('bookmark')}</span>` : ''}</a>`;
     }).join('')}</div>` : `<div class="empty"><b>등록된 문장이 없어요</b><p>영상 관리에서 JSON으로 문장을 추가해주세요</p><a class="btn" href="#/settings/video/${v.id}">문장 추가</a></div>`}
   </div>`;
 }
@@ -56,140 +52,84 @@ export function videoDetail(root, vid) {
 export function study(root, uttId, startStep) {
   const u = D.utt(uttId); if (!u) { location.hash = '#/video'; return () => { }; }
   const v = D.video(u.videoId); const list = D.uttsOf(u.videoId); const idx = list.findIndex(x => x.id === u.id);
-  const ctx = { first: '', shadow: null, retry: '' };
-  const lastSpeak = D.attemptsOf(u.id, 'speak').slice(-1)[0]; if (lastSpeak) ctx.first = lastSpeak.text;
-  let step = STEPS.includes(startStep) ? startStep : 'watch';
-  let cleanup = [];
-  const nat = u.en.natural || u.en.easy || u.en.advanced || '';
+  const en = natOf(u);
+  const ans = { speak: D.attemptsOf(u.id, 'speak').slice(-1)[0]?.text || '', read: '', recall: '' };
+  let step = STEPS.includes(startStep) ? startStep : 'listen';
+  let stops = [];
   root.innerHTML = `<div class="screen study">
     <header class="top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a><h2 class="ttl-sm">${idx + 1} / ${list.length}</h2>
-      <a class="icon-btn" href="${ytLink(v.ytId, u.start)}" target="_blank" rel="noopener" aria-label="YouTube 앱에서 이 구간 열기">${ic('external')}</a></header>
+      <button class="icon-btn save-btn" aria-label="SAVED에 저장">${ic('bookmark')}</button></header>
     <div class="player" id="pl"><div class="tap-hint hide">영상을 한 번 탭해서 재생해주세요</div></div>
     <div class="pctl">
       <button class="pbtn main" data-p="play">${ic('play')}<span>구간 재생</span></button>
       <button class="pbtn" data-p="toggle" aria-label="일시정지">${ic('pause')}</button>
-      <button class="pbtn" data-p="loop" aria-label="구간 반복">${ic('loop')}</button>
-      <button class="pbtn" data-p="slow">0.75x</button>
       <span class="time">${D.fmt(u.start)} – ${D.fmt(u.end)}</span>
+      <a class="pbtn" href="${ytLink(v.ytId, u.start)}" target="_blank" rel="noopener" aria-label="YouTube 앱에서 열기">${ic('external')}</a>
     </div>
-    <div class="subtitle"><span class="sub-tag">한국어 원문</span><p class="sub-ko">${esc(u.ko)}</p></div>
-    <nav class="stepper">${STEPS.map(s => `<button data-s="${s}"><i></i><span>${STEP_INFO[s][0]}</span></button>`).join('')}</nav>
-    <div id="body"></div>
-    <div class="nav-steps"><button class="btn soft" data-n="prev" aria-label="이전">${ic('back')}</button><button class="btn grow" data-n="next">다음</button></div>
+    <nav class="flow">${STEPS.map((s, i) => `<button data-s="${s}" aria-label="${LABEL[s]}"><i></i></button>`).join('')}<span class="flow-l"></span></nav>
+    <div id="card"></div>
+    <div id="zone"></div>
+    <button class="btn block next-btn" id="next"></button>
   </div>`;
   const tog = $('[data-p=toggle]', root);
-  const paintTog = () => { const p = pl.playing; tog.innerHTML = ic(p ? 'pause' : 'play'); tog.setAttribute('aria-label', p ? '일시정지' : '이어보기'); tog.classList.toggle('on', !p && !!pl.seg); };
+  const paintTog = () => { const p = pl.playing; tog.innerHTML = ic(p ? 'pause' : 'play'); tog.setAttribute('aria-label', p ? '일시정지' : '이어보기'); };
   const pl = new Player($('#pl', root), { onState: s => { if (s === 'blocked') $('.tap-hint', root).classList.remove('hide'); if (s === 'playing') $('.tap-hint', root).classList.add('hide'); paintTog(); } });
   pl.cue(v.ytId, u.start);
-  let slow = false;
-  const play = () => { S.stopSpeak(); D.markStep(u.id, 'watch'); return pl.playSegment(v.ytId, u.start, u.end); };
-  // 말하기 시작 → 영상 자동 일시정지 (마이크 종료와는 별개, 이어보기는 ⏯ 버튼)
-  const autoPause = () => { if (D.get().settings.autoPause !== false && pl.playing) { pl.pause(); toast('말하는 동안 영상을 멈췄어요 · ⏯로 이어보기'); } };
+  const play = () => { D.markStep(u.id, 'listen'); return pl.playSegment(v.ytId, u.start, u.end); };
+  const autoPause = () => { if (D.get().settings.autoPause !== false && pl.playing) pl.pause(); };
   $$('[data-p]', root).forEach(b => b.onclick = () => {
-    const a = b.dataset.p;
-    if (a === 'play') { play(); paintSteps(); }
-    if (a === 'toggle') { if (pl.playing) pl.pause(); else if (pl.seg) pl.resume(); else play(); }
-    if (a === 'loop') { pl.loop = !pl.loop; b.classList.toggle('on', pl.loop); toast(pl.loop ? '구간 반복 켬' : '구간 반복 끔'); if (pl.loop && !pl.seg) play(); }
-    if (a === 'slow') { slow = !slow; pl.rate(slow ? 0.75 : 1); b.classList.toggle('on', slow); }
+    if (b.dataset.p === 'play') play();
+    if (b.dataset.p === 'toggle') { if (pl.playing) pl.pause(); else if (pl.seg) pl.resume(); else play(); }
   });
-  const saveLevel = level => {
-    if (D.isSavedUtt(u.id, level)) { toast('이미 SAVED에 있어요'); return; }
-    const r = D.saveExpr({ kind: 'utt', level, uttId: u.id, ko: u.ko, en: { ...u.en }, text: u.en[level], pattern: u.pattern });
-    toast(r.dup ? '같은 문장이 이미 SAVED에 있어요' : `${level[0].toUpperCase() + level.slice(1)} 표현을 SAVED에 저장했어요`);
+  const saveBtn = $('.save-btn', root);
+  const paintSave = () => saveBtn.classList.toggle('on', D.isSavedUtt(u.id));
+  saveBtn.onclick = () => {
+    if (D.isSavedUtt(u.id)) return toast('이미 SAVED에 있어요');
+    const r = D.saveExpr({ kind: 'utt', level: 'natural', uttId: u.id, ko: u.ko, en: { ...u.en }, text: en, pattern: u.pattern });
+    toast(r.dup ? '이미 SAVED에 있어요' : 'SAVED에 저장했어요'); paintSave();
   };
-
-  function paintSteps() {
-    const st = D.get().progress[u.id]?.steps || {};
-    $$('.stepper button', root).forEach(b => { b.classList.toggle('on', b.dataset.s === step); b.classList.toggle('done', !!st[b.dataset.s]); });
+  paintSave();
+  $$('.flow [data-s]', root).forEach(b => b.onclick = () => go(b.dataset.s));
+  $('#next', root).onclick = () => {
     const i = STEPS.indexOf(step);
-    $('[data-n=prev]', root).disabled = i === 0;
-    $('[data-n=next]', root).classList.toggle('soft', step === 'speak');
-    $('.nav-steps', root).classList.toggle('sub', step === 'apply');
-    $('[data-n=next]', root).textContent = i === STEPS.length - 1 ? (list[idx + 1] ? '다음 문장 →' : '완료') : `${STEP_INFO[STEPS[i + 1]][0]} →`;
-    // CHECK 이후엔 자막 영역에 Natural 영어도 표시
-    const sub = $('.subtitle', root);
-    sub.querySelector('.sub-en')?.remove();
-    if (i >= 2 && nat && step !== 'retry') sub.insertAdjacentHTML('beforeend', `<div class="sub-en"><span class="sub-tag en-tag">English · Natural</span><p class="en">${esc(nat)}</p></div>`);
-  }
-  $$('.stepper button', root).forEach(b => b.onclick = () => go(b.dataset.s));
-  $('[data-n=prev]', root).onclick = () => { const i = STEPS.indexOf(step); if (i > 0) go(STEPS[i - 1]); };
-  $('[data-n=next]', root).onclick = () => {
-    const i = STEPS.indexOf(step);
-    if (step !== 'speak' && step !== 'retry' && step !== 'apply') D.markStep(u.id, step);
-    if (i < STEPS.length - 1) go(STEPS[i + 1]);
+    record();
+    if (i < STEPS.length - 1) go(STEPS[i + 1], true);
     else if (list[idx + 1]) location.hash = `#/study/${list[idx + 1].id}`;
     else { toast('이 영상의 마지막 문장이에요'); location.hash = `#/video/${v.id}`; }
   };
-
-  function go(s) {
-    cleanup.forEach(f => f()); cleanup = []; S.stopSpeak();
-    step = s; const body = $('#body', root);
-    body.innerHTML = `<p class="step-desc">${STEP_INFO[s][1]}</p><div id="sb" class="step-body"></div>`;
-    const sb = $('#sb', body);
-    ({ watch, speak, check, shadow, retry, apply })[s](sb);
-    paintSteps();
+  function record() {
+    const t = ans[step];
+    if (t && ['speak', 'read', 'recall'].includes(step)) D.addAttempt({ uttId: u.id, step, text: t });
+    if (step !== 'apply') D.markStep(u.id, step);
   }
-
-  function watch(el) {
-    el.innerHTML = `<button class="btn block" id="w-play">${ic('play')} 백현이 목소리로 듣기</button>
-      <p class="tiny muted center-t">들은 뒤 SPEAK에서 영어로 먼저 말해봐요</p>`;
-    $('#w-play', el).onclick = () => { play(); paintSteps(); };
-  }
-  function speak(el) {
-    el.innerHTML = `<div id="hint"></div><div id="m"></div>
-      <div class="row"><button class="btn soft" id="re" aria-label="구간 다시 듣기">${ic('replay')}</button><button class="btn grow" id="ok" ${ctx.first ? '' : 'disabled'}>정답 확인</button></div>
-      <button class="link-sm skip" id="skip">모르겠어요 · 정답 먼저 보기</button>`;
-    hintBlock($('#hint', el), { text: nat, pattern: u.pattern });
-    const m = micBlock($('#m', el), { targets: () => targetsOf(u), onStart: autoPause, onResult: t => setFirst(t), onEdit: t => setFirst(t) });
-    cleanup.push(() => m.stop());
-    if (ctx.first) m.text = ctx.first;
-    function setFirst(t) { ctx.first = t; $('#ok', el).disabled = !t; }
-    $('#re', el).onclick = play;
-    $('#ok', el).onclick = () => { if (!ctx.first) return; D.addAttempt({ uttId: u.id, step: 'speak', text: ctx.first }); D.markStep(u.id, 'speak'); go('check'); };
-    $('#skip', el).onclick = () => go('check');
-  }
-  function check(el) {
-    el.innerHTML = `<div id="fc"></div>${ctx.first ? '' : `<button class="btn soft block" id="try">${ic('mic')} 먼저 말해보기</button>`}
-      <p class="tiny muted">마음에 드는 표현은 ${ic('bookmark')}로 레벨별 저장할 수 있어요</p>`;
-    levelBoard($('#fc', el), u, { answer: ctx.first, isSaved: k => D.isSavedUtt(u.id, k), onSave: saveLevel, onShadow: t => { ctx.shadowText = t; go('shadow'); } });
-    D.markStep(u.id, 'check');
-    $('#try', el) && ($('#try', el).onclick = () => go('speak'));
-  }
-  function shadow(el) {
-    const lv = distinctLevels(u);
-    let text = ctx.shadowText || nat || lv[0]?.text;
-    if (!text) { el.innerHTML = '<div class="note">쉐도잉할 영어 예시가 없어요.</div>'; return; }
-    el.innerHTML = `${lv.length > 1 ? `<div class="seg mini-seg">${lv.map(l => `<button data-k="${esc(l.text)}" class="${l.text === text ? 'on' : ''}">${l.label}</button>`).join('')}</div>` : ''}<div id="sh"></div>`;
-    const mount = () => { const s = shadowBlock($('#sh', el), text, { onResult: r => { ctx.shadow = r; D.addAttempt({ uttId: u.id, step: 'shadow', text: r.text, score: r.recall }); D.markStep(u.id, 'shadow'); paintSteps(); } }); cleanup.push(s.stop); };
-    $$('[data-k]', el).forEach(b => b.onclick = () => { text = b.dataset.k; ctx.shadowText = text; $$('[data-k]', el).forEach(x => x.classList.toggle('on', x === b)); cleanup.forEach(f => f()); mount(); });
-    if (pl.playing) pl.pause();
-    mount();
-  }
-  function retry(el) {
-    el.innerHTML = `<div id="hint"></div><div id="m"></div><div id="rc"></div>`;
-    hintBlock($('#hint', el), { text: nat, pattern: u.pattern });
-    const m = micBlock($('#m', el), { targets: () => targetsOf(u), onStart: autoPause, onResult: t => show(t), onEdit: t => show(t, true) });
-    cleanup.push(() => m.stop());
-    function show(t, quiet) {
-      ctx.retry = t; if (!t) { $('#rc', el).innerHTML = ''; return; }
-      const cands = levelsOf(u);
-      const now = best(t, cands), before = ctx.first ? best(ctx.first, cands) : null;
-      if (!now) return;
-      const delta = before ? now.d.score - before.d.score : null;
-      $('#rc', el).innerHTML = `<div class="cmp">
-        <div class="cmp-head"><span class="label">RETRY · ${esc(now.label)} 기준</span><span class="score">${now.d.score}<small>%</small>${delta != null ? `<em class="${delta >= 0 ? 'up' : 'down'}">${delta >= 0 ? '▲' : '▼'}${Math.abs(delta)}</em>` : ''}</span></div>
-        ${diffHTML(now.d)}
-        ${before ? `<div class="tiny muted">처음 ${before.d.score}% · “${esc(ctx.first)}”</div>` : ''}
-      </div>`;
-      if (!quiet) { D.addAttempt({ uttId: u.id, step: 'retry', text: t, score: now.d.score }); D.markStep(u.id, 'retry'); paintSteps(); }
+  const card = (flipped) => flashcard($('#card', root), { ko: u.ko, en, pattern: u.pattern, flipped });
+  const mic = key => {
+    const z = $('#zone', root);
+    const m = micBlock(z, { targets: () => [en], onStart: autoPause, onResult: t => (ans[key] = t), onEdit: t => (ans[key] = t) });
+    if (ans[key]) m.text = ans[key];
+    stops.push(() => m.stop());
+  };
+  function go(s, fromNext) {
+    stops.forEach(f => f()); stops = [];
+    step = s; const i = STEPS.indexOf(s);
+    const st = D.get().progress[u.id]?.steps || {};
+    $$('.flow [data-s]', root).forEach((b, j) => { b.classList.toggle('on', j === i); b.classList.toggle('done', j !== i && stepDone(st, STEPS[j])); });
+    $('.flow-l', root).textContent = `${i + 1}. ${LABEL[s]}`;
+    const cardEl = $('#card', root), zone = $('#zone', root);
+    cardEl.classList.remove('hide'); zone.innerHTML = '';
+    if (s === 'listen') { card(false); if (fromNext) play(); }
+    if (s === 'speak') { card(false); mic('speak'); }
+    if (s === 'check') { cardEl.innerHTML = ''; cardEl.classList.add('hide'); zone.innerHTML = compareRows({ ko: u.ko, mine: ans.speak, rec: en, pattern: u.pattern }); }
+    if (s === 'read') { card(true); mic('read'); }
+    if (s === 'recall') { card(false); mic('recall'); }
+    if (s === 'apply') {
+      cardEl.innerHTML = ''; cardEl.classList.add('hide');
+      const p = patternSpeak(zone, { ...u, text: en, ytId: v.ytId, videoId: v.id, videoTitle: v.title, uttId: u.id }, { onStart: autoPause, onSaved: () => D.markStep(u.id, 'apply') });
+      stops.push(p.stop);
     }
+    $('#next', root).textContent = i < STEPS.length - 1 ? `${LABEL[STEPS[i + 1]]} →` : (list[idx + 1] ? '다음 문장 →' : '완료');
+    if (fromNext && s !== 'listen') $('.flow', root).scrollIntoView({ block: 'start', behavior: 'smooth' });
   }
-  function apply(el) {
-    if (pl.playing) pl.pause();
-    const f = applyFlow(el, { ...u, text: nat, ytId: v.ytId, videoId: v.id, videoTitle: v.title, uttId: u.id }, { onSaved: () => { D.markStep(u.id, 'apply'); paintSteps(); } });
-    cleanup.push(f.stop);
-  }
-
   go(step);
-  return () => { cleanup.forEach(f => f()); pl.destroy(); S.stopSpeak(); };
+  return () => { stops.forEach(f => f()); pl.destroy(); };
 }
