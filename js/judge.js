@@ -23,12 +23,13 @@ export function judgeTranslation(said, target) {
   const d = diff(said, target), gram = grammarOf(said);
   const miss = d.missingKeys.filter(w => !AUX.has(w) && w.length > 2).slice(0, 2);
   if (d.score >= 88 && d.keyRecall >= 0.9 && !gram.length) return R('great', '완벽해요', '원래 뜻이 그대로 살아 있어요', { d });
+  if (gram.length) { const d2 = diff(fixedOf(said), target); if (d2.score >= 85 && d2.keyRecall >= 0.85) return R('good', '뜻은 맞아요 · 문법 하나만', gram[0].why, { d: d2, gram }); }
   if (d.keyRecall >= 0.7 && d.score >= 55) {
     if (gram.length) return R('good', '뜻은 잘 통해요', gram[0].why, { d, gram });
     return R('good', '뜻이 잘 통해요', miss.length ? `‘${miss.join(', ')}’까지 넣으면 더 정확해요` : '추천 문장처럼 말하면 더 자연스러워요', { d });
   }
   if (d.keyRecall >= 0.4) return R('fix', '조금 빠졌어요', miss.length ? `‘${miss.join(', ')}’ 부분이 빠졌거나 다르게 들렸어요` : '핵심 내용이 조금 달라요', { d, gram });
-  return R('off', '뜻이 달라요', '한국어 뜻을 다시 떠올려보고, 추천 문장을 따라 말해봐요', { d, gram });
+  return R('off', '뜻이 달라요', '핵심 단어를 다시 떠올려보고 문장을 따라 말해봐요', { d, gram });
 }
 
 // ---------- 2) 대화: 질문·말에 맞는 대답인지 ----------

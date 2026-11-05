@@ -252,6 +252,9 @@ export function callDay(day) {
   const logs = callLogs().filter(l => today(new Date(l.at)) === day);
   return { day, logs, total: logs.reduce((n, l) => n + (l.sec || 0), 0) };
 }
+export function deleteTalkLogs(ids) { const set = new Set(ids); snapshot('통화 기록 삭제'); db.talkLogs = db.talkLogs.filter(l => !set.has(l.id)); save(); }
+export const findSavedByText = t => { const k = normText(t); return k ? db.saved.find(s => normText(s.text) === k) || null : null; };
+export const findWordByText = t => { const k = normText(t); return k ? db.words.find(w => normText(w.text) === k) || null : null; };
 export const callDays = () => new Set(callLogs().map(l => today(new Date(l.at))));
 // 내 프로필 (백현이가 부를 이름 · 사진)
 export const profile = () => ({ name: '', photo: '', ...(db.settings.profile || {}) });

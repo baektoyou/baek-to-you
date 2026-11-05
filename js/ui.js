@@ -1,5 +1,6 @@
 // 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 힌트 · 레벨 비교 · 쉐도잉)
 import * as S from './speech.js';
+import * as D from './store.js';
 import { markPattern, diffWords } from './compare.js';
 import { hintSteps } from './judge.js';
 
@@ -264,3 +265,61 @@ export function phrasePicker(el, sentence, { marks = [], onSave, onUnmark } = {}
   const phrase = () => { if (a < 0) return ''; const lo = Math.min(a, b), hi = Math.max(a, b); return words.slice(lo, hi + 1).join(' ').replace(/^[^\w']+|[^\w']+$/g, ''); };
   render();
 }
+
+
+// ---------- 저장 토글: 누르면 저장 · 다시 누르면 저장 취소 ----------
+// btn에 .on 클래스로 상태 표시. make(): saveExpr에 넘길 항목 / word: 단어·표현으로 저장
+export function saveToggle(btn, text, make, { word = false, onChange } = {}) {
+  const find = () => word ? D.findWordByText(text) : D.findSavedByText(text);
+  btn.classList.toggle('on', !!find());
+  btn.onclick = e => {
+    e.stopPropagation();
+    const ex = find();
+    if (ex) { word ? D.deleteWord(ex.id) : D.deleteSaved(ex.id); btn.classList.remove('on'); toast('저장을 취소했어요'); }
+    else { word ? D.saveWord(make()) : D.saveExpr(make()); btn.classList.add('on'); toast('저장했어요'); }
+    onChange?.(!ex);
+  };
+}
+
+// ---------- 내 문장 교정: 고친 부분만 핑크로 (취소선 없음) + 이유 한 줄 ----------
+// r: feedback.improve() 결과 {before, after, changes, same}
+export function correctionHTML(r, { save = true } = {}) {
+  if (!r) return '';
+  if (r.same) return `<div class="cor"><span class="cor-l">내 문장</span><div class="cor-s"><p class="en">${esc(r.after)}</p>${save ? `<button class="sv" type="button" data-sv="${esc(r.after)}" aria-label="저장">${ic('bookmark')}</button>` : ''}</div><p class="cor-ok">${ic('check')} 문법적으로 고칠 곳은 없어요</p></div>`;
+  const d = diffWords(r.before, r.after);
+  const html = d.ops.filter(o => o.op !== 'del').map(o => o.op === 'add' ? `<ins>${esc(o.b)}</ins>` : esc(o.b)).join(' ').replace(/<\/ins> <ins>/g, ' ');
+  const why = (r.changes || []).filter(c => c.why).slice(0, 2);
+  return `<div class="cor"><span class="cor-l">내 문장 교정</span><div class="cor-s"><p class="en">${html}</p>${save ? `<button class="sv" type="button" data-sv="${esc(r.after)}" aria-label="저장">${ic('bookmark')}</button>` : ''}</div>
+    ${why.length ? `<ul class="cor-why">${why.map(c => `<li>${c.from && c.to ? `<b class="en">${esc(c.from)} → ${esc(c.to)}</b> ` : ''}${esc(c.why)}</li>`).join('')}</ul>` : ''}</div>`;
+}
+
+// ---------- 왼쪽으로 밀어서 삭제 ----------
+export function swipeDelete(row, onDelete) {
+  row.classList.add('swipe');
+  row.innerHTML = `<div class="sw-in">${row.innerHTML}</div><button class="sw-del" type="button">삭제</button>`;
+  const inner = row.firstElementChild, W = 76; let x0 = 0, y0 = 0, dx = 0, open = false, drag = false, lock = null;
+  const set = (x, anim) => { inner.style.transition = anim ? 'transform .25s var(--ease)' : 'none'; inner.style.transform = `translateX(${x}px)`; };
+  inner.addEventListener('pointerdown', e => { x0 = e.clientX; y0 = e.clientY; drag = true; lock = null; dx = open ? -W : 0; });
+  inner.addEventListener('pointermove', e => {
+    if (!drag) return; const mx = e.clientX - x0, my = e.clientY - y0;
+    if (lock == null && (Math.abs(mx) > 6 || Math.abs(my) > 6)) lock = Math.abs(mx) > Math.abs(my) ? 'x' : 'y';
+    if (lock !== 'x') return;
+    set(Math.max(-W * 1.4, Math.min(0, (open ? -W : 0) + mx)));
+  });
+  const end = e => { if (!drag) return; drag = false; if (lock !== 'x') return; const mx = e.clientX - x0; open = (open ? -W : 0) + mx < -W / 2; set(open ? -W : 0, true); };
+  inner.addEventListener('pointerup', end); inner.addEventListener('pointercancel', end);
+  inner.addEventListener('click', e => { if (open || lock === 'x') { e.preventDefault(); e.stopPropagation(); if (open && lock !== 'x') { open = false; set(0, true); } } }, true);
+  row.querySelector('.sw-del').onclick = () => { row.classList.add('gone'); setTimeout(() => onDelete(), 220); };
+}
+
+// [data-sv]: 문장 저장 토글 · [data-sw]: 단어·표현 저장 토글
+export function bindSaves(el, make = t => ({ kind: 'mine', level: 'mine', ko: '', text: t, en: { easy: '', natural: t, advanced: '' } })) {
+  $$('[data-sv]', el).forEach(b => saveToggle(b, b.dataset.sv, () => make(b.dataset.sv)));
+  $$('[data-sw]', el).forEach(b => saveToggle(b, b.dataset.sw, () => ({ text: b.dataset.sw, ko: b.dataset.ko || '', kind: b.dataset.sw.trim().split(/\s+/).length > 1 || /[~…]/.test(b.dataset.sw) ? 'expr' : 'word' }), { word: true }));
+}
+// 더 자연스러운 표현 (원어민 답변 예시 · 추천 문장) — 누르면 저장/취소
+export function naturalHTML(list, label = '더 자연스럽게') {
+  if (!list?.length) return '';
+  return `<div class="nat"><span class="cor-l">${esc(label)}</span>${list.map(t => `<div class="nat-s"><p class="en">${unitHTML(t)}</p><button class="sv" type="button" data-sv="${esc(t)}" aria-label="저장">${ic('bookmark')}</button></div>`).join('')}</div>`;
+}
+export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x => `<button class="xp en" type="button" data-sw="${esc(x.text || x)}" data-ko="${esc(x.ko || '')}">${ic('plus')}<span>${esc(x.text || x)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</button>`).join('')}</div>` : '';

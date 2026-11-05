@@ -77,6 +77,7 @@ const RULES = [
   // [정규식, 바꿀말(문자열|함수), 설명, 종류]
   [/\bi\b/g, 'I', '“I(나)”는 항상 대문자', 'style'],
   [/\b(I|i)m\b/g, "I'm", 'I\'m은 아포스트로피(\')가 필요해요', 'style'],
+  [/\b(I|you|we|they) been\b/g, (m, w) => `${w}'ve been`, 'been 앞엔 have(’ve)가 필요해요', 'grammar'],
   [/\b(dont|doesnt|didnt|cant|wont|isnt|arent|wasnt|havent)\b/gi, w => w.replace(/nt$/i, "n't").replace(/^wo/i, 'wo').replace(/^ca/i, 'ca'), '축약형엔 아포스트로피(\')가 필요해요', 'style'],
   [/\b(I|i) (am|'m) agree\b/gi, 'I agree', 'agree는 동사라서 am이 필요 없어요', 'grammar'],
   [/\b(I|i)'?m agree\b/gi, 'I agree', 'agree는 동사라서 am이 필요 없어요', 'grammar'],
@@ -99,6 +100,8 @@ const RULES = [
   [new RegExp(`\\bcan'?t wait (${VERBS})\\b`, 'gi'), (m, w) => `can't wait to ${w}`, 'can\'t wait 뒤엔 to + 동사', 'grammar'],
   [new RegExp(`\\blooking forward to (${VERBS})\\b`, 'gi'), (m, w) => `looking forward to ${ING(w)}`, 'look forward to 뒤엔 ~ing', 'grammar'],
   [/\b(didn't|did not|don't|doesn't|do not|does not) (went|ate|saw|did|came|took|got|made|bought|slept|wrote|spoke|had|met|felt|heard|knew|thought|told|said)\b/gi, (m, a, b) => `${a} ${BASE[b.toLowerCase()]}`, 'didn\'t/don\'t 뒤엔 동사원형', 'grammar'],
+  [/\b(listen|listens|listened|listening)\s+(?!to\b)(?=(a |the |my |your |his |her |our |some |this |that |these |those |music|songs?|k-?pop|ballads?|it\b|them\b|him\b|her\b|podcasts?|radio))/gi, (m, v) => `${v} to `, 'listen 뒤엔 to가 필요해요', 'grammar'],
+  [/\b(did|does|do)( you| he| she| we| they| I| it)( all| ever| really)? (went|ate|saw|did|came|took|got|made|bought|slept|wrote|spoke|had|met|felt|heard|knew|thought|told|said|watched|played|listened|studied|cooked|worked|tried|liked|loved|wanted)\b/gi, (m, a, s2, adv, b) => `${a}${s2}${adv || ''} ${BASE[b.toLowerCase()] || b.toLowerCase().replace(/ied$/, 'y').replace(/ed$/, '').replace(/(lov|lik)$/, '$1e')}`, 'did 뒤엔 동사원형', 'grammar'],
   [/\b(can|could|will|would|should|must|might) (went|ate|saw|came|took|got|made|bought|slept)\b/gi, (m, a, b) => `${a} ${BASE[b.toLowerCase()]}`, '조동사 뒤엔 동사원형', 'grammar'],
   [/\b(english|korean|japanese|chinese|korea|japan|china|seoul|busan|jeju|baekhyun|exo|christmas|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|april|june|july|august|september|october|november|december)\b/g, w => w === 'exo' ? 'EXO' : w[0].toUpperCase() + w.slice(1), '고유명사·언어·요일은 대문자로 시작해요', 'style'],
   [/\ba (?!one\b|once\b|uni|use|euro|u\b)([aeio]\w*)/gi, (m, w) => `an ${w}`, '모음 소리 앞엔 an', 'grammar'],

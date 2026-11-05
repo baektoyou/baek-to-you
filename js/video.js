@@ -1,15 +1,16 @@
-// CHAT(예전 WATCH·TALK) — 영상 목록 · 백현이랑 한 문장씩 카톡처럼
+// CHAT — 백현이 말을 듣고 영어로 ‘대답’하는 회화 학습 (CALL은 듣고 ‘번역’)
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, unitHTML, verdictHTML } from './ui.js';
-import { patternInfo, improve, libFor, patternParts } from './feedback.js';
-import { splitPatterns } from './compare.js';
-import { judgeTranslation, judgeReply, keyExpressions } from './judge.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, unitHTML, verdictHTML, correctionHTML, naturalHTML, exprChips, bindSaves } from './ui.js';
+import { improve } from './feedback.js';
+import { isQuestion } from './compare.js';
+import { judgeTranslation, judgeReply, keyExpressions, bestReply } from './judge.js';
+import { koHelp, helpHTML, isKo } from './kohelp.js';
 import { isLive, avatarStyle } from './scene.js';
 
-// 영상 듣기 → 영어로 말하기 → 추천 문장 → 보고 말하기 → 안 보고 말하기 → 패턴 질문에 대답
-const STEPS = ['listen', 'speak', 'check', 'read', 'recall', 'apply'];
+// 듣기(영어 자막) → 영어로 대답 → 내 문장 교정·자연스러운 표현 → 보고 따라 말하기 → 안 보고 말하기
+const STEPS = ['listen', 'speak', 'check', 'read', 'recall'];
 // 예전 단계 기록도 인정 (watch→listen, shadow→read, retry→recall)
 const LEGACY = { listen: 'watch', read: 'shadow', recall: 'retry' };
 export const stepDone = (st, k) => !!(st?.[k] || st?.[LEGACY[k]]);
@@ -53,35 +54,47 @@ export function videoDetail(root, vid) {
 }
 
 // ---------- CHAT: 백현이랑 카톡하듯 한 문장씩 ----------
-export function study(root, uttId, startStep) {
-  const u = D.utt(uttId); if (!u) { location.hash = '#/video'; return () => { }; }
-  const v = D.video(u.videoId); const list = D.uttsOf(u.videoId); const idx = list.findIndex(x => x.id === u.id);
-  const en = natOf(u);
-  let dead = false, cap = null, waiting = null, sendAfter = false, played = false;
+
+// ---------- CHAT: 백현이랑 카톡하듯 대화 ----------
+const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
+const splitSent = t => String(t || '').match(/[^.?!]+[.?!]*\s*/g)?.map(x => x.trim()).filter(Boolean) || [t];
+export function study(root, uttId) {
+  let u = D.utt(uttId); if (!u) { location.hash = '#/video'; return () => { }; }
+  const v = D.video(u.videoId); const list = D.uttsOf(u.videoId);
+  let dead = false, cap = null, waiting = null, sendAfter = false, pending = null, onEnded = null, soon = false, early = null;
   const AV = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
   document.body.classList.add('no-tab');
   root.innerHTML = `<div class="chatv">
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
-      <div class="cv-title">${AV(28)}<div><b>백현이</b><small>${idx + 1} / ${list.length}</small></div></div>
+      <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
       <span class="icon-sp"></span></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div><button class="yt-shield" id="ysh" aria-label="재생/일시정지"></button></div>
+    <div class="cv-player"><div class="player clean" id="pl"></div><button class="yt-shield" id="ysh" aria-label="재생/일시정지"></button><div class="cv-sub en" id="sub"></div></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
-    <div class="composer" id="cp">
+    <div class="composer on" id="cp">
       <button class="cp-mic" id="cpm" aria-label="말하기">${ic('mic')}</button>
-      <textarea id="cpt" rows="1" placeholder="영어로 말하거나 입력해요" autocapitalize="sentences" spellcheck="false"></textarea>
+      <textarea id="cpt" rows="1" placeholder="영어로 대답 · 한국어 질문 OK" autocapitalize="sentences" spellcheck="false"></textarea>
       <button class="cp-send" id="cps" aria-label="보내기">${ic('send')}</button>
     </div>
   </div>`;
-  const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root);
-  // 영상: YouTube 컨트롤 숨김 + 투명 덮개로 탭 받기 (안내 오버레이 없음)
+  const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root), sub = $('#sub', root);
   const pl = new Player($('#pl', root), { controls: 0 });
-  $('#ysh', root).onclick = () => { if (pl.playing) pl.pause(); else play(); };
   pl.cue(v.ytId, u.start);
-  const play = () => {
-    D.markStep(u.id, 'listen');
-    return pl.playSegment(v.ytId, u.start, u.end).then(r => { if (r === 'ended') { played = true; addChip(['다시 듣기', 'replay', 'line']); } return r; });
+  // ----- 영어 자막: 문장 단위로 바뀜 -----
+  let segU = null, subs = [], subK = -1;
+  const showSub = k => { if (k === subK) return; subK = k; sub.innerHTML = subs[k] ? `<span>${esc(subs[k])}</span>` : ''; };
+  pl.onTime = t => {
+    if (!segU || !subs.length) return;
+    const f = Math.max(0, Math.min(.999, (t - segU.start) / Math.max(.5, segU.end - segU.start)));
+    const tot = subs.reduce((n, s) => n + s.length, 0); let acc = 0, k = 0;
+    for (; k < subs.length; k++) { acc += subs[k].length / tot; if (f < acc) break; }
+    showSub(Math.min(k, subs.length - 1));
   };
+  const playU = x => {
+    segU = x; subs = splitSent(natOf(x)); subK = -1; showSub(0); D.markStep(x.id, 'listen');
+    return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (segU === x) { segU = null; showSub(-1); } if (r === 'ended') onEnded?.(x); return r; });
+  };
+  $('#ysh', root).onclick = () => { if (pl.playing) pl.pause(); else playU(u); };
   const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
@@ -93,27 +106,26 @@ export function study(root, uttId, startStep) {
     if (th.classList.contains('veil')) el.classList.add('keep');
     th.appendChild(el); scroll(); return el;
   };
-  async function bh(html, cls) { const t = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(380); if (dead) return h('<div></div>'); t.remove(); lastWho = ''; return add('bh', html, cls); }
+  async function bh(html, cls) { const t = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(360); if (dead) return h('<div></div>'); t.remove(); lastWho = ''; return add('bh', html, cls); }
   const me = t => add('me', `<span class="en">${esc(t)}</span>`);
+  const sys = t => { lastWho = ''; th.appendChild(h(`<p class="m-sys">${t}</p>`)); scroll(); };
 
-  // ----- 빠른 답장 칩 (말하기 칩은 누르는 순간 바로 녹음 시작) -----
+  // ----- 빠른 답장 칩 (말하기 칩은 누르는 순간 녹음 · 다음 칩은 누르는 순간 영상 재생) -----
   let chipRes = null, chipList = [], chipOpt = {};
   const drawChips = () => {
     qk.innerHTML = chipList.map(([l, k, cls]) => `<button class="qchip ${cls || ''}" data-q="${k}">${k === 'replay' ? ic('replay') : ''}${l}</button>`).join('');
     $$('[data-q]', qk).forEach(b => b.onclick = () => {
-      const it = chipList.find(c => c[1] === b.dataset.q);
-      if (it?.[3]?.mic) { cp.classList.add('on'); startMic(it[3].targets || []); }
+      const it = chipList.find(c => c[1] === b.dataset.q), o = it?.[3] || {};
+      o.tap?.(); if (o.mic) { soon = true; startMic(o.targets || []); }
+      if (o.stay) return;
       qk.innerHTML = ''; const r = chipRes; chipRes = null; r?.(b.dataset.q);
     });
   };
   const chips = (list, opt = {}) => new Promise(res => { chipRes = res; chipList = list; chipOpt = opt; drawChips(); });
   const addChip = c => { if (chipRes && chipOpt.replay && !chipList.some(x => x[1] === c[1])) { chipList = [c, ...chipList]; drawChips(); } };
 
-  // ----- 입력: 마이크 또는 키보드 → 보내기 (한 번에 전송) -----
-  const askInput = (placeholder = '영어로 말하거나 입력해요', targets = []) => new Promise(res => {
-    cp.classList.add('on'); ta.placeholder = placeholder; if (!cap) ta.value = ''; fit();
-    waiting = { res, targets };
-  });
+  // ----- 입력: 마이크 또는 키보드 → 보내기 한 번 · 한국어면 ‘영어로 어떻게 해?’ 도움 -----
+  const askInput = (placeholder = '영어로 대답해요', targets = []) => new Promise(res => { soon = false; if (early != null) { const t = early; early = null; return res(t); } ta.placeholder = placeholder; if (!cap) ta.value = ''; fit(); waiting = { res, targets }; });
   function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
   ta.oninput = fit;
   function startMic(targets = waiting?.targets || []) {
@@ -132,99 +144,87 @@ export function study(root, uttId, startStep) {
       if (sendAfter) { sendAfter = false; doSend(); }
     });
   }
-  const doSend = () => {
-    const t = ta.value.trim(); if (!t || !waiting) return;
-    const w = waiting; waiting = null; ta.value = ''; fit(); cp.classList.remove('on'); me(t); w.res(t);
+  const doSend = async () => {
+    const t = ta.value.trim(); if (!t) return;
+    if (isKo(t)) { ta.value = ''; fit(); me(t); const el = await bh(helpHTML(koHelp(t)), 'wide'); bindSaves(el); return; }
+    if (!waiting) { if (soon) { early = t; ta.value = ''; fit(); me(t); return; } toast('아래 버튼을 눌러 진행해요'); return; }
+    const w = waiting; waiting = null; ta.value = ''; fit(); me(t); w.res(t);
   };
   const send = () => { if (cap) { sendAfter = true; cap.stop(); return; } doSend(); };
   sendB.onclick = send;
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
   micB.onclick = () => { if (cap) { cap.stop(); return; } startMic(); };
 
-  // ----- 저장: 추천 문장(카드를 누르면 저장) · 표현(누르면 저장) -----
-  const saveSentence = (text, ex = {}) => text === en
-    ? D.saveExpr({ kind: 'utt', level: 'natural', uttId: u.id, ko: u.ko, en: { ...u.en }, text: en, pattern: u.pattern })
-    : D.saveExpr({ kind: 'mine', level: 'mine', uttId: u.id, ko: ex.ko || '', text, before: ex.said || '', en: { easy: '', natural: text, advanced: '' }, pattern: ex.pattern || '', note: ex.note || '', ytId: v.ytId, start: u.start, videoId: v.id, videoTitle: v.title });
-  const recCard = (rec, ex = {}) => {
-    const xs = keyExpressions(rec, ex);
-    return `<div class="rec"><button class="rec-s en" type="button" data-rs aria-label="추천 문장 저장"><span class="rec-t">${unitHTML(rec, ex.pattern)}</span><i class="rec-bm">${ic('bookmark')}</i></button>
-      ${xs.length ? `<div class="rec-x">${xs.map(x => `<button class="xp en" type="button" data-xp="${esc(x)}">${ic('plus')}<span>${esc(x)}</span></button>`).join('')}</div>` : ''}</div>`;
-  };
-  const bindRec = (el, rec, ex = {}) => {
-    const bs = $('[data-rs]', el); if (!bs) return;
-    if (D.get().saved.some(s => (s.text || '').trim() === rec.trim())) bs.classList.add('on');
-    bs.onclick = () => { const r = saveSentence(rec, ex); bs.classList.add('on'); toast(r.dup ? '이미 SAVED에 있어요' : '문장을 저장했어요'); };
-    $$('[data-xp]', el).forEach(b => b.onclick = () => {
-      if (b.classList.contains('on')) return;
-      const p = b.dataset.xp; const r = saveSentence(rec, ex);
-      (splitPatterns(p).flatMap(patternParts).length ? splitPatterns(p).flatMap(patternParts) : [p]).forEach(m => D.toggleMark(r.item.id, m, true));
-      const w = D.saveWord({ text: p, srcId: r.item.id, kind: p.trim().split(/\s+/).length > 1 || /~/.test(p) ? 'expr' : 'word' });
-      b.classList.add('on'); b.innerHTML = `${ic('check')}<span>${esc(p)}</span>`; bs.classList.add('on');
-      toast(w.dup ? '이미 저장한 표현이에요' : '표현을 저장했어요');
-    });
-  };
+  // ----- 다음 문장: 누르는 순간 그 구간을 재생 -----
+  const idxOf = x => list.findIndex(y => y.id === x.id);
+  const nextOf = x => list[idxOf(x) + 1] || null;
+  const nextChip = x => { const nx = nextOf(x); return nx ? ['다음 문장 →', 'next', 'pri', { tap: () => { pending = { u: nx, p: playU(nx) }; } }] : ['목록으로', 'list', 'pri']; };
+  const saveItem = (x, said) => t => ({ kind: 'mine', level: 'mine', uttId: x.id, ko: '', text: t, before: said || '', en: { easy: '', natural: t, advanced: '' }, note: natOf(x), ytId: v.ytId, start: x.start, videoId: v.id, videoTitle: v.title });
 
-  const order = STEPS; const from = Math.max(0, order.indexOf(startStep));
-  (async () => {
-    let said = D.attemptsOf(u.id, 'speak').slice(-1)[0]?.text || '';
-    await bh(`<span class="ko">${esc(u.ko)}</span>`);
-    if (from === 0) play();
-    if (from <= 1) {
-      for (;;) {
-        const k = await chips([...(played ? [['다시 듣기', 'replay', 'line']] : []), ['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [en] }]], { replay: true });
-        if (dead) return; if (k === 'replay') { play(); continue; } break;
-      }
-      said = await askInput('영어로 말해봐요', [en]); if (dead) return;
-      D.addAttempt({ uttId: u.id, step: 'speak', text: said }); D.markStep(u.id, 'speak');
+  // 한 문장
+  async function run(x) {
+    u = x; const i = idxOf(x); const en = natOf(x);
+    $('#cvi', root).textContent = `${i + 1} / ${list.length}`;
+    if (location.hash !== `#/study/${x.id}`) history.replaceState(null, '', `#/study/${x.id}`);
+    if (th.children.length) sys(`${i + 1} / ${list.length}`);
+    // 백현이가 말하는 중 → 끝나면 한국어 + 영어 전체 문장
+    const typing = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); let shown = false, played = false;
+    const show = () => { if (shown || dead) return; shown = true; typing.remove(); lastWho = ''; add('bh', `<span class="ko">${esc(x.ko)}</span><span class="en line">${esc(en)}</span>`); };
+    onEnded = y => { if (y !== x) return; played = true; show(); addChip(['다시 듣기', 'replay', 'line', { tap: () => playU(x), stay: true }]); };
+    if (pending?.u === x) pending = null; else playU(x);
+    const k0 = await chips([...(played ? [['다시 듣기', 'replay', 'line', { tap: () => playU(x), stay: true }]] : []), ['대답하기', 'go', 'pri', { mic: true }]], { replay: true });
+    if (dead) return; show();
+    // 대답 → 교정 · 자연스러운 표현
+    let said = await askInput('영어로 대답 · 한국어 질문 OK'); if (dead) return;
+    let best = '';
+    const feedback = async t => {
+      D.addAttempt({ uttId: x.id, step: 'speak', text: t }); D.markStep(x.id, 'speak');
+      const ev = judgeReply(t, { question: en, strict: isQuestion(en) });
+      const r = await improve(t, { pattern: x.pattern, useLT: D.get().settings.autoLT !== false }); if (dead) return;
+      const br = bestReply(t, x.replies);
+      const alts = br && canon(br) !== canon(r.after) ? [br] : [];
+      best = alts[0] && !ev.ok ? alts[0] : r.after;
+      const xs = keyExpressions(alts[0] || r.after, { pattern: x.pattern, said: t });
+      const el = await bh(`${verdictHTML(ev)}${correctionHTML(r)}${naturalHTML(alts)}${exprChips(xs)}`, 'wide'); if (dead) return;
+      bindSaves(el, saveItem(x, t));
+      D.markStep(x.id, 'check');
+    };
+    await feedback(said);
+    for (;;) {
+      const k = await chips([['다시 말하기', 'again', 'line', { mic: true }], ['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [best] }], ['다음', 'skip', 'line', nextChip(x)[3] ? { tap: nextChip(x)[3].tap } : {}]]); if (dead) return;
+      if (k === 'again') { said = await askInput('다시 대답해요'); if (dead) return; await feedback(said); continue; }
+      if (k === 'skip') return goOn(x);
+      break;
     }
-    if (from <= 2) {
-      const ev = said ? judgeTranslation(said, en) : null;
-      const el = await bh(`${verdictHTML(ev)}${recCard(en, { said, pattern: u.pattern })}`, 'wide'); if (dead) return;
-      bindRec(el, en, { said, pattern: u.pattern });
-      D.markStep(u.id, 'check');
-    }
-    if (from <= 3) {
-      if (from === 3) { const el = await bh(recCard(en, { pattern: u.pattern }), 'wide'); bindRec(el, en, { pattern: u.pattern }); }
-      await chips([['보면서 따라 말해볼게', 'go', 'pri', { mic: true, targets: [en] }]]); if (dead) return;
-      const t = await askInput('보면서 말해봐요', [en]); if (dead) return;
-      D.addAttempt({ uttId: u.id, step: 'read', text: t }); D.markStep(u.id, 'read');
-      const ev = judgeTranslation(t, en);
-      if (ev.ok) th.lastElementChild?.classList.add('okmark');
-    }
-    if (from <= 4) {
-      th.classList.add('veil'); // 앞에서 본 영어(내 답변·추천 문장)는 흐리게
+    // 보고 따라 말하기
+    await bh(`<span class="bub-tag">보면서 따라 말해봐</span><span class="en big">${unitHTML(best)}</span>`); if (dead) return;
+    const t1 = await askInput('보면서 말해봐요', [best]); if (dead) return;
+    D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
+    const e1 = judgeTranslation(t1, best);
+    if (e1.ok) th.lastElementChild?.classList.add('okmark'); else await bh(verdictHTML(e1), 'wide');
+    const k2 = await chips([['다음', 'skip', 'line', { tap: nextChip(x)[3]?.tap }], ['안 보고 말해볼게', 'recall', 'pri', { mic: true, targets: [best] }]]); if (dead) return;
+    if (k2 === 'skip') return goOn(x);
+    // 안 보고 말하기 (앞의 영어는 흐리게)
+    for (;;) {
+      th.classList.add('veil');
       const nm = D.callName();
-      const el = await bh(`<span class="bub-tag">${nm ? `${esc(nm)}, ` : ''}이번엔 안 보고!</span><span class="ko">${esc(u.ko)}</span><div class="bub-hint"></div>`); if (dead) return;
-      hintBox($('.bub-hint', el), en, { pattern: u.pattern, keywords: u.keywords });
-      await chips([['안 보고 말해볼게', 'go', 'pri', { mic: true, targets: [en] }]]); if (dead) return;
-      const t = await askInput('기억해서 영어로 말해봐요', [en]); if (dead) return;
+      const el = await bh(`<span class="bub-tag">${nm ? `${esc(nm)}, ` : ''}이번엔 안 보고!</span><div class="bub-hint"></div>`); if (dead) return;
+      hintBox($('.bub-hint', el), best, { pattern: x.pattern });
+      const t2 = await askInput('기억해서 말해봐요', [best]); if (dead) return;
       th.classList.remove('veil');
-      D.addAttempt({ uttId: u.id, step: 'recall', text: t }); D.markStep(u.id, 'recall');
-      const ev = judgeTranslation(t, en);
-      await bh(`${verdictHTML(ev)}${ev.level === 'great' ? '' : `<span class="en big">${unitHTML(en, u.pattern)}</span>`}`, 'wide'); if (dead) return;
+      D.addAttempt({ uttId: x.id, step: 'recall', text: t2 }); D.markStep(x.id, 'recall');
+      const e2 = judgeTranslation(t2, best);
+      await bh(`${verdictHTML(e2)}${e2.level === 'great' ? '' : `<span class="en big">${unitHTML(best)}</span>`}`, 'wide'); if (dead) return;
+      const k3 = await chips([['한 번 더', 'again', 'line', { mic: true, targets: [best] }], nextChip(x)]); if (dead) return;
+      if (k3 !== 'again') return goOn(x, k3);
     }
-    // 패턴 질문에 내 이야기로 대답
-    const info = patternInfo(u);
-    let goNext = false;
-    if (info.hasPattern) {
-      const lib = libFor(info.pattern); const qEn = lib?.qEn || '';
-      await bh(`<span class="bub-tag">${esc(info.pattern)}${info.ko ? ` · ${esc(info.ko)}` : ''}</span>${qEn ? `<span class="en big">${esc(qEn)}</span><span class="ko sub">${esc(lib.q)}</span>` : `<span class="ko">${esc(info.question)}</span>`}`); if (dead) return;
-      const k = await chips([['다음 문장', 'next', 'line'], ['대답해볼게', 'go', 'pri', { mic: true }]]); if (dead) return;
-      if (k === 'go') {
-        const t = await askInput(info.frame); if (dead) return;
-        const ev = judgeReply(t, { question: qEn, expr: info.pattern, strict: !!qEn });
-        const r = await improve(t, { pattern: info.pattern, useLT: D.get().settings.autoLT !== false }); if (dead) return;
-        const ex = { said: t, pattern: info.pattern, note: qEn || info.question };
-        const el = await bh(`${verdictHTML(ev)}${recCard(r.after, ex)}`, 'wide'); if (dead) return;
-        bindRec(el, r.after, ex);
-        D.markStep(u.id, 'apply'); D.addAttempt({ uttId: u.id, step: 'apply', text: t });
-      } else goNext = true;
-    }
-    if (dead) return;
-    const nx = list[idx + 1];
-    const k = goNext && nx ? 'next' : await chips(nx ? [['목록', 'list', 'line'], ['다음 문장 →', 'next', 'pri']] : [['목록으로', 'list', 'pri']]);
-    if (dead) return;
-    location.hash = k === 'next' && nx ? `#/study/${nx.id}` : `#/video/${v.id}`;
-  })();
+  }
+  function goOn(x, k = 'next') {
+    const nx = nextOf(x);
+    if (k === 'list' || !nx) { location.hash = `#/video/${v.id}`; return; }
+    if (!pending) pending = { u: nx, p: playU(nx) };
+    run(nx);
+  }
+  run(u);
   return () => { dead = true; cap?.stop(); pl.destroy(); document.body.classList.remove('no-tab'); };
 }

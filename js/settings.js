@@ -27,10 +27,10 @@ export function settings(root) {
     <div class="sec-title label">VIDEOS · ${db.videos.length}</div>
     ${db.videos.length ? (() => {
       const chat = db.videos.filter(v => !isLive(v)), callV = db.videos.filter(isLive), list = vtab === 'call' ? callV : chat;
-      const shown = vmore ? list : list.slice(0, 6);
+      const shown = [...list].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 5);
       return `<div class="view-sw"><button data-vt="chat" class="${vtab === 'chat' ? 'on' : ''}">CHAT <em>${chat.length}</em></button><button data-vt="call" class="${vtab === 'call' ? 'on' : ''}">CALL <em>${callV.length}</em></button></div>
       ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
-        ${list.length > shown.length ? `<button class="li more" id="vmore"><span class="grow">${list.length - shown.length}개 더 보기</span>${ic('down')}</button>` : ''}</div>`
+        ${list.length > shown.length ? `<a class="li more" href="#/settings/videos/${vtab}"><span class="grow">전체 ${list.length}개 보기</span>${ic('next')}</a>` : ''}</div>`
         : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
     })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
 
@@ -94,7 +94,7 @@ export function settings(root) {
   const unsub = mountSync($('#sync', root));
   mountProfile($('#prof', root));
   $$('[data-vt]', root).forEach(b => b.onclick = () => { vtab = b.dataset.vt; vmore = false; settings(root); });
-  $('#vmore', root) && ($('#vmore', root).onclick = () => { vmore = true; settings(root); });
+
   function row(ok, t, d) { return `<div><span class="${ok ? 'ok-dot' : 'no-dot'}"></span><b>${t}</b> <span class="muted tiny">${esc(d)}</span></div>`; }
 
   const urlIn = $('#url', root), addB = $('#add', root);
@@ -238,6 +238,16 @@ async function squareThumb(file, size) {
   c.getContext('2d').drawImage(img, (w - s) / 2, (hh - s) / 2 * 0.5, s, s, 0, 0, size, size);
   URL.revokeObjectURL(url);
   return c.toDataURL('image/jpeg', 0.82);
+}
+
+// ---------- 전체 영상 목록 (CHAT / CALL) ----------
+export function videoListAll(root, tab = 'call') {
+  const all = D.get().videos.filter(v => tab === 'call' ? isLive(v) : !isLive(v)).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  root.innerHTML = `<div class="screen">
+    <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>${tab === 'call' ? 'CALL' : 'CHAT'} 영상 · ${all.length}</h2><span class="icon-sp"></span></header>
+    <div class="view-sw"><a href="#/settings/videos/chat" class="${tab === 'chat' ? 'on' : ''}">CHAT</a><a href="#/settings/videos/call" class="${tab === 'call' ? 'on' : ''}">CALL</a></div>
+    ${all.length ? `<div class="list">${all.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
+  </div>`;
 }
 
 // ---------- 영상 상세 / 문장 관리 ----------

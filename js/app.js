@@ -4,7 +4,7 @@ import { ic } from './ui.js';
 import { videoList, videoDetail, study } from './video.js';
 import { speak } from './speak.js';
 import { saved } from './saved.js';
-import { settings, videoEditor, uttEditor } from './settings.js';
+import { settings, videoEditor, uttEditor, videoListAll } from './settings.js';
 import { stopSpeak } from './speech.js';
 import { registerSW } from './pwa.js';
 import { loadUserPhotos } from './scene.js';
@@ -38,10 +38,11 @@ function route(keepScroll) {
     case 'saved': saved(root); break;
     case 'settings':
       if (p[1] === 'video' && p[2]) cleanup = videoEditor(root, p[2]);
+      else if (p[1] === 'videos') videoListAll(root, p[2] || 'call');
       else if (p[1] === 'utt' && p[2] && p[3]) cleanup = uttEditor(root, p[2], p[3]);
       else cleanup = settings(root);
       break;
-    case 'study': tab = 'video'; cleanup = study(root, p[1], p[2]); break;
+    case 'study': tab = 'video'; cleanup = study(root, p[1]); break;
     case 'video': if (p[1]) videoDetail(root, p[1]); else videoList(root); break;
     default: tab = 'video'; videoList(root);
   }
