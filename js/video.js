@@ -4,6 +4,7 @@ import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
 import { esc, $, $$, ic, toast, micBlock, ytLink, flashcard, natOf, beforeAfter, sayCard, phrasePicker } from './ui.js';
 import { patternSpeak } from './apply.js';
+import { isLive } from './scene.js';
 
 // 영상 듣기 → 영어로 말하기 → 추천 문장 확인 → 보고 말하기 → 안 보고 말하기 → 패턴으로 새 문장
 const STEPS = ['listen', 'speak', 'check', 'read', 'recall', 'apply'];
@@ -15,14 +16,13 @@ export const WORDMARK = `<h1 class="logo" aria-label="BAEK TO YOU"><b>BAEK</b> T
 
 export function videoList(root) {
   const db = D.get();
-  const vids = db.videos;
-  const studied = Object.keys(db.progress).filter(id => D.utt(id)).length;
-  const due = D.dueList().length;
+  const vids = db.videos.filter(v => !isLive(v)); // 라이브 영상은 TALK 전화 전용
+    const due = D.dueList().length;
   root.innerHTML = `<div class="screen">
     <header class="top">${WORDMARK}<a class="icon-btn" href="#/settings" aria-label="영상 추가">${ic('plus')}</a></header>
     <div class="stats-strip">
-      <div><b>${db.utts.length}</b><span>문장</span></div>
-      <div><b>${studied}</b><span>학습한 문장</span></div>
+      <div><b>${db.utts.filter(u => vids.some(v => v.id === u.videoId)).length}</b><span>문장</span></div>
+      <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
       <a href="#/saved"><b class="${due ? 'accent' : ''}">${due}</b><span>오늘 복습</span></a>
     </div>
     ${vids.length ? `<div class="sec-title label">VIDEOS</div><div class="vgrid">${vids.map(v => {

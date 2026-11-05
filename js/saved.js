@@ -25,12 +25,8 @@ export function saved(root) {
   const items = isW ? lists.words : (lists[filter] || lists.all);
   root.innerHTML = `<div class="screen saved-scr">
     <header class="top"><h1 class="page-title">Saved</h1></header>
-    <section class="today">
-      <div class="today-main"><div class="today-n"><b>${due.length}</b><span>문장</span>${dueW.length ? `<b>${dueW.length}</b><span>표현</span>` : ''}<em>오늘 복습할 차례</em></div>
-        <button class="btn pill" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${ic('play')} 복습 시작</button></div>
-      <div class="meter"><i style="width:${total ? Math.round(doneN / total * 100) : 0}%"></i></div>
-      <div class="today-sub"><span>오늘 ${doneN}/${total} 완료</span><span>익힌 문장 ${db.saved.filter(s => s.status === 'mastered').length}/${db.saved.length}</span><span>표현 ${db.words.length}</span></div>
-    </section>
+    <div class="stats-strip"><div><b class="${due.length ? 'accent' : ''}">${due.length}</b><span>복습할 문장</span></div><div><b class="${dueW.length ? 'accent' : ''}">${dueW.length}</b><span>복습할 표현</span></div><div><b>${db.saved.filter(s => s.status === 'mastered').length}</b><span>익힌 문장</span></div></div>
+    <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="tabs-scroll"><div class="seg">${[['due', `오늘 ${due.length}`], ['all', `문장 ${db.saved.length}`], ['words', `표현·단어 ${db.words.length}`], ['again', `연습 필요 ${lists.again.length}`], ['known', `익숙해진 ${lists.known.length}`], ['mine', `내 문장 ${lists.mine.length}`]].map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} 단어·표현 추가</button>${items.length > 1 ? `<button class="btn sm" id="pw">${ic('play')} 표현 ${items.length}개 복습</button>` : ''}</div>` : ''}
     ${items.length ? `${!isW && filter !== 'due' && items.length > 1 ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${items.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
@@ -69,14 +65,13 @@ const dueText = srs => srs.due <= Date.now() ? '지금' : relTime(srs.due);
 function itemHTML(s) {
   const link = srcLink(s); const [stL, stC] = ST[s.status] || ST.new;
   return `<article class="sitem" data-id="${s.id}">
-    <div class="tags-row"><span class="chip">${KIND[s.kind] || '문장'}</span><span class="chip st ${stC}">${stL}</span><span class="due grow">복습 ${esc(dueText(s.srs))}</span></div>
     <div class="en s-en">${enHTML(s)}</div>
     ${s.ko ? `<div class="ko s-ko">${esc(s.ko)}</div>` : ''}
-    ${splitPatterns(s.pattern).length ? `<div class="pat-chips">${splitPatterns(s.pattern).map(p => `<span class="pchip en">${esc(p)}</span>`).join('')}</div>` : ''}
     <div class="foot">
-      <button class="btn xs" data-act="one">${ic('mic')} 복습</button>
-      <button class="btn xs soft" data-act="mark">${ic('marker')} 표현 고르기</button>
+      <button class="s-act" data-act="one">${ic('mic')} 복습</button>
+      <span class="s-meta">${KIND[s.kind] || '문장'} · <em class="${stC}">${stL}</em> · ${esc(dueText(s.srs))}</span>
       <span class="grow"></span>
+      <button class="mini" data-act="mark" aria-label="표현 고르기">${ic('sparkle')}</button>
       ${link ? `<a class="mini" href="${link.href}" ${link.ext ? 'target="_blank" rel="noopener"' : ''} aria-label="${esc(link.label)}">${ic(link.ext ? 'external' : 'video')}</a>` : ''}
       <button class="mini" data-act="edit" aria-label="수정">${ic('edit')}</button>
       <button class="mini" data-act="del" aria-label="삭제">${ic('trash')}</button></div></article>`;
@@ -84,12 +79,12 @@ function itemHTML(s) {
 function wordHTML(w) {
   const [stL, stC] = ST[w.status] || ST.new; const src = w.srcId && D.get().saved.find(s => s.id === w.srcId);
   return `<article class="witem" data-id="${w.id}" data-w="1">
-    <div class="w-top"><span class="w-kind">${w.kind === 'word' ? '단어' : '표현'}</span><span class="chip st ${stC}">${stL}</span><span class="due grow">복습 ${esc(dueText(w.srs))}</span></div>
+    <div class="w-top"><span class="w-kind">${w.kind === 'word' ? '단어' : '표현'}</span><span class="s-meta"><em class="${stC}">${stL}</em> · ${esc(dueText(w.srs))}</span></div>
     <b class="w-text en">${esc(w.text)}</b>
     ${w.ko ? `<p class="w-ko">${esc(w.ko)}</p>` : `<button class="w-addko" data-act="edit">+ 뜻 적기</button>`}
     ${src ? `<p class="w-src en">${markPattern(enOf(src), '', esc, [w.text])}</p>` : ''}
     ${w.made?.length ? `<p class="w-made">내가 만든 문장 ${w.made.length}개</p>` : ''}
-    <div class="foot"><button class="btn xs" data-act="make">${ic('mic')} 새 문장 만들기</button><span class="grow"></span>
+    <div class="foot"><button class="s-act" data-act="make">${ic('mic')} 새 문장 만들기</button><span class="grow"></span>
       <button class="mini" data-act="edit" aria-label="수정">${ic('edit')}</button><button class="mini" data-act="del" aria-label="삭제">${ic('trash')}</button></div></article>`;
 }
 function relTime(t) { const d = t - Date.now(); const h = d / 36e5; if (h < 1) return `${Math.max(1, Math.round(d / 6e4))}분 후`; if (h < 24) return `${Math.round(h)}시간 후`; return `${Math.round(h / 24)}일 후`; }

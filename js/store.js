@@ -13,7 +13,7 @@ const defaults = () => ({
   talkLogs: [],    // 통화 기록 {id, at, kind, videoId, sec, spoke, n}
   words: [],       // 따로 저장한 단어·표현 {id, text, ko, note, srcId, status, srs}
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [] }
+  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [], customSits: [], hiddenSits: [] }
 });
 
 let db = load();

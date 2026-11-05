@@ -36,14 +36,14 @@ export async function fetchTitle(id) {
 }
 
 export class Player {
-  constructor(el, { onState, onReady } = {}) {
+  constructor(el, { onState, onReady, controls = 1 } = {}) {
     this.el = el; this.onState = onState; this.ready = false; this.seg = null; this.loop = false; this._poll = null; this.vid = null;
     this.readyP = loadAPI().then(YT => new Promise(res => {
       if (!YT) { el.innerHTML = '<div class="yt-fail">YouTube를 불러오지 못했어요.<br>네트워크를 확인해주세요.</div>'; return res(false); }
       const div = document.createElement('div'); el.appendChild(div);
       this.p = new YT.Player(div, {
         width: '100%', height: '100%',
-        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 0, iv_load_policy: 3, cc_load_policy: 0, origin: location.origin },
+        playerVars: { playsinline: 1, rel: 0, modestbranding: 1, controls, fs: 0, iv_load_policy: 3, cc_load_policy: 0, origin: location.origin },
         events: {
           onReady: () => { this.ready = true; onReady?.(); res(true); },
           onStateChange: e => this._state(e.data),

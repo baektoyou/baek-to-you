@@ -84,6 +84,24 @@ export function updatePhotoTags(id, tags) { const st = D.get().settings; D.setSe
 // ---------- 상황 (TALK에서 고르기 · 영상마다 지정) ----------
 export const SITUATIONS = [['bed', '잠들기 전'], ['eat', '밥 먹을 때'], ['cafe', '카페에서'], ['car', '이동 중'], ['travel', '여행 중'], ['hotel', '숙소에서'], ['studio', '작업실에서'], ['practice', '연습 끝나고'], ['event', '스케줄 끝나고'], ['outdoor', '산책하면서'], ['home', '집에서']];
 export const TIMES_SEL = [['morning', '아침'], ['day', '낮'], ['evening', '저녁'], ['night', '밤']];
+// 내가 추가·삭제한 상황까지 합친 목록 (기본 상황은 삭제하면 숨김)
+export function situations() {
+  const st = D.get().settings, hidden = new Set(st.hiddenSits || []);
+  return SITUATIONS.filter(([k]) => !hidden.has(k)).concat((st.customSits || []).map(c => [c.k, c.l]));
+}
+export const sitLabel = k => situations().concat(SITUATIONS, TIMES_SEL).find(([x]) => x === k)?.[1] || '';
+export function addSituation(label) {
+  label = String(label || '').trim(); if (!label) return null;
+  const st = D.get().settings; const ex = situations().find(([, l]) => l === label); if (ex) return ex[0];
+  const b = SITUATIONS.find(([, l]) => l === label); if (b) { D.setSetting('hiddenSits', (st.hiddenSits || []).filter(x => x !== b[0])); return b[0]; }
+  const k = 'c_' + D.uid(); D.setSetting('customSits', [...(st.customSits || []), { k, l: label }]); return k;
+}
+export function removeSituation(k) {
+  const st = D.get().settings;
+  if (SITUATIONS.some(([x]) => x === k)) D.setSetting('hiddenSits', [...new Set([...(st.hiddenSits || []), k])]);
+  else D.setSetting('customSits', (st.customSits || []).filter(c => c.k !== k));
+  D.get().videos.forEach(v => { if ((v.sit || []).includes(k)) D.updateVideo(v.id, { sit: v.sit.filter(x => x !== k) }); });
+}
 
 // ---------- 장면 키워드 ----------
 const KW = {
@@ -142,7 +160,9 @@ export function sceneOf(v) {
 }
 export const topTags = (s, n = 4) => Object.entries(s).sort((a, b) => b[1] - a[1]).slice(0, n).map(x => x[0]);
 export const timeOfScene = s => TIMES.filter(t => s[t]).sort((a, b) => s[b] - s[a])[0] || null;
-export const isLive = v => LIVE.test((v.title || '') + ' ' + (v.desc || ''));
+// 라이브 영상 = TALK 전화용 · 그 외 = WATCH용. 제목으로 자동 판단하고, 영상 관리에서 직접 바꿀 수 있어요 (v.kind)
+export const autoLive = v => LIVE.test((v.title || '') + ' ' + (v.desc || ''));
+export const isLive = v => v?.kind === 'live' ? true : v?.kind === 'video' ? false : autoLive(v || {});
 
 // 통화 콘셉트: 영상 장면 → 짧은 한 줄
 const CONCEPT = [
@@ -152,7 +172,8 @@ const CONCEPT = [
 ];
 const BY_TIME = { morning: '아침에 백현이랑', day: '낮에 백현이랑', evening: '저녁에 백현이랑', night: '늦은 밤 백현이랑' };
 export function conceptOf(v, scene = sceneOf(v), sit = '') {
-  if (sit) { const c = CONCEPT.find(([k]) => k === sit); if (c) return c[1]; }
+  if (sit) { const c = CONCEPT.find(([k]) => k === sit); if (c) return c[1]; const l = sitLabel(sit); if (l) return `${l} 백현이랑`; }
+  const mine = (v?.sit || []).find(k => k.startsWith('c_')); if (mine && !CONCEPT.some(([k]) => scene[k] >= 12)) return `${sitLabel(mine)} 백현이랑`;
   const t = timeOfScene(scene);
   const hit = CONCEPT.filter(([k]) => scene[k]).sort((a, b) => scene[b[0]] - scene[a[0]])[0];
   if (hit) return hit[1];
@@ -161,7 +182,7 @@ export function conceptOf(v, scene = sceneOf(v), sit = '') {
 
 // ---------- 통화에 쓸 영상 자동 선택 ----------
 // 문장이 3개 이상 있는 영상 중: 지금 시간대와 맞는 장면 + 라이브 영상 + 최근에 통화 안 한 영상 우선
-export function callable(v) { return D.uttsOf(v.id).filter(u => u.ko && (u.en?.natural || u.en?.easy || u.en?.advanced)).length >= 3; }
+export function callable(v) { return isLive(v) && D.uttsOf(v.id).filter(u => u.ko && (u.en?.natural || u.en?.easy || u.en?.advanced)).length >= 3; }
 export const matchesSit = (v, k) => (v.sit || []).includes(k) || (sceneOf(v)[k] || 0) >= 3;
 export function pickVideo(now = new Date(), sit = '') {
   let vids = D.get().videos.filter(callable); if (!vids.length) return null;
@@ -174,7 +195,6 @@ export function pickVideo(now = new Date(), sit = '') {
     if (t === tb) sc += 4; else if (t && (tb === 'night' && t === 'evening' || tb === 'evening' && t === 'night')) sc += 1.5;
     if (tb === 'night' && s.bed) sc += 2;
     if ((tb === 'day' || tb === 'evening') && s.eat) sc += 1;
-    if (isLive(v)) sc += 2;
     const ago = Date.now() - last(v.id);
     if (ago < 864e5) sc -= 3; else if (ago < 3 * 864e5) sc -= 1;
     return { v, sc };

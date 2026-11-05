@@ -5,7 +5,7 @@ import * as S from './speech.js';
 import { Player, thumb } from './yt.js';
 import { esc, $, $$, ic, toast, h, copyText, natOf, sheet, beforeAfter, hintBox, sayCard, phrasePicker } from './ui.js';
 import { improve, talkHint, talkFeatures, claudePrompt } from './feedback.js';
-import { pickVideo, pickPhoto, conceptOf, sceneOf, mountPhoto, rememberPhoto, timeBucket, TIME_KO, callable, SITUATIONS, matchesSit } from './scene.js';
+import { pickVideo, pickPhoto, conceptOf, sceneOf, mountPhoto, rememberPhoto, timeBucket, TIME_KO, callable, situations, matchesSit, isLive } from './scene.js';
 import { startRing, stopRing, blip, unlock } from './ringtone.js';
 
 const NAME = '백현이';
@@ -13,7 +13,7 @@ let active = null;   // 진행 중인 통화 정리 함수
 let sit = '';        // TALK에서 고른 상황 ('' = 랜덤)
 
 // ---------- 데이터 ----------
-const allClips = () => D.get().utts.filter(u => u.ko && D.video(u.videoId)).sort((a, b) => a.videoId < b.videoId ? -1 : a.videoId > b.videoId ? 1 : a.start - b.start);
+const allClips = () => D.get().utts.filter(u => u.ko && D.video(u.videoId) && isLive(D.video(u.videoId))).sort((a, b) => a.videoId < b.videoId ? -1 : a.videoId > b.videoId ? 1 : a.start - b.start);
 const isQ = u => u.type === 'question' || /\?\s*$/.test(u.ko || '');
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const words = t => (t || '').trim().split(/\s+/).filter(Boolean).length;
@@ -68,41 +68,54 @@ function when(t) {
 const MODE_KO = { call: '전화', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
 
 // ---------- 첫 화면 ----------
-// 백현이가 나한테 전화를 걸어오는 콘셉트 · 어떤 영상인지는 받기 전까지 몰라요
+// 백현이가 나한테 거는 전화 · 어떤 영상인지는 받기 전까지 몰라요
+// 지난 통화를 중간에 끊었으면 그 문장부터 이어서
+function resumeInfo() {
+  const l = (D.get().talkLogs || []).find(x => x.mode === 'call'); if (!l || l.pos == null) return null;
+  const v = D.video(l.videoId); if (!v || !callable(v)) return null;
+  const total = callTurns(v).length; if (l.pos >= total || l.pos < 1) return null;
+  return { v, pos: l.pos, total, concept: l.concept };
+}
 export function speak(root) {
   active?.(); active = null;
   const vids = D.get().videos.filter(callable);
-  const sits = SITUATIONS.filter(([k]) => vids.some(v => matchesSit(v, k)));
+  const sits = situations().filter(([k]) => vids.some(v => matchesSit(v, k)));
   if (sit && !sits.some(([k]) => k === sit)) sit = '';
-  const qs = questionPool(); const st = D.callStats();
+  const qs = questionPool(); const st = D.callStats(); const rs = resumeInfo();
+  const sitL = sits.find(([k]) => k === sit)?.[1] || '랜덤';
   root.innerHTML = `<div class="screen talk">
     <header class="top"><h1 class="page-title">TALK</h1></header>
     <section class="call-card">
-      <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까요?` : '통화할 영상이 아직 없어요'}</p>
+      <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까요?` : '전화할 라이브 영상이 아직 없어요'}</p>
       ${vids.length ? `<button class="call-orb" id="call" aria-label="${NAME}랑 전화하기"><span class="orb-waves"><i></i><i></i><i></i></span><span class="orb">${ic('phone')}</span></button>
       <b class="cc-label">${NAME}랑 전화하기</b>
-      ${sits.length ? `<div class="sit-row"><button class="sit ${sit ? '' : 'on'}" data-sit="">랜덤</button>${sits.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-sit="${k}">${l}</button>`).join('')}</div>` : ''}`
+      <div class="cc-opts">${sits.length ? `<button class="cc-opt" id="sitbtn">${esc(sitL)}<i class="chev">${ic('next')}</i></button>` : ''}${rs ? `<button class="cc-opt" id="resume">이어서 · ${rs.pos + 1}/${rs.total}</button>` : ''}</div>
+      ${sits.length ? `<div class="sit-panel" id="sitp"><div class="sit-row wrap"><button class="sit ${sit ? '' : 'on'}" data-sit="">랜덤</button>${sits.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-sit="${k}">${esc(l)}</button>`).join('')}</div></div>` : ''}`
         : `<a class="btn sm soft" href="#/settings">${ic('plus')} 영상 추가하기</a>`}
     </section>
     <div class="modes">
-      <button class="mode" data-mode="chat" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><span class="grow"><b>${NAME}랑 대화하기</b><small>질문에 자유롭게 대답하기</small></span>${ic('next')}</button>
-      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><span class="grow"><b>${NAME}랑 오래 이야기하기</b><small>60초씩, 힌트 받고 더 길게</small></span>${ic('next')}</button>
+      <button class="mode" data-mode="chat" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><b class="grow">${NAME}랑 대화하기</b>${ic('next')}</button>
+      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 오래 이야기하기</b>${ic('next')}</button>
     </div>
     <section class="call-log">
-      <div class="cl-total"><span class="label">총 통화 시간</span><div class="cl-big">${bigDur(st.total)}</div>
-        <div class="cl-sub"><span>통화 ${st.count}번</span><span>가장 긴 통화 ${fmtDur(st.longest)}</span><span>연속 ${st.streak}일</span></div></div>
-      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 6).map(l => `<div class="cl-row"><span class="cl-ic">${ic(l.mode === 'chat' ? 'chat' : l.mode === 'long' ? 'timer' : 'phone')}</span><div class="grow"><b>${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}${l.title ? ` · ${esc(l.title)}` : ''}</small></div><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
+      <div class="cl-total"><span class="label">총 통화 시간</span><div class="cl-big">${bigDur(st.total)}</div></div>
+      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 3).map(l => `<div class="cl-row"><b class="grow">${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}</small><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
     </section>
   </div>`;
   $('#call', root) && ($('#call', root).onclick = () => { unlock(); call(root, 'call', pickVideo(new Date(), sit)); });
-  $$('[data-sit]', root).forEach(b => b.onclick = () => { sit = b.dataset.sit; $$('[data-sit]', root).forEach(x => x.classList.toggle('on', x === b)); });
+  $('#resume', root) && ($('#resume', root).onclick = () => { unlock(); call(root, 'call', rs.v, { start: rs.pos }); });
+  $('#sitbtn', root) && ($('#sitbtn', root).onclick = e => { $('#sitp', root).classList.toggle('on'); e.currentTarget.classList.toggle('open'); });
+  $$('[data-sit]', root).forEach(b => b.onclick = () => {
+    sit = b.dataset.sit; $$('[data-sit]', root).forEach(x => x.classList.toggle('on', x === b));
+    const sb = $('#sitbtn', root); sb.firstChild.textContent = b.textContent; sb.classList.remove('open'); $('#sitp', root).classList.remove('on');
+  });
   $$('[data-mode]', root).forEach(b => b.onclick = () => { unlock(); call(root, b.dataset.mode); });
   return () => { active?.(); active = null; };
 }
 
 // ---------- 통화 ----------
 // 화면 구성: 통화 화면 위에 수신 화면(사진)을 덮어서 시작 → 받으면 사진은 사라지고 다시 나오지 않음
-function call(root, mode, v = null) {
+function call(root, mode, v = null, { start = 0 } = {}) {
   active?.(); active = null;
   // 대화 모드: 질문 순서를 먼저 정하고, 첫 질문이 나온 영상의 분위기로 사진·콘셉트를 맞춰요
   const qs = mode === 'call' ? [] : shuffle(questionPool());
@@ -129,7 +142,7 @@ function call(root, mode, v = null) {
         <button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button>
       </div></div>
     <div class="vc-panel" id="vpanel"></div>
-    <div class="vc-bye hide" id="vbye"><span class="bye-name">${NAME}</span><p>다음에 또 봐~</p></div>
+    <div class="vc-bye hide" id="vbye"><span class="bye-name">${NAME}</span><p>${NAME}와 통화 종료</p></div>
     <div class="ring2" id="ring">
       <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
       <div class="ring-top"><span class="ring-kind">${ic('cam')} 영상통화</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
@@ -141,9 +154,9 @@ function call(root, mode, v = null) {
   let unPhoto = mountPhoto($v('#rphoto'), ph.p, { focusY: 0.42 });
   rememberPhoto(ph.p.id);
   startRing();
-  let stopped = false, dead = false, endTurn = null, skipTurn = null, skipFlag = false, t0 = 0, timer = null, accepted = false;
+  let callPos = start, callTotal = 0, stopped = false, dead = false, endTurn = null, skipTurn = null, skipFlag = false, t0 = 0, timer = null, accepted = false;
   const vv = $v('#vv');
-  const pl = new Player($v('#vp'), { onState: s => { if (s === 'blocked') $v('#vtap').classList.remove('hide'); if (s === 'playing') { $v('#vtap').classList.add('hide'); vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
+  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'blocked') $v('#vtap').classList.remove('hide'); if (s === 'playing') { $v('#vtap').classList.add('hide'); vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
   const status = t => { const e = $v('#vst'); if (e.textContent !== t) { e.textContent = t; e.classList.remove('pop'); void e.offsetWidth; e.classList.add('pop'); } };
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
@@ -304,9 +317,9 @@ function call(root, mode, v = null) {
 
   // ----- 1. 백현이랑 전화하기: 영상 처음부터 순서대로 -----
   async function runCall() {
-    const list = callTurns(v);
-    for (let i = 0; i < list.length && !stopped; i++) {
-      const u = list[i]; progress(`${i + 1} / ${list.length}`);
+    const list = callTurns(v); callTotal = list.length;
+    for (let i = Math.min(start, list.length - 1); i < list.length && !stopped; i++) {
+      const u = list[i]; callPos = i; progress(`${i + 1} / ${list.length}`);
       skipFlag = false; await play(u); if (stopped) return;
       if (skipFlag) { skipFlag = false; continue; }
       msg('baek', u.ko);
@@ -321,6 +334,7 @@ function call(root, mode, v = null) {
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(b.dataset.k); });
       });
       if (k === 'p') await practice(rec, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, keywords: u.keywords, kind: u.ids.length === 1 ? 'utt' : 'mine' });
+      if (!stopped) callPos = i + 1;
     }
   }
   // ----- 2. 백현이랑 대화하기: 추천 없이 자유롭게 → 다듬기 → 다듬은 문장 연습 -----
@@ -389,7 +403,7 @@ function call(root, mode, v = null) {
     stopped = true; endTurn?.(); pl.stop(); closePanel(); stopRing();
     const sec = t0 ? Math.round((Date.now() - t0) / 1000) : 0;
     clearInterval(timer);
-    if (accepted && sec > 0) D.addTalkLog({ kind: 'call', mode, videoId: v?.id || null, title: v?.title || '', concept, sec, spoke: stats.sec, n: stats.n });
+    if (accepted && sec > 0) D.addTalkLog({ kind: 'call', mode, videoId: v?.id || null, title: v?.title || '', concept, sec, spoke: stats.sec, n: stats.n, ...(mode === 'call' ? { pos: callPos, total: callTotal } : {}) });
     blip('end');
     $('.vcall', root).classList.add('ending');
     $v('#vbye').classList.remove('hide');
