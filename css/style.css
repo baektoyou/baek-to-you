@@ -1204,3 +1204,68 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .modes{gap:10px}
 .ai-tag{display:inline-block;font-style:normal;font-size:9.5px;font-weight:600;letter-spacing:.06em;color:var(--pink-ink);background:var(--pink-soft);border-radius:5px;padding:1px 5px;margin-right:6px;vertical-align:1px}
 .cmp-r.ans .cmp-l{color:var(--muted)}
+
+/* ===================== v10 · AI 중심 ===================== */
+/* 영상: 확대 없이, 위·아래 유튜브 제목/로고 영역만 잘라내기 */
+.player.clean{overflow:hidden}
+.player.clean>div:not(.tap-hint){transform:none}
+.player.clean iframe{position:absolute;left:0;width:100%!important;top:-60px;height:calc(100% + 120px)!important}
+.vc-video #vp{transform:none}
+.vc-video iframe{top:-60px!important;bottom:auto!important;height:calc(100% + 120px)!important}
+.snd-pill{position:absolute;left:12px;bottom:12px;z-index:6;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:var(--pill);background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:500;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+.snd-pill svg{width:15px;height:15px}
+.vcall .snd-pill{top:calc(var(--safe-t) + 92px);bottom:auto;left:50%;transform:translateX(-50%)}
+/* CALL 메인 */
+@media (prefers-reduced-motion:reduce){.orb-waves i{animation:orb 3.2s infinite var(--ease)!important}}
+.call-card .cc-q,.call-card .cc-label{display:block;width:100%;text-align:center;letter-spacing:0;padding:0}
+.modes .mode{height:62px;padding-top:0;padding-bottom:0}
+/* AI 피드백 카드 */
+.fb2{display:grid;gap:8px}
+.fb-msg{margin:0;font-size:14px;line-height:1.55;color:var(--ink)}
+.fb-msg .ai-tag{margin-right:6px}
+.fr{display:grid;grid-template-columns:40px 1fr auto;align-items:start;gap:8px}
+.fl{font-size:10.5px;font-weight:600;letter-spacing:.04em;color:var(--muted);padding-top:5px}
+.fr p{margin:0;font-size:16px;font-weight:500;line-height:1.5;color:var(--ink)}
+.fr.me p{color:var(--ink2)}
+.fr.rec .fl{color:var(--pink-ink)}
+.fr .sv{margin:0 -4px 0 0}
+.w.err{text-decoration:underline;text-decoration-color:#E0A43A;text-decoration-thickness:2px;text-underline-offset:4px}
+.fx{list-style:none;margin:-2px 0 0 48px;padding:0;display:grid;gap:3px}
+.fx li{font-size:12.5px;line-height:1.45;color:var(--ink2)}
+.fx li s{color:var(--muted);text-decoration-color:var(--muted2)}
+.fx li b{font-weight:600;color:var(--ink)}
+.fx li small{display:block;color:var(--muted);font-size:11.5px}
+.fxs{display:grid;gap:2px;margin-top:2px;border-top:1px solid var(--line);padding-top:8px}
+.fx-i{display:flex;align-items:center;gap:8px;padding:4px 0}
+.fx-i>div{flex:1;min-width:0}
+.fx-i .en{font-size:14.5px;font-weight:500;color:var(--ink)}
+.fx-i small{display:block;font-size:11.5px;color:var(--muted)}
+.fbc .fb2{gap:7px}
+.vc-panel .fb2{margin-top:6px}
+/* AI 질문·답변 */
+.msg2.ai .m-bub{background:var(--surface);border:0}
+.msg2.ai{padding-left:0}
+.cp-q{width:34px;height:34px;border-radius:50%;display:grid;place-items:center;color:var(--muted);flex:none}
+.cp-q svg{width:18px;height:18px}
+.cp-q.on{background:var(--pink-soft);color:var(--pink-ink)}
+.ai-av{background:var(--pink-soft)!important;color:var(--pink-ink)!important;font-size:9px!important;font-weight:700;font-style:normal}
+.vm.helpm>div{background:rgba(255,255,255,.96);color:var(--ink)}
+.vm.helpm .fb2 p{color:var(--ink)}
+/* 대화하기 */
+.kit-wait{margin:10px 0 0;font-size:12px;color:var(--muted)}
+.kit .rec-x{margin-top:12px}
+.kit-go{display:flex;align-items:center;justify-content:space-between;margin-top:14px}
+.kit-go .nx-btn{margin-left:0;padding-left:0;color:var(--muted)}
+.next-q{margin-top:12px;padding-top:10px;border-top:1px solid var(--line)}
+.next-q p{margin:2px 0 0;font-size:16px;font-weight:500}
+.next-q small{font-size:12px;color:var(--muted)}
+/* SAVED 복습: 핵심 문장만 */
+.rv2{margin:18px 2px 18px}
+.rv2 .rv-q{font-size:21px}
+.rv2 .rv-qko{margin-top:4px}
+.rv-t2{margin-top:16px;display:flex;flex-direction:column;align-items:flex-start;gap:4px}
+.rv-t2 .rv-x{font-size:20px;color:var(--pink-ink)}
+.rv-t2 .rv-s{font-size:16px;color:var(--ink2)}
+.practice .mic-row{padding-top:4px}
+.practice #fbz{margin:6px 2px 14px}
+.practice .grades.two button{height:52px}

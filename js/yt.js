@@ -56,10 +56,12 @@ export class Player {
     const map = { '-1': 'unstarted', 0: 'ended', 1: 'playing', 2: 'paused', 3: 'buffering', 5: 'cued' };
     const name = map[s] || s;
     this.state = name;
-    if (name === 'playing') this._startPoll();
+    if (name === 'playing') { this._startPoll(); this._noCC(); }
     if (name === 'ended' && this.seg) this._segEnd();
     this.onState?.(name);
   }
+  // 유튜브 자막은 항상 끔 (계정 설정에서 자막을 켜 둔 경우도)
+  _noCC() { try { this.p.unloadModule?.('captions'); this.p.unloadModule?.('cc'); this.p.setOption?.('captions', 'track', {}); } catch { } }
   _startPoll() {
     clearInterval(this._poll);
     this._poll = setInterval(() => {
@@ -89,10 +91,15 @@ export class Player {
     if (this.vid !== ytId) { this.vid = ytId; this.p.loadVideoById({ videoId: ytId, startSeconds: start }); }
     else { this.p.seekTo(start, true); this.p.playVideo(); }
     // iOS가 자동 재생을 막으면 사용자 탭이 필요
-    setTimeout(() => { if (this.seg && this.state !== 'playing' && this.state !== 'buffering') this.onState?.('blocked'); }, 2200);
+    // 소리 있는 자동재생이 막히면 → 음소거로 먼저 재생(iOS 허용) · 첫 터치에 소리 켜기
+    setTimeout(() => {
+      if (!this.seg || this.state === 'playing' || this.state === 'buffering') return;
+      try { this.p.mute(); this.p.playVideo(); this.mutedAuto = true; this.onState?.('muted'); } catch { this.onState?.('blocked'); }
+    }, 1200);
     return done;
   }
   // 영상만 잠깐 멈춤 (구간 정보는 유지 → resume으로 이어서 재생)
+  unmute() { if (this.mutedAuto) { try { this.p.unMute(); this.p.setVolume?.(100); } catch { } this.mutedAuto = false; this.onState?.('unmuted'); } }
   pause() { this.p?.pauseVideo?.(); }
   resume() { if (this.p?.playVideo) { this.p.playVideo(); return true; } return false; }
   get playing() { return this.state === 'playing' || this.state === 'buffering'; }

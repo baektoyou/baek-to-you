@@ -1,7 +1,7 @@
 // SAVED — 문장 · 표현 · 단어 저장 → 질문에 영어로 대답하며 복습
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
-import { esc, $, $$, ic, toast, sheet, micBlock, confirmSheet, ytLink, natOf, phrasePicker, hintBox, unitHTML, verdictHTML, compareHTML, bindCompare } from './ui.js';
+import { esc, $, $$, ic, toast, sheet, micBlock, confirmSheet, ytLink, natOf, phrasePicker, hintBox, unitHTML, feedbackHTML, bindCompare } from './ui.js';
 import { smartFeedback } from './ai.js';
 const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
 import { markPattern, splitPatterns, diff } from './compare.js';
@@ -158,13 +158,12 @@ function review(root, items) {
     root.innerHTML = `<div class="screen full practice">
       <header class="top"><button class="icon-btn" id="x" aria-label="닫기">${ic('x')}</button><h2 class="ttl-sm">${i + 1} / ${queue.length}</h2><span class="icon-sp"></span></header>
       <div class="meter"><i style="width:${(i / queue.length) * 100}%"></i></div>
-      <section class="rv-card">
+      <section class="rv2">
         ${q.en ? `<p class="rv-q en">${unitHTML(q.en)}</p>${q.ko ? `<p class="rv-qko">${esc(q.ko)}</p>` : ''}` : `<p class="rv-q">${esc(q.ko)}</p>`}
-        <div class="rv-t">${isW
-          ? `<span class="rv-l">이 ${x.kind === 'word' ? '단어' : '표현'}로 대답해요</span><b class="rv-x en">${esc(x.text)}</b>${x.ko ? `<span class="rv-ko">${esc(x.ko)}</span>` : ''}`
-          : `<span class="rv-l">이 문장으로 대답해요</span><button class="rv-s en veil" id="peek" type="button">${unitHTML(target, x.pattern, x.marks)}</button>${x.ko ? `<span class="rv-ko">${esc(x.ko)}</span>` : ''}`}</div>
-        <div class="rv-hint" id="rh"></div>
-        <div class="rv-rec hide" id="rr"></div>
+        <div class="rv-t2">${isW
+          ? `<b class="rv-x en">${esc(x.text)}</b>${x.ko ? `<span class="rv-ko">${esc(x.ko)}</span>` : ''}`
+          : `<button class="rv-s en veil" id="peek" type="button">${unitHTML(target, x.pattern, x.marks)}</button>`}<div class="rv-hint" id="rh"></div></div>
+        <div class="hide" id="rr"></div>
       </section>
       <div id="zone"></div><div id="fbz"></div><div id="act"></div></div>`;
     $('#x', root).onclick = end;
@@ -181,20 +180,11 @@ function review(root, items) {
       if (!isW) { const pk = $('#peek', root); pk.classList.remove('veil'); pk.dataset.open = '1'; }
       fbz.innerHTML = '<p class="small muted rv-wait">확인하는 중…</p>';
       const f = await smartFeedback({ mode: 'review', said: text, question: q.en, qko: q.ko, expr, target: isW ? '' : target, pattern: x.pattern || '' }); if (my !== seq) return;
-      let ev = f.ev, ok = ev.ok;
-      // 문장 복습: 저장한 문장을 거의 그대로 기억해 말했으면 맞음
-      if (!isW) { const d = diff(text, target); if (d.keyRecall >= 0.7 && ev.level !== 'off' && !(ev.gram || []).length) { ok = true; if (!ev.ok) ev = { ...ev, level: 'great', title: '잘 기억했어요', ok: true }; } }
-      fbz.innerHTML = compareHTML({ said: text, fixed: f.fixed, ev, why: f.why, xs: f.xs, ai: f.ai });
-      bindCompare(fbz, t => ({ kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: t, before: text, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: q.en || q.ko }));
-      // 추천 문장 → 위 핑크 카드에서 바로 저장
-      const fixed = f.natural || f.fixed || text;
-      rr.classList.remove('hide');
-      rr.innerHTML = `<span class="rv-l">${f.ai ? '이렇게 말해봐요' : canon(fixed) !== canon(text) ? '다듬은 내 문장' : '내 문장'}</span><button class="rv-save" id="rsv" type="button"><span class="en">${unitHTML(fixed, expr)}</span><i>${ic('bookmark')}</i></button>`;
-      $('#rsv', root).onclick = e => {
-        const s2 = D.saveExpr({ kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: fixed, before: text, en: { easy: '', natural: fixed, advanced: '' }, pattern: expr, note: q.en || q.ko });
-        if (isW) D.updateWord(x.id, { made: [...(x.made || []), { text: fixed, at: Date.now() }] });
-        e.currentTarget.classList.add('on'); toast(s2.dup ? '이미 SAVED에 있어요' : '내 문장에 저장했어요');
-      };
+      let ok = f.correct;
+      // 문장 복습: AI가 없을 때 저장한 문장을 거의 그대로 기억해 말했으면 맞음
+      if (!isW && !f.ai && !ok) { const d = diff(text, target); if (d.keyRecall >= 0.7 && !f.fixes.length) { ok = true; f.feedback = '잘 기억했어요.'; } }
+      fbz.innerHTML = feedbackHTML(f, text);
+      bindCompare(fbz, t => { if (isW) D.updateWord(x.id, { made: [...(D.get().words.find(w => w.id === x.id)?.made || []), { text: t, at: Date.now() }] }); return { kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: t, before: text, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: q.en || q.ko }; });
       D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text });
       // 결과 기록: 맞으면 자동 완료, 틀리면 복습 대상으로
       const rateFn = isW ? D.rateWord : D.rate;
@@ -202,7 +192,7 @@ function review(root, items) {
       rateFn(x.id, ok ? 'okay' : 'again');
       if (ok) {
         result.again = result.again.filter(id => id !== x.id);
-        act.innerHTML = `<p class="done-line">${ic('check')} 복습 완료</p><p class="grade-q">얼마나 익숙해요?</p><div class="grades two">
+        act.innerHTML = `<div class="grades two">
           <button data-q="okay"><b>어느 정도 알아요</b><small>${nextLabel(snap, 'okay')}</small></button><button data-q="mastered"><b>완전히 익혔어요</b><small>${nextLabel(snap, 'mastered')}</small></button></div>`;
         $$('[data-q]', act).forEach(b => b.onclick = () => { if (b.dataset.q === 'mastered') { D.unrate(x.id, snap, isW); rateFn(x.id, 'mastered'); } result.ok++; next(); });
       } else {

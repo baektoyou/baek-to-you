@@ -48,6 +48,7 @@ const P = {
   wave: '<path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   sparkle: '<path d="M12 4l1.8 4.6L18.5 10l-4.7 1.6L12 16l-1.8-4.4L5.5 10l4.7-1.4z"/>',
   loop: '<path d="M17 2l3 3-3 3M3 11V9a4 4 0 0 1 4-4h13M7 22l-3-3 3-3M21 13v2a4 4 0 0 1-4 4H4"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
@@ -369,3 +370,30 @@ export function compareHTML({ said = '', fixed = '', target = '', label = '추�
   </div>`;
 }
 export function bindCompare(el, make) { bindSaves(el, make); bindLongPress(el); }
+
+// ---------- AI 피드백 카드: 한 줄 피드백 · 내 문장(고칠 부분만 밑줄) · 추천 문장 · 내가 안 쓴 표현 ----------
+// f: smartFeedback() 결과 {correct, feedback, fixes, natural, xs, ai}
+export function feedbackHTML(f, said, { answer = '', answerLabel = '정답' } = {}) {
+  if (!f) return '';
+  const low = said.toLowerCase(), marks = [];
+  (f.fixes || []).forEach(x => { const i = low.indexOf(String(x.wrong).toLowerCase()); if (i >= 0) marks.push([i, i + x.wrong.length]); });
+  let pos = 0;
+  const saidHTML = said.split(/(\s+)/).map(tok => { const st = pos; pos += tok.length; if (/^\s+$/.test(tok) || !tok) return tok; const err = marks.some(([a, b]) => st < b && st + tok.length > a); return wspan(tok, err ? 'err' : ''); }).join('');
+  const c = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
+  const row = (label, t, cls) => `<div class="fr ${cls}"><span class="fl">${label}</span><p class="en lp">${lpHTML(t)}</p><button class="sv" type="button" data-sv="${esc(t)}" aria-label="저장">${ic('bookmark')}</button></div>`;
+  const showA = answer && c(answer) !== c(said) && c(answer) !== c(f.natural);
+  return `<div class="fb2">
+    <p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback || '')}</p>
+    <div class="fr me"><span class="fl">내 문장</span><p class="en lp">${saidHTML}</p></div>
+    ${(f.fixes || []).length ? `<ul class="fx">${f.fixes.map(x => `<li><span class="en"><s>${esc(x.wrong)}</s> → <b>${esc(x.right)}</b></span>${x.why ? `<small>${esc(x.why)}</small>` : ''}</li>`).join('')}</ul>` : ''}
+    ${f.natural ? row('추천', f.natural, 'rec') : ''}
+    ${showA ? row(answerLabel, answer, 'ans') : ''}
+    ${(f.xs || []).length ? `<div class="fxs">${f.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}
+  </div>`;
+}
+// AI 답변 (영어 질문하기)
+export function aiAnswerHTML(r) {
+  if (r.error) return `<div class="fb2"><p class="fb-msg">${r.error === 'off' ? 'SETTINGS › AI에서 Gemini 키를 넣으면 영어 질문에 답해줄게요.' : '지금은 답할 수 없어요. 잠시 뒤 다시 물어봐요.'}</p></div>`;
+  return `<div class="fb2 qa"><p class="fb-msg"><i class="ai-tag">AI</i>${esc(r.answer).replace(/\n/g, '<br>')}</p>
+    ${(r.xs || []).length ? `<div class="fxs">${r.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}</div>`;
+}

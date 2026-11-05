@@ -2,11 +2,11 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, compareHTML, bindCompare, lpHTML, bindLongPress } from './ui.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
-import { smartFeedback } from './ai.js';
+import { smartFeedback, aiAsk } from './ai.js';
 import { banmal } from './banmal.js';
 import { isLive, avatarStyle } from './scene.js';
 
@@ -68,17 +68,22 @@ export function study(root, uttId) {
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
       <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
       <span class="icon-sp"></span></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div><button class="yt-shield" id="ysh" aria-label="재생/일시정지"></button></div>
+    <div class="cv-player"><div class="player clean" id="pl"></div><button class="yt-shield" id="ysh" aria-label="재생/일시정지"></button><button class="snd-pill hide" id="snd">${ic('volume')} 소리 켜기</button></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
       <button class="cp-mic" id="cpm" aria-label="말하기">${ic('mic')}</button>
+      <button class="cp-q" id="cpq" aria-label="AI에게 영어 질문하기">${ic('sparkle')}</button>
       <textarea id="cpt" rows="1" placeholder="영어로 말하거나 입력해요" autocapitalize="sentences" spellcheck="false"></textarea>
       <button class="cp-send" id="cps" aria-label="보내기">${ic('send')}</button>
     </div>
   </div>`;
   const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root);
-  const pl = new Player($('#pl', root), { controls: 0 });
+  const snd = () => $('#snd', root);
+  const pl = new Player($('#pl', root), { controls: 0, onState: st => { if (st === 'muted') snd()?.classList.remove('hide'); if (st === 'unmuted') snd()?.classList.add('hide'); } });
+  // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기
+  const unmute = () => pl.unmute();
+  root.addEventListener('pointerdown', unmute, { capture: true });
   pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
   $('#ysh', root).onclick = () => { if (pl.playing) pl.pause(); else playU(u); };
@@ -89,7 +94,7 @@ export function study(root, uttId) {
   let lastWho = '';
   const add = (who, html, cls = '') => {
     const first = who !== lastWho; lastWho = who;
-    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' && first ? AV(34) : who === 'bh' ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
+    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' && first ? AV(34) : who === 'bh' ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : who === 'ai' && first ? '<span class="m-name">AI 코치</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
     if (th.classList.contains('veil')) el.classList.add('keep');
     th.appendChild(el); scroll(); return el;
   };
@@ -132,9 +137,20 @@ export function study(root, uttId) {
       if (sendAfter) { sendAfter = false; doSend(); }
     });
   }
+  // AI에게 영어 질문: ✦ 버튼을 켜거나 한국어로 쓰면 질문으로 보냄
+  let qMode = false;
+  const qBtn = $('#cpq', root);
+  qBtn.onclick = () => { qMode = !qMode; qBtn.classList.toggle('on', qMode); ta.placeholder = qMode ? '영어에 대해 물어봐요' : (waiting ? '영어로 말하거나 입력해요' : '영어로 말하거나 입력해요'); ta.focus(); };
+  const ask = async t => {
+    ta.value = ''; fit(); me(t); th.lastElementChild?.classList.add('askq');
+    const ty = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing ai');
+    const r = await aiAsk(t, { ko: u.ko, en: natOf(u) }); ty.remove(); lastWho = ''; if (dead) return;
+    const el = add('ai', aiAnswerHTML(r), 'wide'); bindCompare(el);
+    qMode = false; qBtn.classList.remove('on');
+  };
   const doSend = () => {
     const t = ta.value.trim(); if (!t) return;
-    if (isKoT(t)) { toast('영어로 말해볼까?'); return; }
+    if (qMode || isKoT(t)) { ask(t); return; }
     if (!waiting) { if (soon) { early = t; ta.value = ''; fit(); me(t); return; } toast('아래 버튼을 눌러 진행해요'); return; }
     const w = waiting; waiting = null; ta.value = ''; fit(); me(t); w.res(t);
   };
@@ -172,7 +188,7 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', compareHTML({ said, fixed: f.fixed, target: f.natural, answer: target, label: '추천', ev: f.ev, acc: diff(said, target).score, why: f.why, xs: f.xs, ai: f.ai }), 'wide');
+    const el = add('bh', feedbackHTML(f, said), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
@@ -192,8 +208,9 @@ export function study(root, uttId) {
       const t2 = await askInput('기억해서 말해봐요', [target]); if (dead) return;
       th.classList.remove('veil');
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 }); D.markStep(x.id, 'recall');
-      const e2 = judgeTranslation(t2, target);
-      const fl = await bh(compareHTML({ said: t2, target, label: '정답', ev: e2, acc: diff(t2, target).score }), 'wide'); if (dead) return;
+      const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
+      const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
+      const fl = add('bh', feedbackHTML(f2, t2, { answer: target }), 'wide');
       bindCompare(fl, saveItem(x, t2));
     }
   }
@@ -204,5 +221,5 @@ export function study(root, uttId) {
     run(nx);
   }
   run(u);
-  return () => { dead = true; cap?.stop(); pl.destroy(); document.body.classList.remove('no-tab'); };
+  return () => { dead = true; cap?.stop(); pl.destroy(); root.removeEventListener('pointerdown', unmute, { capture: true }); document.body.classList.remove('no-tab'); };
 }

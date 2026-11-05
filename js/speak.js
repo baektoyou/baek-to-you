@@ -3,10 +3,10 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, naturalHTML, bindSaves, swipeDelete, compareHTML, bindCompare } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, bindSaves, swipeDelete, feedbackHTML, aiAnswerHTML, bindCompare } from './ui.js';
 import { diff } from './compare.js';
 import { banmal } from './banmal.js';
-import { smartFeedback } from './ai.js';
+import { smartFeedback, aiAsk, aiKit, aiPickNext, aiOn } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
 import { judgeReply, judgeTranslation, bestReply, keyExpressions } from './judge.js';
 import { appQuestion, detectTopics } from './talk-engine.js';
@@ -69,7 +69,7 @@ export function callTurns(v) {
 export const fmtDur = s => { s = Math.round(s || 0); if (s < 60) return `${s}초`; const m = Math.floor(s / 60); if (m < 60) return `${m}분${s % 60 ? ` ${s % 60}초` : ''}`; return `${Math.floor(m / 60)}시간 ${m % 60}분`; };
 const clock = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 function bigDur(s) { s = Math.round(s || 0); const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60); return hh ? `<b>${hh}</b><i>시간</i><b>${mm}</b><i>분</i>` : `<b>${mm}</b><i>분</i><b>${s % 60}</b><i>초</i>`; }
-const MODE_KO = { call: '전화', ask: '질문하기', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
+const MODE_KO = { call: '전화', ask: '질문하기', chat: '대화', long: '대화하기', today: '오늘의 백현이' };
 const dayDate = d => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
 const addDay = (d, n) => { const x = dayDate(d); x.setDate(x.getDate() + n); return D.today(x); };
 const dayLabel = d => { const t = D.today(); const x = dayDate(d); const md = `${x.getMonth() + 1}월 ${x.getDate()}일`; return d === t ? `오늘 · ${md}` : d === addDay(t, -1) ? `어제 · ${md}` : `${md} (${'일월화수목금토'[x.getDay()]})`; };
@@ -117,7 +117,7 @@ export function speak(root) {
     </section>
     <div class="modes">
       <button class="mode" data-mode="ask" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><b class="grow">${NAME}랑 질문하기</b>${ic('next')}</button>
-      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 오래 이야기하기</b>${ic('next')}</button>
+      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 대화하기</b>${ic('next')}</button>
     </div>
     <section class="call-log">
       <div class="cl-total">
@@ -189,12 +189,12 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   const ph = pickPhoto(v);
   const st = D.get().settings, me = D.profile(), myName = me.name || '나';
   const list = mode === 'call' && v ? callTurns(v) : [];
-  root.innerHTML = `<div class="vcall ${st.callFill !== false ? 'fill' : 'fit'}">
+  root.innerHTML = `<div class="vcall fill">
     <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
       <div class="vc-wait" id="vwait"><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
     <header class="vc-head"><b>${NAME}</b><span class="vc-time" id="vtm">연결 중…</span></header>
     <span class="vc-prog" id="vprog"></span>
-    ${me.photo ? `<div class="vc-self" style="background-image:url('${me.photo}')"></div>` : ''}
+    <button class="snd-pill hide" id="snd">${ic('volume')} 소리 켜기</button>
     <div class="vc-target hide" id="vtg"></div>
     <div class="vc-low"><div class="vc-cap" id="vcap"></div>
       <div class="vc-chat" id="vchat"></div>
@@ -202,9 +202,9 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       <div class="vc-hint hide" id="vhint"></div>
       <div class="vc-acts" id="vacts"></div>
       <p class="vc-status" id="vst"></p>
-      <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어로 입력" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
+      <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어에 대해 물어봐요 (AI)" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
       <div class="vc-ctrl">
-        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="키보드">${ic('kbd')}</button><span>키보드</span></div>
+        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="AI에게 영어 질문">${ic('sparkle')}</button><span>질문</span></div>
         <div class="vc-c"><button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg><span class="mic-ic">${ic('micF')}</span><span class="stop-ic">${ic('stop')}</span></button><em id="vsec"></em></div>
         <div class="vc-c"><button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button><span>종료</span></div>
       </div></div>
@@ -218,12 +218,14 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     </div>
   </div>`;
   const $v = s => $(s, root);
+  const unmuteAll = () => pl?.unmute?.();
+  root.addEventListener('pointerdown', unmuteAll, { capture: true });
   let unPhoto = mountPhoto($v('#rphoto'), ph.p, { focusY: 0.42 });
   rememberPhoto(ph.p.id);
   startRing();
   let callPos = start, stopped = false, dead = false, endTurn = null, skipTurn = null, typed = null, t0 = 0, timer = null, accepted = false, pending = null;
   const vv = $v('#vv');
-  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'playing') { vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
+  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'muted') $v('#snd')?.classList.remove('hide'); if (s === 'unmuted') $v('#snd')?.classList.add('hide'); if (s === 'playing') { vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
   const status = t => { const e = $v('#vst'); if (e.textContent !== t) { e.textContent = t; e.classList.remove('pop'); void e.offsetWidth; e.classList.add('pop'); } };
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
@@ -252,17 +254,19 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   // ----- 채팅 -----
   const chat = $v('#vchat');
   function msg(who, html, cls = '') {
-    const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : esc(myName)}</b>${html}</div></div>`);
+    const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : who === 'ai' ? `<i class="ai-av">AI</i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? 'AI 코치' : esc(myName)}</b>${html}</div></div>`);
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text) => msg(who, `<p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>`);
-  // 키보드: 영어로 입력
+  // ✦ 질문: 언제든 영어에 대해 AI에게 물어보기 (대답 입력용이 아님)
   const vin = $v('#vin'), vint = $v('#vint');
+  let curLine = { ko: '', en: '' };
   $v('#vkbd').onclick = () => { vin.classList.toggle('hide'); if (!vin.classList.contains('hide')) vint.focus(); };
-  vin.onsubmit = e => {
-    e.preventDefault(); const t = vint.value.trim(); if (!t) return; vint.value = '';
-    if (/[가-힣]/.test(t)) { vint.value = t; toast('영어로 말해볼까?'); return; }
-    if (typed) { say2('me', t); typed(t); } else toast('지금은 아래 버튼으로 진행해요');
+  vin.onsubmit = async e => {
+    e.preventDefault(); const t = vint.value.trim(); if (!t) return; vint.value = ''; vin.classList.add('hide');
+    say2('me', t); const w = msg('ai', '<p>…</p>', 'typing');
+    const r = await aiAsk(t, curLine); w.remove(); if (dead) return;
+    const m = msg('ai', aiAnswerHTML(r), 'helpm'); bindCompare(m);
   };
   // 상황별 작은 버튼 (다시 듣기 · 건너뛰기 …)
   const acts = (items = []) => { const el = $v('#vacts'); el.innerHTML = items.map(([l, k]) => `<button class="vc-act" data-a="${k}">${l}</button>`).join(''); return el; };
@@ -285,7 +289,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       if (micEarly) { micEarly = false; setTimeout(() => mic.onclick?.(), 0); }
       mic.onclick = async () => {
         if (cap) { cap.stop(); status('정리하는 중…'); return; }
-        if (!S.support.stt) { vin.classList.remove('hide'); vint.focus(); toast('키보드로 입력해도 돼요'); return; }
+        if (!S.support.stt) { const t = await typeBox(); if (t) { say2('me', t); stats.n++; finish(t, 0); } return; }
         pl.pause(); mic.classList.add('live'); status('듣는 중'); st0 = Date.now();
         live = say2('me', '…'); live.classList.add('typing');
         tick = setInterval(() => {
@@ -304,6 +308,13 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       };
     });
   }
+  // 음성 인식이 안 되는 브라우저에서만: 영어로 입력
+  function typeBox() {
+    return new Promise(res => {
+      panel(`<div class="vp-h">영어로 입력</div><textarea class="textarea en" id="tb" rows="2"></textarea><button class="btn block mt12" id="tbs">보내기</button>`);
+      $v('#tbs').onclick = () => { const t = $v('#tb').value.trim(); closePanel(); res(t); };
+    });
+  }
   const pnl = $v('#vpanel');
   function panel(html) { pnl.innerHTML = `<div class="grab"></div><div class="vp-body">${html}</div>`; pnl.classList.add('on'); pnl.scrollTop = 0; }
   function closePanel() { pnl.classList.remove('on'); }
@@ -317,7 +328,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       fb.innerHTML = `<div class="fbc">${html}<div class="fbc-btns">${btns.map(([k, l, cls]) => `<button class="${cls === 'nx' ? 'nx-btn' : 'btn sm'}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
       fb.classList.remove('hide'); fb.scrollTop = 0; $v('.vc-low').classList.add('fbon'); status('');
       bindCompare(fb, save);
-      $$('[data-k]', fb).forEach(b => b.onclick = () => { const o = btns.find(x => x[0] === b.dataset.k)?.[3]; o?.tap?.(); skipTurn = null; hideFb(); res(b.dataset.k); });
+      $$('[data-k]', fb).forEach(b => b.onclick = () => { const o = btns.find(x => x[0] === b.dataset.k)?.[3]; o?.tap?.(); if (b.dataset.k === 'read' || b.dataset.k === 'recall') micEarly = true; skipTurn = null; hideFb(); res(b.dataset.k); });
       skipTurn = () => { hideFb(); res('next'); };
     });
   }
@@ -330,15 +341,15 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     tg.classList.add('hide');
     if (a.skipped) return 'next';
     for (;;) {
-      const k = await card(a.text ? `<div class="mini-acc">보면서 말하기 <b>${diff(a.text, target).score}%</b></div>` : '', [['recall', '안 보고 말하기', ''], NX(nextU)], save);
+      const k = await card('', [['recall', '안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k === 'next') return k;
-      chat.classList.add('veil');
       tg.classList.remove('hide'); sayCard(tg, { ko: ko ? banmal(ko) : '', en: target, pattern, mode: 'recall' });
       const b = await turn({ label: '안 보고 말해요' }); log('sp-practice', b, uttId);
-      chat.classList.remove('veil'); tg.classList.add('hide'); tg.innerHTML = '';
+      tg.classList.add('hide'); tg.innerHTML = '';
       if (stopped) return 'stop'; if (b.skipped) return 'next';
-      const e = judgeTranslation(b.text, target);
-      const k2 = await card(compareHTML({ said: b.text, target, label: '정답', ev: e, acc: diff(b.text, target).score }), [['recall', '안 보고 말하기', ''], NX(nextU)], save);
+      status('확인하는 중…');
+      const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko }); if (stopped) return 'stop';
+      const k2 = await card(feedbackHTML(f, b.text, { answer: target }), [['recall', '안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k2 === 'next') return k2;
       a.text = '';
     }
@@ -349,13 +360,13 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     for (let i = Math.min(start, list.length - 1); i < list.length && !stopped; i++) {
       const u = list[i], target = natOf(u), nx = list[i + 1]; callPos = i; progress(`${i + 1} / ${list.length}`);
       await say(u); if (stopped) return;
-      say2('baek', banmal(u.ko));
+      say2('baek', banmal(u.ko)); curLine = { ko: u.ko, en: target };
       const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords }, replay: () => startClip(u) }); log('sp-call', r, u.id); if (stopped) return;
       if (r.skipped || !r.text) { if (!stopped) callPos = i + 1; continue; }
       status('다듬는 중…');
       const f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       const save = saveMine(u, r.text);
-      const k = await card(compareHTML({ said: r.text, fixed: f.fixed, target: f.natural, answer: target, label: '추천', ev: f.ev, acc: diff(r.text, target).score, why: f.why, xs: f.xs, ai: f.ai }),
+      const k = await card(feedbackHTML(f, r.text),
         [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
       if (stopped) return;
       if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }
@@ -365,75 +376,82 @@ function call(root, mode, v = null, { start = 0 } = {}) {
 
   // ----- 2. 백현이랑 질문하기: 백현이 질문 → 내가 영어로 대답 → 평가·교정·추천 → (연습) → 백현이가 이어서 말함 → 다음 질문 -----
   async function runAsk() {
-    for (let i = 0; i < qs.length && !stopped; i++) {
-      const q = qs[i], nq = qs[i + 1]; progress(`${i + 1} / ${qs.length}`);
+    const left = [...qs], hist = []; let n = 0, q = left.shift();
+    while (q && !stopped) {
+      n++; progress(`${n} / ${qs.length}`);
       await say(q.u); if (stopped) return;
-      say2('baek', banmal(q.ko));
+      say2('baek', banmal(q.ko)); curLine = { ko: q.ko, en: q.en };
       const r = await turn({ label: '영어로 대답해볼까?', hint: replyHint(q.u), replay: () => startClip(q.u) }); log('sp-chat', r, q.u.id); if (stopped) return;
-      if (r.skipped || !r.text) continue;
-      status('다듬는 중…');
-      const f = await smartFeedback({ mode: 'reply', said: r.text, question: q.en, qko: q.ko, replies: q.u.replies }); if (stopped) return;
-      const ans = q.real ? answerClip(q.u) : null;
-      const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
-      const save = saveMine(q.u, r.text);
-      const tgt = f.natural && canon(f.natural) !== canon(f.fixed) ? f.natural : '';
-      const k = await card(compareHTML({ said: r.text, fixed: f.fixed, target: tgt, label: '추천', ev: f.ev, why: f.why, xs: f.xs, ai: f.ai }),
-        [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
-      if (stopped) return;
-      if (k === 'read') { const k2 = await practice(tgt || f.fixed, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
-      if (ans) { await say(ans); if (stopped) return; say2('baek', banmal(ans.ko)); if (nq) startClip(nq.u); }
+      if (r.text) {
+        hist.push(`Baekhyun: ${q.en || q.ko}`, `Me: ${r.text}`);
+        status('확인하는 중…');
+        // 피드백과 함께, 지금 대화에 이어지기 좋은 다음 질문을 AI가 골라 둠
+        const [f, pick] = await Promise.all([
+          smartFeedback({ mode: 'reply', said: r.text, question: q.en, qko: q.ko, replies: q.u.replies }),
+          aiPickNext(hist, left.slice(0, 8).map(x => x.en || x.ko))
+        ]); if (stopped) return;
+        const nq = left.length ? left.splice(pick, 1)[0] : null;
+        const ans = q.real ? answerClip(q.u) : null;
+        const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
+        const save = saveMine(q.u, r.text);
+        const k = await card(feedbackHTML(f, r.text), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
+        if (stopped) return;
+        if (k === 'read') { const k2 = await practice(f.natural || r.text, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
+        if (ans) { await say(ans); if (stopped) return; say2('baek', banmal(ans.ko)); if (nq) startClip(nq.u); }
+        q = nq;
+      } else q = left.shift();
     }
   }
   const replyHint = u => { const src = (u?.hint && words(u.hint) >= 3 ? u.hint : '') || u?.replies?.[0] || ''; return src ? { en: src } : null; };
 
-  // ----- 2. 오래 이야기하기: 답변 틀·예시·되물을 질문 → 30초 → 45초 → 60초 (3라운드) -----
+  // ----- 3. 대화하기: 질문 + AI 추천 표현 → 30초 → (AI가 내 말에 이어지는 다음 질문) 45초 → 60초 -----
   const ROUNDS = [30, 45, 60];
-  function kitHTML(q, { compact = false, hint = null } = {}) {
-    const frames = answerFrames(q.en);
-    if (compact) return `<div class="kit compact"><p class="kit-q en">${esc(q.en || q.ko)}</p><ul class="kit-l">${frames.slice(0, 2).map(f => `<li><span class="en">${esc(f.text)}</span><em>${esc(f.ko)}</em></li>`).join('')}${hint ? `<li class="kit-h"><b>${esc(hint.t)}</b><span class="en">${esc(hint.ex)}</span></li>` : ''}</ul></div>`;
-    const tops = detectTopics(q.en || ''); const used = new Set(); const a1 = appQuestion(tops.length ? tops : [{ t: 'greeting' }], used);
-    const asks = [...new Set([a1, 'What about you?'])];
-    const ext = TALK_HINTS.filter(x => ['reason', 'example', 'feeling'].includes(x.k));
-    return `<div class="kit"><p class="kit-q en">${esc(q.en || q.ko)}</p>${q.ko ? `<p class="kit-ko">${esc(q.ko)}</p>` : ''}
-      <div class="kit-sec"><span>답변 틀 · 눌러서 저장</span>${exprChips(frames)}</div>
-      ${q.u.replies?.length ? `<div class="kit-sec">${naturalHTML(q.u.replies.slice(0, 2), '답변 예시')}</div>` : ''}
-      <div class="kit-sec"><span>이어서 할 이야기</span><ul class="kit-l">${ext.map(p => `<li><b>${esc(p.t)}</b><span class="en">${esc(p.ex)}</span></li>`).join('')}</ul></div>
-      <div class="kit-sec"><span>되물어볼 질문</span>${exprChips(asks.map(a => ({ text: a, ko: ASK_KO[a] || '' })))}</div>
-      <div class="row mt12 kit-go"><button class="btn soft" id="kother">다른 질문</button><button class="btn grow" id="kgo">${ic('mic')} ${ROUNDS[0]}초 이야기하기</button></div></div>`;
-  }
+  const kitBox = (q, xs, { start = false } = {}) => `<div class="kit"><p class="kit-q en">${esc(q.en || q.ko)}</p>${q.ko ? `<p class="kit-ko">${esc(banmal(q.ko))}</p>` : ''}
+    ${xs === null ? '<p class="kit-wait">추천 표현 고르는 중…</p>' : xs.length ? exprChips(xs) : ''}
+    ${start ? `<div class="kit-go"><button class="nx-btn" id="kother">다른 질문</button><button class="btn sm" id="kgo">${ic('mic')} 시작</button></div>` : ''}</div>`;
+  const fallbackXs = q => answerFrames(q.en).slice(0, 3);
   async function runLong() {
     let qi = 0, q = qs[0]; const tg = $v('#vtg');
+    // 시작: 질문 + 이 질문에 맞는 표현 3개
     for (;;) {
-      progress(''); await say(q.u); if (stopped) return;
-      tg.innerHTML = kitHTML(q); tg.classList.remove('hide'); tg.classList.add('kit-on'); bindSaves(tg);
+      progress(''); const kp = aiKit({ question: q.en, qko: q.ko });
+      await say(q.u); if (stopped) return;
+      tg.innerHTML = kitBox(q, aiOn() ? null : fallbackXs(q), { start: true }); tg.classList.remove('hide'); tg.classList.add('kit-on');
+      const bindKit = () => { bindSaves(tg); $v('#kgo').onclick = () => go('y'); $v('#kother').onclick = () => { const n = qs[(qi + 1) % qs.length]; startClip(n.u); go('o'); }; };
+      let go; const kp2 = new Promise(res => { go = res; skipTurn = () => res('o'); endTurn = () => res('e'); });
+      bindKit();
+      kp.then(kit => { if (stopped || !tg.querySelector('.kit-wait')) return; tg.innerHTML = kitBox(q, kit?.xs?.length ? kit.xs : fallbackXs(q), { start: true }); bindKit(); });
       status('준비되면 시작');
-      const k = await new Promise(res => { $v('#kgo').onclick = () => res('y'); $v('#kother').onclick = () => { const n = qs[(qi + 1) % qs.length]; startClip(n.u); res('o'); }; skipTurn = () => res('o'); endTurn = () => res('e'); });
-      skipTurn = endTurn = null;
+      const k = await kp2; skipTurn = endTurn = null;
       if (stopped || k === 'e') return;
       if (k === 'y') break; qi = (qi + 1) % qs.length; q = qs[qi];
     }
     tg.classList.remove('kit-on');
-    say2('baek', q.en || q.ko);
-    const used = []; let hint = null, prevW = 0;
-    for (let i = 0; i < ROUNDS.length && !stopped;) {
-      progress(`${i + 1} / 3 라운드`);
-      tg.innerHTML = kitHTML(q, { compact: true, hint }); tg.classList.remove('hide');
+    say2('baek', banmal(q.ko) || q.en);
+    const hist = []; let cur = { en: q.en, ko: q.ko }, xs = [], prevW = 0;
+    for (let i = 0; i < ROUNDS.length && !stopped; i++) {
+      progress(`${i + 1} / 3`); curLine = cur;
+      tg.innerHTML = `<div class="kit compact"><p class="kit-q en">${esc(cur.en || cur.ko)}</p>${xs.length ? exprChips(xs) : ''}</div>`; tg.classList.remove('hide'); bindSaves(tg);
       const r = await turn({ limit: ROUNDS[i], auto: true, label: `${ROUNDS[i]}초 동안 이야기해요` }); log('sp-long', r, q.u.id); if (stopped) return;
       tg.classList.add('hide');
-      const w = words(r.text);
-      hint = talkHint(r.text, used); used.push(hint.k);
-      if (r.text) status('다듬는 중…');
-      const f = r.text ? await smartFeedback({ mode: 'long', said: r.text, question: q.en, qko: q.ko, replies: q.u.replies }) : null; if (stopped) return;
-      const last = i === ROUNDS.length - 1;
+      const w = words(r.text), last = i === ROUNDS.length - 1;
+      if (r.text) hist.push(r.text);
+      status('확인하는 중…');
+      const [f, kit] = await Promise.all([
+        r.text ? smartFeedback({ mode: 'long', said: r.text, question: cur.en, qko: cur.ko, replies: q.u.replies }) : null,
+        !last && r.text ? aiKit({ question: cur.en, qko: cur.ko, history: hist }) : null
+      ]); if (stopped) return;
+      const next = kit?.next || null;
       await new Promise(res => {
-        panel(`<div class="vp-h">${i + 1}라운드 <small>${ROUNDS[i]}초 · ${w}단어${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${f ? compareHTML({ said: r.text, fixed: f.fixed, target: f.natural, label: '추천', ev: f.ev, why: f.why, xs: f.xs, ai: f.ai }) : '<p class="vp-s">말한 내용이 없어요</p>'}
-          ${!last ? `<div class="long-hint"><span class="lh-tag">${ic('bulb')} 다음 라운드에 넣어볼 것</span><b>${esc(hint.t)}</b><p><span class="en">${esc(hint.ex)}</span> · ${esc(hint.ko)}</p></div>` : ''}
-          <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 라운드 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
+        panel(`<div class="vp-h">${i + 1}라운드 <small>${w}단어${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
+          ${f ? feedbackHTML(f, r.text) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${!last && next ? `<div class="next-q"><span class="cor-l">이어서</span><p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}</div>` : ''}
+          <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      prevW = w; i++;
+      if (next) { cur = next; xs = kit.xs || []; say2('ai', next.en); } else xs = [];
+      prevW = w;
     }
     tg.classList.add('hide');
   }
@@ -452,7 +470,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     if (dead) return;
     cleanup(); document.body.classList.remove('in-call'); day = D.today(); speak(root);
   }
-  function cleanup() { if (dead) return; dead = stopped = true; stopRing(); endTurn?.(); clearInterval(timer); pl.destroy(); unPhoto?.(); active = null; }
+  function cleanup() { if (dead) return; root.removeEventListener('pointerdown', unmuteAll, { capture: true }); dead = stopped = true; stopRing(); endTurn?.(); clearInterval(timer); pl.destroy(); unPhoto?.(); active = null; }
   active = cleanup;
   let finDone = false; const finaleOnce = () => { if (finDone) return; finDone = true; finale(); };
   $v('#vend').onclick = () => finaleOnce();
