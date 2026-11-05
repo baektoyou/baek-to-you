@@ -1136,3 +1136,69 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .swipe{display:block!important}
 .swipe .sw-in{width:100%}
 .vc-low.fbon .vc-chat{max-height:13vh}
+
+/* ===================== v9 · 정리 ===================== */
+/* 영상 확대: 얼굴(위쪽)이 잘리지 않게 */
+.player.clean>div:not(.tap-hint){transform:scale(1.08);transform-origin:50% 22%}
+.vc-video #vp{transform:scale(1.08);transform-origin:50% 18%}
+/* 통화 화면: 전화 앱처럼 */
+.vc-head b{font-size:21px;font-weight:600;letter-spacing:.02em}
+.vc-head .vc-time{font-size:12.5px;opacity:.8;letter-spacing:.06em}
+.vc-ctrl{align-items:flex-start}
+.vc-c{display:flex;flex-direction:column;align-items:center;gap:7px;min-width:78px}
+.vc-c>span,.vc-c>em{font-size:11px;font-style:normal;font-weight:500;color:rgba(255,255,255,.75);letter-spacing:.02em;min-height:14px;font-variant-numeric:tabular-nums}
+.vc-c .vc-btn{margin-top:9px}
+.vc-mic{display:block;position:relative}
+.vc-mic em{display:none}
+.vc-mic .ring-svg{position:absolute;inset:0;width:100%;height:100%}
+.vc-mic .mic-ic,.vc-mic .stop-ic{position:absolute;inset:0;display:grid;place-items:center}
+.vc-mic .mic-ic svg{width:30px;height:30px;margin:0}
+.vc-mic .stop-ic svg{width:22px;height:22px;fill:currentColor;stroke:none;margin:0}
+.vc-mic .stop-ic{display:none}
+.vc-mic.live .mic-ic{display:none}
+.vc-mic.live .stop-ic{display:grid}
+/* 버튼 줄: 흰 박스 없이 · 왼쪽 연습 / 오른쪽 다음(작게) */
+.fbc-btns{position:static;background:none;padding:0;margin-top:12px;display:flex;align-items:center;justify-content:space-between;gap:8px}
+.fbc-btns .btn{flex:none;padding:0 14px}
+.nx-btn{display:inline-flex;align-items:center;gap:2px;height:34px;padding:0 4px 0 10px;margin-left:auto;font-size:13.5px;font-weight:600;color:var(--pink-ink);background:none}
+.nx-btn svg{width:15px;height:15px;stroke-width:2.2}
+.vc-panel .fbc-btns{margin-top:16px}
+.quick{justify-content:flex-start}
+.qchip.nx{margin-left:auto;background:none;border:0;color:var(--pink-ink);font-weight:600;padding:0 4px 0 10px;gap:2px}
+.qchip.nx svg{width:15px;height:15px;stroke-width:2.2}
+/* 1:1 비교 */
+.cmp{display:grid;gap:8px}
+.cmp-h{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.cmp-h .vd{margin:0}
+.acc{font-size:11.5px;color:var(--muted);white-space:nowrap}
+.acc b{font-size:15px;font-weight:600;color:var(--ink);letter-spacing:.02em;margin-left:2px}
+.cmp-r{display:grid;grid-template-columns:44px 1fr auto;align-items:start;gap:8px;padding:9px 10px;border-radius:12px;background:var(--surface)}
+.cmp-r.me{background:none;padding:2px 10px}
+.cmp-r.me p{color:var(--ink2);font-size:15px}
+.cmp-l{font-size:10.5px;font-weight:600;letter-spacing:.04em;color:var(--muted);padding-top:4px}
+.cmp-r.tg .cmp-l{color:var(--pink-ink)}
+.cmp-r p{margin:0;font-size:16.5px;font-weight:500;line-height:1.45;color:var(--ink)}
+.cmp-r .sv{margin:-2px -4px 0 0}
+.cmp-ok{display:flex;align-items:center;gap:4px;font-size:13px!important;color:var(--ok)!important}
+.cmp-ok svg{width:14px;height:14px}
+.cmp-why{margin:0 2px;font-size:12px;color:var(--muted)}
+.cmp .rec-x{margin-top:2px}
+.fbc .cmp-r{background:var(--surface)} .fbc .cmp-r.me{background:none}
+/* 길게 눌러 단어 저장 */
+.lp{-webkit-touch-callout:none;-webkit-user-select:none;user-select:none}
+.w{border-radius:4px;transition:background .15s}
+.w.ins{background:var(--pink-soft2)}
+.w.press{background:var(--pink-soft)}
+.w.saved{text-decoration:underline;text-decoration-color:var(--pink);text-decoration-thickness:1.5px;text-underline-offset:3px}
+.acc-b{display:inline-block;margin-left:8px;font-style:normal;font-size:11px;font-weight:600;color:var(--muted)}
+.acc-b.hi{color:var(--ok)}
+.mini-acc{font-size:12.5px;color:var(--muted)} .mini-acc b{color:var(--ink);font-size:15px;margin-left:4px}
+.vc-chat.veil .vm.me p{filter:blur(6px);opacity:.6}
+/* CALL 첫 화면 간격 */
+.call-card{padding:30px 20px 24px}
+.cc-q{margin-bottom:22px}
+.cc-label{margin-top:16px;font-size:15px}
+.sit-row.center{margin-top:16px;gap:8px}
+.sit-row.center .sit{height:34px;padding:0 16px;font-size:13px}
+.sit.more{border-style:solid;color:var(--ink2)}
+.modes{gap:10px}

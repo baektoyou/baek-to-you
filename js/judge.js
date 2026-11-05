@@ -79,6 +79,8 @@ export function judgeReply(said, { question = '', expr = '', strict = true } = {
       why = ({ why: '이유(because …)가 들어가면 질문에 딱 맞는 대답이 돼요', when: '언제인지(시간·때)가 들어가야 질문에 맞는 대답이에요', where: '어디인지(장소)가 들어가야 질문에 맞는 대답이에요', who: '누구인지가 들어가야 질문에 맞는 대답이에요', yesno: 'Yes / No로 먼저 대답하고 이어서 말해봐요', howmuch: '얼마나·몇 번인지가 들어가야 질문에 맞는 대답이에요' })[qt] || '질문에서 물어본 내용으로 대답해봐요';
     }
   }
+  if (n < 2) return R('fix', '조금만 더 길게', '한 문장으로 끝까지 말해봐요', { fixed, gram });
+  if (why) return R('off', '질문과 조금 달라요', why, { fixed, gram });
   // 과거 질문(Did you …?)에 현재형으로 대답
   if (question && /^(did|were|was)\b|\b(yesterday|last night|last week|today)\b.*\?$/i.test(question.trim())) {
     const m = said.match(new RegExp(`\\b(I|we) (${Object.keys(PAST).join('|')})\\b`, 'i'));
@@ -87,12 +89,10 @@ export function judgeReply(said, { question = '', expr = '', strict = true } = {
       gram.unshift({ type: 'grammar', why: `질문이 과거라서 과거형(${PAST[m[2].toLowerCase()]})으로 대답해요` }); return R('fix', '뜻은 통해요 · 시제 하나만', gram[0].why, { fixed: fx, gram });
     }
   }
-  if (n < 2) return R('fix', '조금만 더 길게', '한 문장으로 끝까지 말해봐요', { fixed, gram });
-  if (why) return R('off', '질문과 조금 달라요', why, { fixed, gram });
   if (!usedExpr) return R('fix', '표현이 빠졌어요', `‘${expr}’을 넣어서 다시 말해볼까요?`, { fixed, gram });
   if (gram.length) return R('fix', '뜻은 통해요 · 문법 하나만', gram[0].why, { fixed, gram });
-  if (n < 4 && question) return R('good', '좋아요', '이유나 한 마디를 더 붙이면 대화가 이어져요', { fixed });
-  return R(rel >= 2 || !question ? 'great' : 'good', rel >= 2 || !question ? '자연스러워요' : '좋아요', rel >= 2 || !question ? '' : '질문에 맞는 내용인지 한 번 더 확인해봐요', { fixed });
+  if (n < 4 && question) return R('good', '뜻이 잘 통해요', '이유나 한 마디를 더 붙이면 대화가 이어져요', { fixed });
+  return R(rel >= 2 || !question ? 'great' : 'good', rel >= 2 || !question ? '자연스러워요' : '뜻이 잘 통해요', rel >= 2 || !question ? '' : '질문에 맞는 내용인지 한 번 더 확인해봐요', { fixed });
 }
 
 const PAST = { eat: 'ate', go: 'went', have: 'had', see: 'saw', do: 'did', sleep: 'slept', watch: 'watched', play: 'played', buy: 'bought', meet: 'met', make: 'made', take: 'took', get: 'got', listen: 'listened', study: 'studied', drink: 'drank', cook: 'cooked', work: 'worked', feel: 'felt', come: 'came', read: 'read', sing: 'sang', practice: 'practiced', stay: 'stayed', visit: 'visited' };

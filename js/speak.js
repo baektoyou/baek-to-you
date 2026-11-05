@@ -1,13 +1,15 @@
-// CALL — 백현이 한국어를 듣고 영어로 ‘번역’해서 말하기 (CHAT은 듣고 ‘대답’하기)
+// CALL — 전화하기: 백현이 한국어를 듣고 영어로 ‘번역’ · 질문하기: 백현이 질문에 영어로 ‘대답’ · 오래 이야기하기
 // 백현이 화면·목소리는 실제 영상 클립만 사용 (백현이가 하지 않은 말을 만들지 않음)
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, verdictHTML, correctionHTML, naturalHTML, exprChips, bindSaves, swipeDelete } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, naturalHTML, bindSaves, swipeDelete, compareHTML, bindCompare } from './ui.js';
+import { diff } from './compare.js';
+import { banmal } from './banmal.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
 import { judgeReply, judgeTranslation, bestReply, keyExpressions } from './judge.js';
 import { appQuestion, detectTopics } from './talk-engine.js';
-import { koHelp, helpHTML, isKo, ASK_KO } from './kohelp.js';
+import { ASK_KO } from './kohelp.js';
 import { pickVideo, pickPhoto, conceptOf, sceneOf, mountPhoto, rememberPhoto, callable, situations, matchesSit, isLive } from './scene.js';
 import { startRing, stopRing, blip, unlock } from './ringtone.js';
 
@@ -19,6 +21,7 @@ let day = '';        // 통화 기록에서 보고 있는 날짜
 // ---------- 데이터 ----------
 const allClips = () => D.get().utts.filter(u => u.ko && D.video(u.videoId) && isLive(D.video(u.videoId))).sort((a, b) => a.videoId < b.videoId ? -1 : a.videoId > b.videoId ? 1 : a.start - b.start);
 const isQ = u => u.type === 'question' || /\?\s*$/.test(u.ko || '') || /\?\s*$/.test(natOf(u));
+const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
 const words = t => (t || '').trim().split(/\s+/).filter(Boolean).length;
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
@@ -27,6 +30,8 @@ function questionPool() {
   if (real.length) return real;
   return clips.filter(u => u.question).map(u => ({ u, real: false, en: libFor(u.pattern)?.qEn || '', ko: u.question }));
 }
+// 같은 영상에서 질문 바로 뒤에 백현이가 직접 한 말
+function answerClip(q) { return D.uttsOf(q.videoId).find(u => u.id !== q.id && u.start >= q.start + 0.5 && u.start - q.end < 120 && !isQ(u) && u.ko) || null; }
 // 오래 이야기하기: 대화를 넓힐 수 있는 질문 우선 (열린 질문 · 충분한 길이 · 답변 예시)
 function richScore(q) {
   const en = q.en || ''; let s = Math.min(4, words(en) / 3);
@@ -63,7 +68,7 @@ export function callTurns(v) {
 export const fmtDur = s => { s = Math.round(s || 0); if (s < 60) return `${s}초`; const m = Math.floor(s / 60); if (m < 60) return `${m}분${s % 60 ? ` ${s % 60}초` : ''}`; return `${Math.floor(m / 60)}시간 ${m % 60}분`; };
 const clock = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
 function bigDur(s) { s = Math.round(s || 0); const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60); return hh ? `<b>${hh}</b><i>시간</i><b>${mm}</b><i>분</i>` : `<b>${mm}</b><i>분</i><b>${s % 60}</b><i>초</i>`; }
-const MODE_KO = { call: '전화', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
+const MODE_KO = { call: '전화', ask: '질문하기', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
 const dayDate = d => { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd); };
 const addDay = (d, n) => { const x = dayDate(d); x.setDate(x.getDate() + n); return D.today(x); };
 const dayLabel = d => { const t = D.today(); const x = dayDate(d); const md = `${x.getMonth() + 1}월 ${x.getDate()}일`; return d === t ? `오늘 · ${md}` : d === addDay(t, -1) ? `어제 · ${md}` : `${md} (${'일월화수목금토'[x.getDay()]})`; };
@@ -103,13 +108,14 @@ export function speak(root) {
   root.innerHTML = `<div class="screen talk">
     <header class="top"><h1 class="page-title">CALL</h1></header>
     <section class="call-card">
-      <p class="cc-q">${vids.length ? `${NAME} 말을 듣고 영어로 바꿔 말해요` : '전화할 라이브 영상이 아직 없어요'}</p>
+      <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까요?` : '전화할 라이브 영상이 아직 없어요'}</p>
       ${vids.length ? `<button class="call-orb" id="call" aria-label="${NAME}랑 전화하기"><span class="orb-waves"><i></i><i></i><i></i></span><span class="orb">${ic('phoneF')}</span></button>
       <b class="cc-label">${NAME}랑 전화하기</b>
-      ${sits.length ? `<div class="sit-row wrap center" id="sits"><button class="sit ${sit ? '' : 'on'}" data-sit="">랜덤</button>${front.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-sit="${k}">${esc(l)}</button>`).join('')}${sits.length > 3 ? `<button class="sit more" id="sitmore">더보기 ${sits.length - 3}</button>` : ''}</div>` : ''}`
+      ${sits.length ? `<div class="sit-row center" id="sits"><button class="sit on" data-sit="${esc(sit)}">${esc(sit ? (sits.find(([k]) => k === sit)?.[1] || '랜덤') : '랜덤')}</button><button class="sit more" id="sitmore">더보기</button></div>` : ''}`
         : `<a class="btn sm soft" href="#/settings">${ic('plus')} 영상 추가하기</a>`}
     </section>
     <div class="modes">
+      <button class="mode" data-mode="ask" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><b class="grow">${NAME}랑 질문하기</b>${ic('next')}</button>
       <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 오래 이야기하기</b>${ic('next')}</button>
     </div>
     <section class="call-log">
@@ -126,7 +132,7 @@ export function speak(root) {
   $$('[data-resume]', root).forEach(b => b.onclick = () => { unlock(); call(root, 'call', D.video(b.dataset.resume), { start: +b.dataset.pos }); });
   $$('[data-sit]', root).forEach(b => b.onclick = () => { sit = b.dataset.sit; $$('[data-sit]', root).forEach(x => x.classList.toggle('on', x === b)); });
   $('#sitmore', root) && ($('#sitmore', root).onclick = () => {
-    const sh = sheet(`<h3>상황 고르기</h3><div class="sit-grid"><button class="sit ${sit ? '' : 'on'}" data-s="">랜덤</button>${sits.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-s="${k}">${esc(l)}</button>`).join('')}</div>`);
+    const sh = sheet(`<h3>어떤 백현이랑 통화할까요?</h3><div class="sit-grid"><button class="sit ${sit ? '' : 'on'}" data-s="">랜덤</button>${sits.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-s="${k}">${esc(l)}</button>`).join('')}</div>`);
     $$('[data-s]', sh).forEach(b => b.onclick = () => { sit = b.dataset.s; sh.close(); speak(root); });
   });
   $$('[data-mode]', root).forEach(b => b.onclick = () => { unlock(); call(root, b.dataset.mode); });
@@ -175,8 +181,8 @@ function answerFrames(qEn) {
 // 단계: 백현이 말함(한국어 자막) → 내가 영어로 → 내 문장 교정 + 자연스러운 표현 → [다시 말하기 · 연습 · 다음] → 다음 누르면 다음 구간 재생
 function call(root, mode, v = null, { start = 0 } = {}) {
   active?.(); active = null;
-  let qs = mode === 'long' ? questionPool().map(q => ({ q, s: richScore(q) + Math.random() * 1.5 })).sort((a, b) => b.s - a.s).map(x => x.q) : [];
-  if (mode === 'long') v = (qs[0] && D.video(qs[0].u.videoId)) || v;
+  let qs = mode === 'ask' ? shuffle(questionPool()) : mode === 'long' ? questionPool().map(q => ({ q, s: richScore(q) + Math.random() * 1.5 })).sort((a, b) => b.s - a.s).map(x => x.q) : [];
+  if (mode !== 'call') v = (qs[0] && D.video(qs[0].u.videoId)) || v;
   document.body.classList.add('in-call');
   const concept = v ? conceptOf(v, sceneOf(v), mode === 'call' ? sit : '') : '';
   const ph = pickPhoto(v);
@@ -185,10 +191,9 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   root.innerHTML = `<div class="vcall ${st.callFill !== false ? 'fill' : 'fit'}">
     <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
       <div class="vc-wait" id="vwait"><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
-    <header class="vc-head"><b>${NAME}</b><span class="vc-time" id="vtm">00:00</span></header>
+    <header class="vc-head"><b>${NAME}</b><span class="vc-time" id="vtm">연결 중…</span></header>
     <span class="vc-prog" id="vprog"></span>
     ${me.photo ? `<div class="vc-self" style="background-image:url('${me.photo}')"></div>` : ''}
-    <div class="vc-tap hide" id="vtap">화면을 한 번 탭하면 재생돼요</div>
     <div class="vc-target hide" id="vtg"></div>
     <div class="vc-low"><div class="vc-cap" id="vcap"></div>
       <div class="vc-chat" id="vchat"></div>
@@ -196,21 +201,19 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       <div class="vc-hint hide" id="vhint"></div>
       <div class="vc-acts" id="vacts"></div>
       <p class="vc-status" id="vst"></p>
-      <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어로 입력 · 한국어로 물어봐도 돼요" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
+      <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어로 입력" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
       <div class="vc-ctrl">
-        <button class="vc-btn" id="vkbd" aria-label="키보드">${ic('kbd')}</button>
-        <button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg><span class="mic-ic">${ic('micF')}</span><span class="stop-ic">${ic('stop')}</span><em id="vsec"></em></button>
-        <button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button>
+        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="키보드">${ic('kbd')}</button><span>키보드</span></div>
+        <div class="vc-c"><button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg><span class="mic-ic">${ic('micF')}</span><span class="stop-ic">${ic('stop')}</span></button><em id="vsec"></em></div>
+        <div class="vc-c"><button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button><span>종료</span></div>
       </div></div>
     <div class="vc-panel" id="vpanel"></div>
     <div class="vc-bye hide" id="vbye"><p>${NAME}와 통화 종료</p></div>
     <div class="ring2" id="ring">
       <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
       <div class="ring-top"><span class="ring-kind">${ic('cam')} ${me.name ? `${esc(me.name)}에게 ` : ''}영상통화</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
-      <div class="ring-acts2">
-        <div class="slide" id="slide"><span class="sl-txt">${ic('back')} 밀어서 받기</span><button class="sl-knob" id="knob" aria-label="밀어서 받기">${ic('phoneF')}</button></div>
-        <button class="r-dec" id="dec">${ic('phoneoff')} 거절</button>
-      </div>
+      <div class="ring-acts"><div><button class="r-no" id="dec" aria-label="거절">${ic('phoneoff')}</button><span>거절</span></div>
+        <div><button class="r-ok" id="acc" aria-label="받기"><span class="ring-waves"><i></i><i></i><i></i></span>${ic('phoneF')}</button><span>받기</span></div></div>
     </div>
   </div>`;
   const $v = s => $(s, root);
@@ -219,14 +222,17 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   startRing();
   let callPos = start, stopped = false, dead = false, endTurn = null, skipTurn = null, typed = null, t0 = 0, timer = null, accepted = false, pending = null;
   const vv = $v('#vv');
-  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'blocked') $v('#vtap').classList.remove('hide'); if (s === 'playing') { $v('#vtap').classList.add('hide'); vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
+  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'playing') { vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
   const status = t => { const e = $v('#vst'); if (e.textContent !== t) { e.textContent = t; e.classList.remove('pop'); void e.offsetWidth; e.classList.add('pop'); } };
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
 
   // ----- 클립 재생: 한국어 자막만 (정답 영어는 안 보여줌) -----
-  const startClip = u => { const vid = D.video(u.videoId); $v('#vcap').innerHTML = `<span>${esc(u.ko)}</span>`; status(`${NAME}가 말하는 중`); const p = pl.playSegment(vid.ytId, u.start, u.playEnd || u.end + 0.6, { tail: 0 }).then(r => { $v('#vcap').innerHTML = ''; return r; }); pending = { u, p }; return p; };
-  async function say(u) { if (dead) return; const p = pending?.u === u ? pending.p : startClip(u); pending = null; await p; }
+  let micEarly = false;
+  const startClip = u => { const vid = D.video(u.videoId); $v('#vcap').innerHTML = `<span>${esc(banmal(u.ko))}</span>`;
+    // 백현이가 말하는 중에 마이크를 누르면 바로 내 차례
+    $v('#vmic').onclick = () => { micEarly = true; pl.stop(); }; status(`${NAME}가 말하는 중`); const p = pl.playSegment(vid.ytId, u.start, u.playEnd || u.end + 0.6, { tail: 0 }).then(r => { $v('#vcap').innerHTML = ''; return r; }); pending = { u, p }; return p; };
+  async function say(u) { if (dead) return; const p = pending?.u === u ? pending.p : startClip(u); pending = null; await p; $v('#vcap').innerHTML = ''; }
 
   // ----- 수신 화면: 받기 버튼을 왼쪽으로 밀기 -----
   const ring = $v('#ring');
@@ -237,19 +243,10 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     t0 = Date.now(); timer = setInterval(() => ($v('#vtm').textContent = clock((Date.now() - t0) / 1000)), 1000);
     // 받는 순간(사용자 동작 안에서) 첫 구간 재생 시작 → iPhone 자동재생 차단 피하기
     if (mode === 'call' && list.length) startClip(list[Math.min(start, list.length - 1)]);
-    else if (mode === 'long' && qs[0]) startClip(qs[0].u);
+    else if (mode !== 'call' && qs[0]) startClip(qs[0].u);
     run();
   };
-  (() => {
-    const track = $v('#slide'), knob = $v('#knob'); let x0 = 0, dx = 0, drag = false;
-    const maxD = () => track.clientWidth - knob.offsetWidth - 8;
-    const set = (x, anim) => { knob.style.transition = anim ? 'transform .3s var(--ease)' : 'none'; knob.style.transform = `translateX(${x}px)`; track.style.setProperty('--p', Math.min(1, -x / maxD())); };
-    knob.addEventListener('pointerdown', e => { drag = true; x0 = e.clientX; knob.setPointerCapture?.(e.pointerId); track.classList.add('drag'); });
-    knob.addEventListener('pointermove', e => { if (!drag) return; dx = Math.min(0, Math.max(-maxD(), e.clientX - x0)); set(dx); });
-    const up = () => { if (!drag) return; drag = false; track.classList.remove('drag'); if (-dx > maxD() * 0.6) { set(-maxD(), true); accept(); } else set(0, true); dx = 0; };
-    knob.addEventListener('pointerup', up); knob.addEventListener('pointercancel', up);
-    knob.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') accept(); });
-  })();
+  $v('#acc').onclick = accept;
 
   // ----- 채팅 -----
   const chat = $v('#vchat');
@@ -258,12 +255,12 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text) => msg(who, `<p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>`);
-  // 키보드: 영어 입력 → 내 대답 / 한국어 입력 → “영어로 어떻게 해?” 도움
+  // 키보드: 영어로 입력
   const vin = $v('#vin'), vint = $v('#vint');
   $v('#vkbd').onclick = () => { vin.classList.toggle('hide'); if (!vin.classList.contains('hide')) vint.focus(); };
   vin.onsubmit = e => {
     e.preventDefault(); const t = vint.value.trim(); if (!t) return; vint.value = '';
-    if (isKo(t)) { say2('me', t); const m = msg('help', helpHTML(koHelp(t)), 'helpm'); bindSaves(m); return; }
+    if (/[가-힣]/.test(t)) { vint.value = t; toast('영어로 말해볼까?'); return; }
     if (typed) { say2('me', t); typed(t); } else toast('지금은 아래 버튼으로 진행해요');
   };
   // 상황별 작은 버튼 (다시 듣기 · 건너뛰기 …)
@@ -284,10 +281,11 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       endTurn = () => { cap?.stop(); finish('', 0); };
       skipTurn = () => { const c = cap; cap = null; c?.stop(); live?.remove(); finish('', 0, true); };
       typed = t => { const c = cap; cap = null; c?.stop(); live?.remove(); stats.n++; finish(t, 0); };
+      if (micEarly) { micEarly = false; setTimeout(() => mic.onclick?.(), 0); }
       mic.onclick = async () => {
         if (cap) { cap.stop(); status('정리하는 중…'); return; }
         if (!S.support.stt) { vin.classList.remove('hide'); vint.focus(); toast('키보드로 입력해도 돼요'); return; }
-        pl.pause(); mic.classList.add('live'); status('듣는 중 · 다 말하면 ■'); st0 = Date.now();
+        pl.pause(); mic.classList.add('live'); status('듣는 중'); st0 = Date.now();
         live = say2('me', '…'); live.classList.add('typing');
         tick = setInterval(() => {
           const e = (Date.now() - st0) / 1000;
@@ -312,55 +310,82 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   const fb = $v('#vfb');
   const hideFb = () => { fb.classList.add('hide'); fb.innerHTML = ''; $v('.vc-low').classList.remove('fbon'); };
   const saveMine = (u, before) => t => ({ kind: 'mine', level: 'mine', uttId: u?.ids?.[0] || u?.id || null, ko: u?.ko || '', text: t, before: before || '', en: { easy: '', natural: t, advanced: '' }, pattern: u?.pattern || '' });
-  // 피드백 카드: 버튼을 누를 때까지 기다림 (자동으로 안 넘어감)
+  // 카드: 버튼을 누를 때까지 기다림 (자동으로 안 넘어감) · 왼쪽 = 연습, 오른쪽 = 다음(작게)
   function card(html, btns, save) {
     return new Promise(res => {
-      fb.innerHTML = `<div class="fbc">${html}<div class="fbc-btns">${btns.map(([k, l, cls, o]) => `<button class="btn sm ${cls || ''}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
+      fb.innerHTML = `<div class="fbc">${html}<div class="fbc-btns">${btns.map(([k, l, cls]) => `<button class="${cls === 'nx' ? 'nx-btn' : 'btn sm'}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
       fb.classList.remove('hide'); fb.scrollTop = 0; $v('.vc-low').classList.add('fbon'); status('');
-      bindSaves(fb, save);
-      $$('[data-k]', fb).forEach(b => b.onclick = () => { const o = btns.find(x => x[0] === b.dataset.k)?.[3]; o?.tap?.(); skipTurn = null; res(b.dataset.k); });
-      skipTurn = () => res('next');
+      bindCompare(fb, save);
+      $$('[data-k]', fb).forEach(b => b.onclick = () => { const o = btns.find(x => x[0] === b.dataset.k)?.[3]; o?.tap?.(); skipTurn = null; hideFb(); res(b.dataset.k); });
+      skipTurn = () => { hideFb(); res('next'); };
     });
   }
-  // 보고 말하기 → 안 보고 말하기 (흰 카드)
-  async function practice(target, { ko = '', uttId = null, pattern = '' } = {}) {
-    hideFb();
+  const NX = (nextU, label = '다음') => ['next', `${label} ${ic('next')}`, 'nx', { tap: () => nextU && startClip(nextU) }];
+  // 보면서 따라 말하기(정답) → 안 보고 말하기(몇 번이든, 앞의 내 발화는 흐리게) → 정답 비교 + 정확도
+  async function practice(target, { ko = '', uttId = null, pattern = '', nextU = null, save } = {}) {
     const tg = $v('#vtg');
     tg.classList.remove('hide'); sayCard(tg, { en: target, pattern, mode: 'read' });
-    const a = await turn({ label: '보고 말하기' }); log('sp-practice', a, uttId); if (stopped) return;
-    if (!a.skipped) {
-      sayCard(tg, { ko, en: target, pattern, mode: 'recall' });
-      const b = await turn({ label: '안 보고 말하기' }); log('sp-practice', b, uttId); if (stopped) return;
-      tg.classList.add('hide'); tg.innerHTML = '';
-      if (b.text) { const e = judgeTranslation(b.text, target); await card(`${verdictHTML(e)}${e.level === 'great' ? '' : naturalHTML([target], '정답 문장')}`, [['ok', '확인', '']], saveMine({ ko, id: uttId }, b.text)); }
+    const a = await turn({ label: '보면서 따라 말해요' }); log('sp-practice', a, uttId); if (stopped) return 'stop';
+    tg.classList.add('hide');
+    if (a.skipped) return 'next';
+    for (;;) {
+      const k = await card(a.text ? `<div class="mini-acc">보면서 말하기 <b>${diff(a.text, target).score}%</b></div>` : '', [['recall', '안 보고 말하기', ''], NX(nextU)], save);
+      if (stopped || k === 'next') return k;
+      chat.classList.add('veil');
+      tg.classList.remove('hide'); sayCard(tg, { ko: ko ? banmal(ko) : '', en: target, pattern, mode: 'recall' });
+      const b = await turn({ label: '안 보고 말해요' }); log('sp-practice', b, uttId);
+      chat.classList.remove('veil'); tg.classList.add('hide'); tg.innerHTML = '';
+      if (stopped) return 'stop'; if (b.skipped) return 'next';
+      const e = judgeTranslation(b.text, target);
+      const k2 = await card(compareHTML({ said: b.text, target, label: '정답', ev: e, acc: diff(b.text, target).score }), [['recall', '안 보고 말하기', ''], NX(nextU)], save);
+      if (stopped || k2 === 'next') return k2;
+      a.text = '';
     }
-    tg.classList.add('hide'); tg.innerHTML = ''; hideFb();
   }
 
   // ----- 1. 백현이랑 전화하기: 듣고 번역해서 말하기 -----
   async function runCall() {
     for (let i = Math.min(start, list.length - 1); i < list.length && !stopped; i++) {
-      const u = list[i], target = natOf(u); callPos = i; progress(`${i + 1} / ${list.length}`);
+      const u = list[i], target = natOf(u), nx = list[i + 1]; callPos = i; progress(`${i + 1} / ${list.length}`);
       await say(u); if (stopped) return;
-      say2('baek', u.ko);
-      for (;;) {
-        const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords }, replay: () => startClip(u) }); log('sp-call', r, u.id); if (stopped) return;
-        if (r.skipped || !r.text) break;
-        const ev = judgeTranslation(r.text, target);
-        status('다듬는 중…');
-        const imp = await improve(r.text, { pattern: u.pattern, useLT: D.get().settings.autoLT !== false }); if (stopped) return;
-        const nx = list[i + 1];
-        const k = await card(`${verdictHTML(ev)}${correctionHTML(imp)}${ev.level === 'great' && canon(r.text) === canon(target) ? '' : naturalHTML([target], '자연스러운 표현')}${exprChips(keyExpressions(target, { pattern: u.pattern, said: r.text }))}`,
-          [['again', `${ic('mic')} 다시`, 'soft'], ['prac', '연습', 'soft'], ['next', nx ? '다음 →' : '마치기', '', { tap: () => nx && startClip(nx) }]], saveMine(u, r.text));
-        if (stopped) return;
-        hideFb();
-        if (k === 'again') continue;
-        if (k === 'prac') { await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern }); if (stopped) return; const k2 = await card('', [['next', nx ? '다음 →' : '마치기', '', { tap: () => nx && startClip(nx) }]]); hideFb(); if (k2) break; }
-        break;
-      }
+      say2('baek', banmal(u.ko));
+      const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords }, replay: () => startClip(u) }); log('sp-call', r, u.id); if (stopped) return;
+      if (r.skipped || !r.text) { if (!stopped) callPos = i + 1; continue; }
+      status('다듬는 중…');
+      const imp = await improve(r.text, { pattern: u.pattern, useLT: D.get().settings.autoLT !== false }); if (stopped) return;
+      const save = saveMine(u, r.text);
+      const k = await card(compareHTML({ said: r.text, fixed: imp.after, target, label: '추천', ev: judgeTranslation(r.text, target), acc: diff(r.text, target).score, why: imp.changes?.[0]?.why || '', xs: keyExpressions(target, { pattern: u.pattern, said: r.text }) }),
+        [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
+      if (stopped) return;
+      if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }
       if (!stopped) callPos = i + 1;
     }
   }
+
+  // ----- 2. 백현이랑 질문하기: 백현이 질문 → 내가 영어로 대답 → 평가·교정·추천 → (연습) → 백현이가 이어서 말함 → 다음 질문 -----
+  async function runAsk() {
+    for (let i = 0; i < qs.length && !stopped; i++) {
+      const q = qs[i], nq = qs[i + 1]; progress(`${i + 1} / ${qs.length}`);
+      await say(q.u); if (stopped) return;
+      say2('baek', banmal(q.ko));
+      const r = await turn({ label: '영어로 대답해볼까?', hint: replyHint(q.u), replay: () => startClip(q.u) }); log('sp-chat', r, q.u.id); if (stopped) return;
+      if (r.skipped || !r.text) continue;
+      status('다듬는 중…');
+      const ev = judgeReply(r.text, { question: q.en, strict: true });
+      const imp = await improve(r.text, { useLT: D.get().settings.autoLT !== false }); if (stopped) return;
+      const rec = bestReply(r.text, q.u.replies);
+      const ans = q.real ? answerClip(q.u) : null;
+      const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
+      const save = saveMine(q.u, r.text);
+      const tgt = rec && canon(rec) !== canon(imp.after) ? rec : '';
+      const k = await card(compareHTML({ said: r.text, fixed: imp.after, target: tgt, label: '추천', ev, why: imp.changes?.[0]?.why || '', xs: keyExpressions(tgt || imp.after, { said: r.text }) }),
+        [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
+      if (stopped) return;
+      if (k === 'read') { const k2 = await practice(tgt || imp.after, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
+      if (ans) { await say(ans); if (stopped) return; say2('baek', banmal(ans.ko)); if (nq) startClip(nq.u); }
+    }
+  }
+  const replyHint = u => { const src = (u?.hint && words(u.hint) >= 3 ? u.hint : '') || u?.replies?.[0] || ''; return src ? { en: src } : null; };
 
   // ----- 2. 오래 이야기하기: 답변 틀·예시·되물을 질문 → 30초 → 45초 → 60초 (3라운드) -----
   const ROUNDS = [30, 45, 60];
@@ -402,16 +427,14 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const imp = r.text ? await improve(r.text, { useLT: D.get().settings.autoLT !== false }) : null; if (stopped) return;
       const br = bestReply(r.text, q.u.replies);
       const last = i === ROUNDS.length - 1;
-      const k = await new Promise(res => {
+      await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${ROUNDS[i]}초 · ${w}단어${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${r.text ? `<div class="my-said"><span class="cor-l">내가 한 말</span><p class="en">${esc(r.text)}</p></div>` : '<p class="vp-s">말한 내용이 없어요</p>'}
-          ${ev ? verdictHTML(ev) : ''}${imp ? correctionHTML(imp) : ''}${br && imp && canon(br) !== canon(imp.after) ? naturalHTML([br]) : ''}
+          ${r.text ? compareHTML({ said: r.text, fixed: imp?.after, target: br && imp && canon(br) !== canon(imp.after) ? br : '', label: '추천', ev, why: imp?.changes?.[0]?.why || '' }) : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last ? `<div class="long-hint"><span class="lh-tag">${ic('bulb')} 다음 라운드에 넣어볼 것</span><b>${esc(hint.t)}</b><p><span class="en">${esc(hint.ex)}</span> · ${esc(hint.ko)}</p></div>` : ''}
-          <div class="row mt12"><button class="btn soft" data-k="again">${ic('mic')} 다시 말하기</button><button class="btn grow" data-k="next">${last ? '마치기' : `다음 라운드 · ${ROUNDS[i + 1]}초`}</button></div>`);
-        bindSaves(pnl, saveMine(q.u, r.text));
-        $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(b.dataset.k); });
+          <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 라운드 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
+        bindCompare(pnl, saveMine(q.u, r.text));
+        $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      if (k === 'again') continue;
       prevW = w; i++;
     }
     tg.classList.add('hide');
@@ -440,6 +463,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     await wait(300); if (dead) return;
     try {
       if (mode === 'call' && v) await runCall();
+      else if (mode === 'ask') await runAsk();
       else if (mode === 'long') await runLong();
     } catch (e) { console.warn(e); }
     finaleOnce();

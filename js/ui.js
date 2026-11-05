@@ -94,8 +94,8 @@ export const ytLink = (ytId, start = 0) => `https://youtu.be/${ytId}${start ? `?
 // 수동 종료: 사용자가 '끝내기'를 눌러야만 끝나요. 잠깐 멈춰도 계속 들어요.
 // micBlock(el, {placeholder, record, targets, onStart, onResult(text,res), onEdit})
 const STATE_TEXT = {
-  idle: '눌러서 영어로 말하기', starting: '준비 중…', listening: '듣는 중 · 다 말하면 ■', hearing: '듣는 중 · 다 말하면 ■',
-  reconnecting: '듣는 중 · 다 말하면 ■', 'rec-only': '녹음 중', processing: '정리하는 중…', done: '다 됐어요 · 글자는 고쳐도 돼요'
+  idle: '눌러서 영어로 말하기', starting: '준비 중…', listening: '듣는 중', hearing: '듣는 중',
+  reconnecting: '듣는 중', 'rec-only': '녹음 중', processing: '정리하는 중…', done: '다 됐어요 · 글자는 고쳐도 돼요'
 };
 export function micBlock(el, opt = {}) {
   const mode = S.support.stt ? 'stt' : S.support.rec ? 'rec' : 'none';
@@ -228,7 +228,7 @@ export function unitHTML(text, pattern = '', marks = []) {
 // ---------- 평가 한 줄 (판정 + 자연스러운 피드백) ----------
 export function verdictHTML(ev) {
   if (!ev) return '';
-  return `<div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b>${ev.msg ? `<span>${esc(ev.msg)}</span>` : ''}</div>`;
+  return `<div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b></div>`;
 }
 
 // ---------- 말하기 카드 ----------
@@ -323,3 +323,47 @@ export function naturalHTML(list, label = '더 자연스럽게') {
   return `<div class="nat"><span class="cor-l">${esc(label)}</span>${list.map(t => `<div class="nat-s"><p class="en">${unitHTML(t)}</p><button class="sv" type="button" data-sv="${esc(t)}" aria-label="저장">${ic('bookmark')}</button></div>`).join('')}</div>`;
 }
 export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x => `<button class="xp en" type="button" data-sw="${esc(x.text || x)}" data-ko="${esc(x.ko || '')}">${ic('plus')}<span>${esc(x.text || x)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</button>`).join('')}</div>` : '';
+
+// ---------- 문장 속 단어: 길게 누르면 단어 저장 ----------
+const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
+export const lpHTML = t => String(t || '').split(/\s+/).filter(Boolean).map(w => wspan(w)).join(' ');
+export function bindLongPress(el) {
+  $$('.w', el).forEach(w => {
+    let t = null;
+    if (D.findWordByText(w.dataset.w)) w.classList.add('saved');
+    const cancel = () => { clearTimeout(t); t = null; w.classList.remove('press'); };
+    w.addEventListener('pointerdown', () => { w.classList.add('press'); t = setTimeout(() => {
+      t = null; w.classList.remove('press');
+      const ex = D.findWordByText(w.dataset.w);
+      if (ex) { D.deleteWord(ex.id); $$(`.w[data-w="${CSS.escape(w.dataset.w)}"]`).forEach(x => x.classList.remove('saved')); toast(`‘${w.dataset.w}’ 저장 취소`); }
+      else { D.saveWord({ text: w.dataset.w, kind: 'word' }); $$(`.w[data-w="${CSS.escape(w.dataset.w)}"]`).forEach(x => x.classList.add('saved')); toast(`‘${w.dataset.w}’ 단어 저장`); }
+      navigator.vibrate?.(15);
+    }, 480); });
+    w.addEventListener('pointerup', cancel); w.addEventListener('pointerleave', cancel); w.addEventListener('pointercancel', cancel);
+    w.addEventListener('contextmenu', e => e.preventDefault());
+  });
+}
+
+// ---------- 1:1 비교: 내 문장 → 교정 → 추천/정답 (+ 정확도) ----------
+const canonT = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
+function fixHTML(before, after) {
+  const d = diffWords(before, after);
+  return d.ops.filter(o => o.op !== 'del').map(o => String(o.b || '').split(/\s+/).filter(Boolean).map(w => wspan(w, o.op === 'add' ? 'ins' : '')).join(' ')).join(' ');
+}
+// opt: {said, fixed, target, label:'추천'|'정답', ev, acc, why, xs:[표현]}
+export function compareHTML({ said = '', fixed = '', target = '', label = '추천', ev = null, acc = null, why = '', xs = [] } = {}) {
+  const showFix = fixed && canonT(fixed) !== canonT(said);
+  const showT = target && canonT(target) !== canonT(showFix ? fixed : said);
+  const seen = new Set([canonT(said), canonT(fixed), canonT(target)]);
+  const chips = (xs || []).filter(x => { const k = canonT(x.text || x); if (!k || seen.has(k)) return false; seen.add(k); return true; });
+  return `<div class="cmp">
+    ${ev ? `<div class="cmp-h"><div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b></div>${acc != null ? `<span class="acc">정확도 <b>${acc}%</b></span>` : ''}</div>` : ''}
+    ${said ? `<div class="cmp-r me"><span class="cmp-l">내 문장</span><p class="en lp">${lpHTML(said)}</p></div>` : ''}
+    ${showFix ? `<div class="cmp-r fix"><span class="cmp-l">교정</span><p class="en lp">${fixHTML(said, fixed)}</p><button class="sv" type="button" data-sv="${esc(fixed)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
+    ${showT ? `<div class="cmp-r tg"><span class="cmp-l">${esc(label)}</span><p class="en lp">${lpHTML(target)}</p><button class="sv" type="button" data-sv="${esc(target)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
+    ${!showFix && !showT && said ? `<div class="cmp-r ok"><span class="cmp-l"></span><p class="cmp-ok">${ic('check')} 그대로 자연스러워요</p><button class="sv" type="button" data-sv="${esc(said)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
+    ${why && showFix ? `<p class="cmp-why">${esc(why)}</p>` : ''}
+    ${exprChips(chips)}
+  </div>`;
+}
+export function bindCompare(el, make) { bindSaves(el, make); bindLongPress(el); }

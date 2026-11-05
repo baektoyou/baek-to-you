@@ -2,12 +2,12 @@
 // · 앱 파일: 항상 서버에 재검증(no-cache) → 최신 배포가 바로 반영, 오프라인이면 캐시 사용
 // · 배포할 때 버전을 바꿀 필요 없음. 이 파일을 바꿨을 때만 새 워커가 설치되고 페이지가 한 번 새로고침돼요.
 // · 사용자 데이터(localStorage·IndexedDB)는 건드리지 않아요. 정리하는 건 'baek-to-you' 앱 캐시뿐.
-const SHELL_CACHE = 'baek-to-you-shell-v10';
+const SHELL_CACHE = 'baek-to-you-shell-v11';
 const FONT_CACHE = 'baek-to-you-fonts-v1';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',
   './js/app.js', './js/pwa.js', './js/store.js', './js/speech.js', './js/yt.js', './js/compare.js', './js/feedback.js', './js/talk-engine.js', './js/merge.js', './js/sync.js', './js/firebase-config.js', './js/vendor/firebase.js',
-  './js/ui.js', './js/judge.js', './js/kohelp.js', './js/video.js', './js/apply.js', './js/speak.js', './js/saved.js', './js/settings.js', './js/scene.js', './js/ringtone.js',
+  './js/ui.js', './js/judge.js', './js/kohelp.js', './js/banmal.js', './js/video.js', './js/apply.js', './js/speak.js', './js/saved.js', './js/settings.js', './js/scene.js', './js/ringtone.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png', './icons/baekhyun.jpg', './icons/bh-profile.jpg'
 ];
 
