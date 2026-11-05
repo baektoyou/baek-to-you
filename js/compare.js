@@ -26,7 +26,7 @@ export function stem(w) {
 }
 
 // ---------- 유사 발음 매칭 (STT가 고유명사·신조어를 다르게 받아 적어도 맞은 걸로) ----------
-function lev(a, b) {
+export function lev(a, b) {
   const m = a.length, n = b.length; if (!m || !n) return m || n;
   let prev = Array.from({ length: n + 1 }, (_, j) => j);
   for (let i = 1; i <= m; i++) {

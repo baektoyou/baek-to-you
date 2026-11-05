@@ -10,13 +10,14 @@ import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, situations, 
 
 let photosOpen = false;
 const thumbStyle = p => `background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%`;
-const STT_LANGS = [['en-US', '영어 (미국) · 추천'], ['en-GB', '영어 (영국)'], ['en-AU', '영어 (호주)'], ['en-CA', '영어 (캐나다)'], ['en-IN', '영어 (인도)']];
+let vtab = 'chat'; // 영상 목록: chat | call
+let vmore = false;
 
 export function settings(root) {
   const db = D.get(); const st = db.settings; const snap = D.snapshotInfo();
   root.innerHTML = `<div class="screen">
     <header class="top"><h1 class="page-title">Settings</h1></header>
-    <section class="sync-card" id="sync"></section>
+    <section class="prof-card" id="prof"></section>
     <section class="add-card">
       <span class="label">ADD VIDEO</span>
       <div class="url-row"><input class="input" id="url" type="url" placeholder="YouTube 링크 붙여넣기" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -24,32 +25,39 @@ export function settings(root) {
     </section>
 
     <div class="sec-title label">VIDEOS · ${db.videos.length}</div>
-    ${db.videos.length ? `<div class="list">${db.videos.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${isLive(v) ? '<i class="live-tag">LIVE</i> CALL · ' : 'TALK · '}${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
+    ${db.videos.length ? (() => {
+      const chat = db.videos.filter(v => !isLive(v)), callV = db.videos.filter(isLive), list = vtab === 'call' ? callV : chat;
+      const shown = vmore ? list : list.slice(0, 6);
+      return `<div class="view-sw"><button data-vt="chat" class="${vtab === 'chat' ? 'on' : ''}">CHAT <em>${chat.length}</em></button><button data-vt="call" class="${vtab === 'call' ? 'on' : ''}">CALL <em>${callV.length}</em></button></div>
+      ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
+        ${list.length > shown.length ? `<button class="li more" id="vmore"><span class="grow">${list.length - shown.length}개 더 보기</span>${ic('down')}</button>` : ''}</div>`
+        : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
+    })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
 
 
     <div class="sec-title label">SPEECH RECOGNITION</div>
     <div class="card stack">
-      <label class="field"><span>인식 언어</span><select class="input" id="sttlang">${STT_LANGS.map(([k, l]) => `<option value="${k}" ${st.sttLang === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>TALK에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
+      <div class="row between"><b class="set-b">인식 언어</b><span class="small muted">영어 (미국)</span></div>
+      <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>CHAT에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
       <button class="btn soft block" id="mt">${ic('mic')} 인식 테스트 시작</button><div id="mres" class="small hide test-res"></div>
-      <label class="field"><span>인식 보정 단어 · 한 줄에 하나 <span class="en">들린 말 = 원래 단어</span></span>
-        <textarea class="textarea en" id="fix" rows="3" placeholder="mongrel young = Mongryong&#10;tuck bokki = tteokbokki">${esc(st.sttFix || '')}</textarea></label>
-      <p class="tiny muted">녹음은 직접 끝내기를 눌러야만 끝나요. 브라우저가 인식을 끊으면 자동으로 다시 이어서 들어요. 비교할 때 축약형·대소문자·문장부호 차이는 무시해요.</p>
+      <label class="field"><span>인식 보정 단어 · 한 줄에 하나</span>
+        <textarea class="textarea en" id="fix" rows="3" placeholder="Mongryong&#10;tteokbokki">${esc(st.sttFix || '')}</textarea></label>
+      <p class="tiny muted">단어만 적어 두면, 발음이 비슷하게 잘못 인식된 말을 자동으로 고쳐요 (예: mong young → Mongryong). 인식 결과는 첫 글자 대문자·문장부호를 넣고 겹친 단어(to to)를 지워요.</p>
     </div>
 
     <div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
     <div class="card"><div class="photo-grid manage" id="phg"></div>
       <label class="btn sm soft block mt12">${ic('plus')} 사진 추가<input type="file" id="phadd" accept="image/*" class="hide"></label>
-      ${(st.hiddenPhotos || []).length ? `<button class="link-sm mt12" id="phrestore">숨긴 기본 사진 ${(st.hiddenPhotos || []).length}장 다시 보이기</button>` : ''}
       <p class="tiny muted mt8">추가한 사진은 이 기기에만 저장돼요 (동기화·백업에 포함되지 않아요).</p></div>
 
-    <div class="sec-title label">TALK</div>
+    <div class="sec-title label">CHAT · CALL</div>
     <div class="card stack">
       <label class="switch"><span><b>문장 다듬기에 LanguageTool 함께 쓰기</b><small>무료 공개 문법 검사 서버 · 내가 말한 영어 문장이 그 서버로 전송돼요. 끄면 앱 안의 규칙만 사용해요</small></span><input type="checkbox" id="lt" ${st.autoLT !== false ? 'checked' : ''}><i></i></label>
       <label class="switch"><span><b>통화 화면 꽉 채우기</b><small>끄면 가로 영상이 잘리지 않게 전체로 보여요 (통화 중에도 바꿀 수 있어요)</small></span><input type="checkbox" id="cf" ${st.callFill !== false ? 'checked' : ''}><i></i></label>
     </div>
 
     <div class="sec-title label">DATA</div>
+    <section class="sync-card" id="sync"></section>
     <div class="list">
       <button class="li" id="exp"><div class="ic">${ic('download')}</div><div class="grow"><b>JSON 백업</b><small>영상·문장·SAVED·학습 기록·설정 (녹음 파일 제외)</small></div></button>
       <label class="li" style="cursor:pointer"><div class="ic">${ic('upload')}</div><div class="grow"><b>JSON 복원</b><small>합치기 또는 전체 바꾸기</small></div><input type="file" id="imp" accept="application/json,.json" class="hide"></label>
@@ -76,7 +84,7 @@ export function settings(root) {
       <div class="row ver-row"><span class="tiny muted grow">버전 <span class="en">${esc(APP_VERSION)}</span></span><button class="btn xs soft" id="upd">${ic('refresh')} 업데이트 확인</button></div>
       <div class="note">
         • 발음·억양 점수는 전용 음성 평가 엔진(유료)이 필요해서 제공하지 않아요.<br>
-        • ‘더 자연스럽게’는 AI가 아니라 앱에 내장된 규칙(문법·한국식 영어 표현) + 선택 시 LanguageTool이에요. 원어민다운 의역은 Claude 붙여넣기 기능을 써주세요.<br>
+        • 답변 평가·추천 표현은 AI가 아니라 앱에 내장된 규칙(뜻 비교·질문 유형·문법·한국식 영어 표현) + JSON의 원어민 답변 예시(replies) + 선택 시 LanguageTool이에요. 확실하지 않으면 칭찬하지 않고 추천 문장을 보여줘요.<br>
         • 통화 영상 자동 선택·사진 매칭은 영상 제목·메모·대본의 키워드로 장면을 추정해요. 정확하지 않으면 영상 관리에서 장면 태그나 사진을 직접 골라주세요.<br>
         • 데이터는 이 기기 브라우저에만 저장돼요 (기기 연동을 켜지 않았다면). 주기적으로 백업하세요.
       </div>
@@ -84,6 +92,9 @@ export function settings(root) {
     <p class="tiny muted foot-note">BAEK TO YOU · personal fan-made study app · 영상 저작권은 원저작자에게 있어요</p>
   </div>`;
   const unsub = mountSync($('#sync', root));
+  mountProfile($('#prof', root));
+  $$('[data-vt]', root).forEach(b => b.onclick = () => { vtab = b.dataset.vt; vmore = false; settings(root); });
+  $('#vmore', root) && ($('#vmore', root).onclick = () => { vmore = true; settings(root); });
   function row(ok, t, d) { return `<div><span class="${ok ? 'ok-dot' : 'no-dot'}"></span><b>${t}</b> <span class="muted tiny">${esc(d)}</span></div>`; }
 
   const urlIn = $('#url', root), addB = $('#add', root);
@@ -106,7 +117,6 @@ export function settings(root) {
 
 
   // 인식
-  $('#sttlang', root).onchange = e => { D.setSetting('sttLang', e.target.value); toast('인식 언어를 바꿨어요'); };
   $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
   $('#lt', root).onchange = e => D.setSetting('autoLT', e.target.checked);
   // ----- 통화 사진 관리 -----
@@ -115,11 +125,10 @@ export function settings(root) {
     $('#phg', root).innerHTML = (more ? all.slice(0, 7) : all).map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('')
       + (more ? `<button class="pg-more" id="phmore">+${all.length - 7}<small>전체 보기</small></button>` : '');
     $('#phmore', root) && ($('#phmore', root).onclick = () => { photosOpen = true; drawPhotos(); });
-    $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제', '기본 사진은 숨겨지고, 아래에서 다시 보이게 할 수 있어요.')) { await removePhoto(b.dataset.del); settings(root); } });
+    $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제')) { await removePhoto(b.dataset.del); settings(root); } });
   };
   drawPhotos();
   $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
-  $('#phrestore', root) && ($('#phrestore', root).onclick = () => { D.setSetting('hiddenPhotos', []); settings(root); toast('기본 사진을 다시 보여줘요'); });
   $('#cf', root).onchange = e => D.setSetting('callFill', e.target.checked);
   $('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); };
   let testCap = null;
@@ -168,25 +177,21 @@ const GLOGO = '<svg viewBox="0 0 24 24" aria-hidden="true" style="stroke:none"><
 const STATE_TXT = { loading: ['준비 중…', 'mid'], syncing: ['동기화 중…', 'mid'], pending: ['변경 사항 저장 대기', 'mid'], synced: ['동기화됨', 'ok'], offline: ['오프라인', 'warn'], error: ['오류', 'bad'] };
 function mountSync(el) {
   let tick = null;
+  const head = right => `<div class="sync-row"><span class="sync-ic">${ic('refresh')}</span><b class="grow">기기 연동</b>${right}</div>`;
   const render = st => {
     if (!el.isConnected) { unsub(); clearInterval(tick); return; }
     if (!st.configured) {
-      el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span><span class="chip">꺼짐</span></div>
-        <p class="small muted sync-p">Firebase 설정 전이라 이 기기에만 저장돼요. ZIP 안의 <b>FIREBASE_SETUP.md</b> 순서대로 설정하면 Google 로그인으로 컴퓨터와 iPhone이 자동 연동돼요.</p>`;
+      el.innerHTML = head('<span class="chip">꺼짐</span>') + `<p class="tiny muted sync-p">이 기기에만 저장돼요 · 설정 방법은 ZIP 안의 FIREBASE_SETUP.md</p>`;
       return;
     }
     if (!st.user) {
       const busy = st.state === 'loading';
-      el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span>${busy ? '<span class="chip">준비 중…</span>' : ''}</div>
-        <p class="small muted sync-p">같은 계정으로 로그인하면 영상·문장·SAVED·학습 기록·설정이 컴퓨터와 iPhone에서 자동으로 맞춰져요. 지금 이 기기의 데이터는 그대로 유지되고 클라우드와 합쳐져요.</p>
-        <button class="btn line block g-btn" id="g" ${busy ? 'disabled' : ''}>${GLOGO} Google 계정으로 로그인</button>
-        ${st.state === 'error' ? `<div class="note warn mt8">${esc(st.detail)}</div>` : ''}
-        <details class="adv"><summary>홈 화면 앱에서 Google 로그인이 안 될 때 · 이메일로 로그인</summary>
-          <p class="tiny muted">먼저 Safari나 컴퓨터에서 Google로 로그인한 뒤 “이메일 로그인 추가”로 만든 이메일·비밀번호예요.</p>
+      el.innerHTML = head(`<button class="btn xs line g-btn" id="g" ${busy ? 'disabled' : ''}>${GLOGO} 로그인</button>`)
+        + (st.state === 'error' ? `<div class="note warn">${esc(st.detail)}</div>` : '')
+        + `<details class="adv"><summary>이메일로 로그인</summary>
           <input class="input" id="em" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off">
           <input class="input mt8" id="pw" type="password" autocomplete="current-password" placeholder="비밀번호">
-          <div class="row mt8"><button class="btn sm grow" id="el">이메일로 로그인</button><button class="btn sm soft" id="rp">비밀번호 재설정</button></div>
-        </details>`;
+          <div class="row mt8"><button class="btn sm grow" id="el">로그인</button><button class="btn sm soft" id="rp">비밀번호 재설정</button></div></details>`;
       $('#g', el).onclick = () => Y.loginGoogle().then(() => toast('로그인했어요 · 동기화를 시작해요')).catch(e => toast(Y.authErrorText(e)));
       $('#el', el).onclick = () => { const em = $('#em', el).value, pw = $('#pw', el).value; if (!em || !pw) return toast('이메일과 비밀번호를 입력해주세요'); Y.loginEmail(em, pw).then(() => toast('로그인했어요')).catch(e => toast(Y.authErrorText(e))); };
       $('#rp', el).onclick = () => { const em = $('#em', el).value; if (!em) return toast('이메일을 먼저 입력해주세요'); Y.resetPassword(em).then(() => toast('재설정 메일을 보냈어요')).catch(e => toast(Y.authErrorText(e))); };
@@ -194,25 +199,45 @@ function mountSync(el) {
     }
     const [txt, tone] = STATE_TXT[st.state] || ['', 'mid'];
     const u = st.user; const hasPw = u.providers.includes('password');
-    el.innerHTML = `<div class="row between"><span class="label">SYNC · 기기 연동</span><span class="sync-st ${tone}"><i></i>${txt}${st.state === 'synced' && st.lastSyncAt ? ` · ${ago(st.lastSyncAt)}` : ''}</span></div>
-      <div class="row acct">${u.photo ? `<img class="av-img" src="${esc(u.photo)}" alt="" referrerpolicy="no-referrer">` : `<span class="av-img">${esc((u.name || u.email || '?')[0].toUpperCase())}</span>`}
-        <div class="grow"><b>${esc(u.name || u.email || '로그인됨')}</b><small>${esc(u.email || '')}</small></div></div>
-      ${st.detail && (st.state === 'error' || st.state === 'offline') ? `<div class="note ${st.state === 'error' ? 'warn' : ''}">${esc(st.detail)}</div>` : ''}
-      <div class="row"><button class="btn sm soft grow" id="sn">${ic('refresh')} 지금 동기화</button><button class="btn sm line" id="lo">로그아웃</button></div>
-      ${hasPw ? `<p class="tiny muted sync-p">이메일 로그인 연결됨 · 홈 화면 앱에서는 이메일로 로그인할 수 있어요.</p>` : `<details class="adv"><summary>홈 화면 앱용 이메일 로그인 추가</summary>
-        <p class="tiny muted">iPhone 홈 화면 앱은 Safari와 로그인 정보가 따로라서 다시 로그인해야 해요. 거기서 Google 창이 안 열리면 여기서 만든 이메일·비밀번호로 같은 계정에 로그인할 수 있어요.</p>
-        <input class="input" id="lem" type="email" autocomplete="username" value="${esc(u.email || '')}" autocapitalize="off">
+    el.innerHTML = head(`<span class="sync-st ${tone}"><i></i>${txt}${st.state === 'synced' && st.lastSyncAt ? ` · ${ago(st.lastSyncAt)}` : ''}</span>`)
+      + (st.detail && (st.state === 'error' || st.state === 'offline') ? `<div class="note ${st.state === 'error' ? 'warn' : ''}">${esc(st.detail)}</div>` : '')
+      + `<details class="adv"><summary>연동 관리</summary>
+        <div class="row"><button class="btn sm soft grow" id="sn">${ic('refresh')} 지금 동기화</button><button class="btn sm line" id="lo">로그아웃</button></div>
+        ${hasPw ? '' : `<p class="tiny muted mt12">홈 화면 앱에서 Google 창이 안 열리면, 여기서 이메일 로그인을 추가해 두세요.</p>
+        <input class="input" id="lem" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off">
         <input class="input mt8" id="lpw" type="password" autocomplete="new-password" placeholder="새 비밀번호 (6자 이상)">
-        <button class="btn sm block mt8" id="lk">이메일 로그인 추가</button></details>`}
-      <p class="tiny muted sync-p">녹음 파일과 음성 선택은 기기마다 따로 저장돼요.</p>`;
+        <button class="btn sm block mt8" id="lk">이메일 로그인 추가</button>`}</details>`;
     $('#sn', el).onclick = () => { Y.syncNow(); };
-    $('#lo', el).onclick = async () => { if (await confirmSheet('로그아웃할까요?', '로그아웃', '이 기기의 데이터는 그대로 남아요. 다시 로그인하면 이어서 동기화돼요.')) { await Y.logout(); toast('로그아웃했어요'); } };
+    $('#lo', el).onclick = async () => { if (await confirmSheet('로그아웃할까요?', '로그아웃', '이 기기의 데이터는 그대로 남아요.')) { await Y.logout(); toast('로그아웃했어요'); } };
     $('#lk', el) && ($('#lk', el).onclick = () => { const em = $('#lem', el).value, pw = $('#lpw', el).value; if (!em || pw.length < 6) return toast('이메일과 6자 이상 비밀번호를 입력해주세요'); Y.linkEmail(em, pw).then(() => toast('이메일 로그인을 추가했어요')).catch(e => toast(Y.authErrorText(e))); });
   };
   const unsub = Y.onStatus(render);
   render(Y.status());
-  tick = setInterval(() => el.isConnected ? (Y.status().state === 'synced' && render(Y.status())) : clearInterval(tick), 30000);
+  tick = setInterval(() => el.isConnected ? (Y.status().state === 'synced' && !el.querySelector('details[open]') && render(Y.status())) : clearInterval(tick), 30000);
   return () => { unsub(); clearInterval(tick); };
+}
+
+// ---------- 내 프로필: 이름(백현이가 부르는 이름) · 사진 ----------
+function mountProfile(el) {
+  const draw = () => {
+    const p = D.profile();
+    el.innerHTML = `<label class="prof-av" aria-label="프로필 사진 바꾸기">${p.photo ? `<img src="${p.photo}" alt="">` : `<span>${ic('heart')}</span>`}<i>${ic('edit')}</i><input type="file" accept="image/*" id="pfile" class="hide"></label>
+      <div class="grow"><span class="label">MY PROFILE</span><input class="input prof-name" id="pname" value="${esc(p.name)}" placeholder="백현이가 불러줄 이름" maxlength="12" autocomplete="nickname"></div>
+      ${p.photo ? `<button class="mini" id="pdel" aria-label="사진 지우기">${ic('x')}</button>` : ''}`;
+    $('#pname', el).onchange = e => { D.setProfile({ name: e.target.value.trim() }); toast(e.target.value.trim() ? `‘${D.callName()}’ 하고 불러줄게요` : '이름을 지웠어요'); };
+    $('#pfile', el).onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { D.setProfile({ photo: await squareThumb(f, 240) }); draw(); toast('사진을 바꿨어요'); } catch { toast('사진을 불러오지 못했어요'); } };
+    $('#pdel', el) && ($('#pdel', el).onclick = () => { D.setProfile({ photo: '' }); draw(); });
+  };
+  draw();
+}
+async function squareThumb(file, size) {
+  const url = URL.createObjectURL(file);
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+  const w = img.naturalWidth, hh = img.naturalHeight, s = Math.min(w, hh);
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  c.getContext('2d').drawImage(img, (w - s) / 2, (hh - s) / 2 * 0.5, s, s, 0, 0, size, size);
+  URL.revokeObjectURL(url);
+  return c.toDataURL('image/jpeg', 0.82);
 }
 
 // ---------- 영상 상세 / 문장 관리 ----------
@@ -222,21 +247,21 @@ export function videoEditor(root, vid) {
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>영상 관리</h2><a class="icon-btn" href="#/video/${v.id}" aria-label="학습하기">${ic('play')}</a></header>
     <div class="player" id="pl"></div>
-    <div class="row title-row"><input class="input grow" id="ttl" value="${esc(v.title)}" aria-label="영상 제목"><button class="btn sm soft" id="ttl-auto">제목 자동</button></div>
+    <div class="row title-row"><input class="input grow" id="ttl" value="${esc(v.title)}" aria-label="영상 제목"></div>
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
-      <button class="btn sm" id="add-j">${ic('plus')} JSON 추가</button>
-      <button class="btn sm soft" id="rep-j" ${us.length ? '' : 'disabled'}>${ic('refresh')} JSON으로 교체</button>
+      <button class="btn sm" id="rep-j">${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
-      <button class="btn sm line danger-line" id="clr" ${us.length ? '' : 'disabled'}>${ic('trash')} 문장 전체 삭제</button>
     </div>
-    ${us.length ? `<div class="ulist">${us.map(u => `<div class="uitem"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div>
-      <div class="ued-btns"><a class="mini" href="#/settings/utt/${v.id}/${u.id}" aria-label="편집">${ic('edit')}</a><button class="mini" data-del="${u.id}" aria-label="삭제">${ic('trash')}</button></div></div>`).join('')}</div>`
-      : `<div class="note">‘JSON 추가’에서 Claude용 프롬프트를 복사해 문장을 한 번에 만들어보세요.</div>`}
+    ${us.length ? `<div class="ulist">${us.map(u => `<a class="uitem" href="#/settings/utt/${v.id}/${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div>${ic('edit')}</a>`).join('')}</div>`
+      : `<div class="note">‘JSON으로 교체’에서 Claude용 프롬프트를 복사해 문장을 한 번에 넣어보세요.</div>`}
     <button class="btn line block danger-line" id="delv">${ic('trash')} 이 영상 삭제</button>
   </div>`;
-  const pl = new Player($('#pl', root)); pl.cue(v.ytId);
+  // 제목 자동: 비어 있거나 기본값이면 YouTube에서 가져와서 채움
+  const autoTitle = t => { if (!t) return; const cur = D.video(vid); if (cur && (!cur.title || cur.title === 'YouTube 영상')) { D.updateVideo(vid, { title: t }); const i = $('#ttl', root); if (i) i.value = t; } };
+  const pl = new Player($('#pl', root), { onReady: () => autoTitle(pl.title()), onState: s => s === 'cued' && autoTitle(pl.title()) }); pl.cue(v.ytId);
+  if (!v.title || v.title === 'YouTube 영상') fetchTitle(v.ytId).then(autoTitle);
   const reload = () => { pl.destroy(); videoEditor(root, vid); };
   // ----- TALK 통화 설정: 장면 분석 · 메모 · 사진 -----
   const scn = $('#scn', root);
@@ -246,12 +271,12 @@ export function videoEditor(root, vid) {
     const ap = pickPhoto({ ...cur, photo: '' });
     const shown = sel.length ? sel : auto;
     scn.innerHTML = `<span class="label">영상 종류</span>
-      <div class="seg kind-seg mt8">${[['live', '라이브 · CALL'], ['video', '일반 영상 · TALK']].map(([k, l]) => `<button data-kind="${k}" class="${(live ? 'live' : 'video') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg kind-seg mt8">${[['live', '라이브 · CALL'], ['video', '일반 영상 · CHAT']].map(([k, l]) => `<button data-kind="${k}" class="${(live ? 'live' : 'video') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${live ? `<div class="scene-sec"><div class="row between"><span class="label">상황 · 시간대</span><button class="link-sm" id="sitedit">${ic('edit')} 고르기</button></div>
         <div class="sit-row wrap mt8">${shown.length ? shown.map(k => `<span class="sit ${sel.length ? 'on' : 'auto'}">${esc(sitLabel(k) || TAG_KO[k] || k)}</span>`).join('') : '<span class="tiny muted">아직 없어요 · 고르기를 눌러 정해주세요</span>'}</div>
         ${!sel.length && shown.length ? '<p class="tiny muted mt8">점선은 대본으로 추정한 상황이에요</p>' : ''}</div>
       <div class="scene-sec"><span class="label">전화 올 때 사진</span>
-        ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 TALK에만 보여요.</p>'}`;
+        ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 CHAT에만 보여요.</p>'}`;
     $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); });
     $('#sitedit', scn) && ($('#sitedit', scn).onclick = () => sitSheet(vid, drawScene));
     $('#phchg', scn) && ($('#phchg', scn).onclick = () => {
@@ -262,22 +287,12 @@ export function videoEditor(root, vid) {
   };
   drawScene();
   $('#ttl', root).onchange = e => D.updateVideo(v.id, { title: e.target.value.trim() || v.title });
-  $('#ttl-auto', root).onclick = async () => { const t = pl.title() || await fetchTitle(v.ytId); if (t) { $('#ttl', root).value = t; D.updateVideo(v.id, { title: t }); toast('제목을 불러왔어요'); } else toast('영상을 한 번 재생한 뒤 다시 눌러주세요'); };
-  $$('[data-del]', root).forEach(b => b.onclick = async () => { if (await confirmSheet('이 문장을 삭제할까요?')) { D.deleteUtt(b.dataset.del); reload(); toast('삭제했어요'); } });
-  $('#clr', root).onclick = async () => {
-    const linked = D.savedLinkedTo(v.id).length;
-    const ok = await confirmSheet(`이 영상의 문장 ${us.length}개를 모두 삭제할까요?`, '문장 전체 삭제',
-      `영상은 그대로 남고, 다른 영상의 문장은 영향이 없어요.${linked ? `<br>SAVED에 저장한 표현 ${linked}개는 내용이 그대로 남지만 원본 문장과의 연결(구간 이동)은 YouTube 링크로 바뀌어요.` : ''}<br>삭제 직전 상태는 SETTINGS › 직전 상태로 되돌리기로 복구할 수 있어요.`);
-    if (!ok) return;
-    const r = D.clearUtts(v.id); toast(`문장 ${r.removed}개를 삭제했어요`); reload();
-  };
   $('#delv', root).onclick = async () => { if (await confirmSheet('영상과 등록된 문장을 모두 삭제할까요?', '영상 삭제', 'SAVED에 저장한 표현은 남아요.')) { pl.destroy(); D.deleteVideo(v.id); toast('영상을 삭제했어요'); location.hash = '#/settings'; } };
   $('#cpj', root).onclick = async () => {
     const json = exportUtts(v.id);
     if (await copyText(json)) toast(`문장 ${us.length}개 JSON을 복사했어요 · 고친 뒤 ‘JSON으로 교체’에 붙여넣기`);
     else { const sh = sheet(`<h3>JSON 전체</h3><p class="sheet-p">자동 복사가 막혔어요. 아래를 길게 눌러 전체 선택 → 복사해주세요.</p><textarea class="textarea mono" readonly>${esc(json)}</textarea>`); $('textarea', sh).select(); }
   };
-  $('#add-j', root).onclick = () => jsonSheet(v, 'add', reload);
   $('#rep-j', root).onclick = () => jsonSheet(v, 'replace', reload);
   return () => pl.destroy();
 }
@@ -311,12 +326,12 @@ function exportUtts(vid) {
 // mode: 'add' (기존 문장 뒤에 추가) | 'replace' (이 영상의 문장만 전부 교체)
 function jsonSheet(v, mode, done) {
   const n = D.uttsOf(v.id).length;
-  const s = sheet(`<h3>${mode === 'replace' ? 'JSON으로 문장 교체' : 'JSON으로 문장 추가'}</h3>
-    <p class="sheet-p">${mode === 'replace' ? `이 영상의 기존 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '기존 문장은 그대로 두고 새 문장을 <b>뒤에 추가</b>해요.'}</p>
-    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button>${mode === 'replace' ? `<button class="btn sm soft" id="ld">${ic('download')} 현재 JSON 불러오기</button>` : ''}<label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
+  const s = sheet(`<h3>JSON으로 교체</h3>
+    <p class="sheet-p">${n ? `이 영상의 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '이 영상에 넣을 문장 JSON을 붙여넣어요.'}</p>
+    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button>${n ? `<button class="btn sm soft" id="ld">${ic('download')} 현재 JSON 불러오기</button>` : ''}<label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
     <textarea class="textarea mono" id="js" placeholder='[{"start":"0:12","end":"0:17","ko":"...","natural":"..."}]'></textarea>
     <div id="vres"></div>
-    <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow ${mode === 'replace' ? 'danger' : ''}" id="go" disabled>${mode === 'replace' ? '교체하기' : '추가하기'}</button></div>`);
+    <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow" id="go" disabled>${n ? '교체하기' : '넣기'}</button></div>`);
   let checked = null;
   const ta = $('#js', s), out = $('#vres', s), go = $('#go', s);
   const check = () => {

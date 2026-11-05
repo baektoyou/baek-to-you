@@ -1,7 +1,7 @@
 // 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 힌트 · 레벨 비교 · 쉐도잉)
 import * as S from './speech.js';
 import { markPattern, diffWords } from './compare.js';
-import { hintsFor } from './feedback.js';
+import { hintSteps } from './judge.js';
 
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const $ = (sel, el = document) => el.querySelector(sel);
@@ -33,7 +33,10 @@ const P = {
   bulb: '<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z"/>',
   send: '<path d="M4 12l16-8-6 16-2.5-6.5z"/>',
   phone: '<path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>',
-  phoneoff: '<path d="M3 13.5c5-4.5 13-4.5 18 0l-2.5 2.5-3-1.5v-3a12 12 0 0 0-7 0v3l-3 1.5z"/>',
+  phoneF: '<path fill="currentColor" stroke="none" d="M6.6 10.8a15.2 15.2 0 0 0 6.6 6.6l2.2-2.2a1 1 0 0 1 1-.25 11.4 11.4 0 0 0 3.6.58 1 1 0 0 1 1 1V20a1 1 0 0 1-1 1A17 17 0 0 1 3 4a1 1 0 0 1 1-1h3.5a1 1 0 0 1 1 1c0 1.25.2 2.45.58 3.57a1 1 0 0 1-.25 1z"/>',
+  phoneoff: '<path fill="currentColor" stroke="none" d="M12 9.2c-1.6 0-3.15.25-4.6.72v3.1c0 .4-.23.74-.56.9-.98.5-1.87 1.12-2.66 1.85a1 1 0 0 1-1.4-.01L.3 13.28a1 1 0 0 1 0-1.41C3.34 8.98 7.46 7.2 12 7.2s8.66 1.78 11.71 4.67a1 1 0 0 1 0 1.41l-2.48 2.48a1 1 0 0 1-1.41.01 11.3 11.3 0 0 0-2.66-1.85 1 1 0 0 1-.56-.9v-3.1A15 15 0 0 0 12 9.2z"/>',
+  micF: '<rect x="8.6" y="2.6" width="6.8" height="12" rx="3.4" fill="currentColor" stroke="none"/><path d="M5.2 11.2a6.8 6.8 0 0 0 13.6 0M12 18v3.2"/>',
+  heartF: '<path fill="currentColor" stroke="none" d="M12 20.3s-7.8-4.7-7.8-10.4A4.4 4.4 0 0 1 12 7.2a4.4 4.4 0 0 1 7.8 2.7c0 5.7-7.8 10.4-7.8 10.4z"/>',
   cam: '<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 11l5-3v8l-5-3z"/>',
   cc: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M10.5 10.5a2 2 0 1 0 0 3M16.5 10.5a2 2 0 1 0 0 3"/>',
   globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>',
@@ -90,16 +93,16 @@ export const ytLink = (ytId, start = 0) => `https://youtu.be/${ytId}${start ? `?
 // 수동 종료: 사용자가 '끝내기'를 눌러야만 끝나요. 잠깐 멈춰도 계속 들어요.
 // micBlock(el, {placeholder, record, targets, onStart, onResult(text,res), onEdit})
 const STATE_TEXT = {
-  idle: '탭해서 말하기', starting: '마이크 준비 중…', listening: '듣는 중 · 멈춰도 계속 들어요', hearing: '인식 중…',
-  reconnecting: '듣는 중 · 인식 다시 연결', 'rec-only': '녹음 중 · 음성 인식은 멈춤', processing: '정리하는 중…', done: '완료 · 텍스트를 확인하고 고쳐도 돼요'
+  idle: '눌러서 영어로 말하기', starting: '준비 중…', listening: '듣는 중 · 다 말하면 ■', hearing: '듣는 중 · 다 말하면 ■',
+  reconnecting: '듣는 중 · 다 말하면 ■', 'rec-only': '녹음 중', processing: '정리하는 중…', done: '다 됐어요 · 글자는 고쳐도 돼요'
 };
 export function micBlock(el, opt = {}) {
   const mode = S.support.stt ? 'stt' : S.support.rec ? 'rec' : 'none';
-  const sub = mode === 'stt' ? '다 말하면 ■ 누르기' : mode === 'rec' ? '이 브라우저는 음성 인식 미지원 · 녹음 후 아래에 직접 입력' : '음성 인식·녹음 미지원 · 아래에 직접 입력';
+  const sub = mode === 'stt' ? '' : '음성 인식이 안 되는 브라우저예요 · 아래에 입력해요';
   el.innerHTML = `<div class="mic-block">
     <div class="mic-row">
       <button class="mic" aria-label="말하기 시작" ${mode === 'none' ? 'disabled' : ''}>${ic('mic')}</button>
-      <div class="mic-info"><div class="mic-status" data-s="idle"><i></i><span>${mode === 'none' ? '직접 입력' : STATE_TEXT.idle}</span><em class="mic-time"></em></div><div class="mic-sub">${sub}</div></div>
+      <div class="mic-info"><div class="mic-status" data-s="idle"><i></i><span>${mode === 'none' ? '직접 입력' : STATE_TEXT.idle}</span><em class="mic-time"></em></div>${sub ? `<div class="mic-sub">${sub}</div>` : ''}</div>
     </div>
     <textarea class="textarea live en" rows="2" placeholder="${esc(opt.placeholder || '말한 문장이 여기에 나와요 · 고쳐도 돼요')}" autocapitalize="sentences" spellcheck="false"></textarea>
     <div class="mic-extra hide"><button class="chip line" data-x="cont">${ic('plus')} 이어 말하기</button><button class="chip line" data-x="clear">${ic('x')} 지우기</button></div>
@@ -138,7 +141,7 @@ export function micBlock(el, opt = {}) {
     if (x === 'clear') { ta.value = ''; showExtra(); opt.onEdit?.(''); setState('idle'); }
   };
   ta.oninput = () => { opt.onEdit?.(ta.value.trim()); showExtra(); };
-  return { get text() { return ta.value.trim(); }, set text(v) { ta.value = v || ''; showExtra(); }, get res() { return lastRes; }, focus: () => ta.focus(), stop: () => cap?.stop(), get busy() { return !!cap; } };
+  return { get text() { return ta.value.trim(); }, set text(v) { ta.value = v || ''; showExtra(); }, get res() { return lastRes; }, focus: () => ta.focus(), stop: () => cap?.stop(), start: () => { if (!cap && mode !== 'none') start(); }, get busy() { return !!cap; } };
 }
 
 // ---------- 플래시카드 ----------
@@ -193,31 +196,48 @@ export function beforeAfter({ before = '', after = '', ko = '', changes = [], pa
   </div>`;
 }
 
-// ---------- 힌트 보기: 핵심 단어·표현만 하나씩 ----------
+// ---------- 힌트: 단계별 (작은 단서 → 핵심 단어·표현, 정답 전체는 안 보여줌) ----------
 export function hintBox(el, en, opt = {}) {
-  const hints = hintsFor(en, opt); let n = 0;
-  if (!hints.length) { el.innerHTML = ''; return; }
-  el.innerHTML = `<div class="hintbox"><button class="hint-btn" type="button">${ic('bulb')}<span>힌트 보기</span><em>${hints.length}</em></button><div class="hint-chips"></div></div>`;
-  const btn = $('.hint-btn', el), box = $('.hint-chips', el);
+  const steps = hintSteps(en, opt); let n = 0;
+  if (!steps.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="hintbox"><button class="hint-btn" type="button">${ic('bulb')}<span>힌트</span><em>0/${steps.length}</em></button><span class="hint-now en"></span></div>`;
+  const btn = $('.hint-btn', el), now = $('.hint-now', el);
   btn.onclick = () => {
-    if (n >= hints.length) return;
-    box.insertAdjacentHTML('beforeend', `<span class="hchip en">${esc(hints[n])}</span>`); n++;
-    $('span', btn).textContent = n >= hints.length ? '힌트 끝' : '힌트 하나 더'; $('em', btn).textContent = hints.length - n || '';
-    btn.disabled = n >= hints.length;
+    if (n >= steps.length) return;
+    now.textContent = steps[n]; now.classList.remove('pop'); void now.offsetWidth; now.classList.add('pop'); n++;
+    $('em', btn).textContent = `${n}/${steps.length}`; btn.disabled = n >= steps.length;
   };
+}
+
+// ---------- 의미 단위 줄바꿈: 쉼표·접속사 앞에서 끊기도록 덩어리로 묶기 ----------
+const CUT = /^(and|but|because|so|when|if|which|who|that's why|then|or|since|while|after|before|until|though|although)$/i;
+export function unitHTML(text, pattern = '', marks = []) {
+  const t = String(text || '').trim(); if (!t) return '';
+  if (t.length < 34) return markPattern(t, pattern, esc, marks);
+  const W = t.split(/\s+/), chunks = []; let cur = [];
+  W.forEach((w, i) => {
+    if (cur.length >= 2 && CUT.test(w.replace(/[^\w']/g, ''))) { chunks.push(cur.join(' ')); cur = []; }
+    cur.push(w);
+    if (/[,;:.?!]$/.test(w) && i < W.length - 1 && cur.length >= 2) { chunks.push(cur.join(' ')); cur = []; }
+  });
+  if (cur.length) { if (cur.length === 1 && chunks.length) chunks[chunks.length - 1] += ' ' + cur[0]; else chunks.push(cur.join(' ')); }
+  return chunks.map(c => `<span class="u">${markPattern(c, pattern, esc, marks)}</span>`).join(' ');
+}
+
+// ---------- 평가 한 줄 (판정 + 자연스러운 피드백) ----------
+export function verdictHTML(ev) {
+  if (!ev) return '';
+  return `<div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b>${ev.msg ? `<span>${esc(ev.msg)}</span>` : ''}</div>`;
 }
 
 // ---------- 말하기 카드 ----------
 // read: 영어를 크게 보고 말하기 · recall: 한국어를 위에 두고 영어로 바꿔 말하기 (+ 힌트)
 export function sayCard(el, { ko = '', en = '', pattern = '', keywords = [], mode = 'read', marks = [] } = {}) {
   if (mode === 'read') {
-    el.innerHTML = `<div class="say read"><span class="say-tag">${ic('eye')} 보고 말하기</span><p class="say-en en">${markPattern(en, pattern, esc, marks)}</p>${ko ? `<p class="say-ko">${esc(ko)}</p>` : ''}</div>`;
+    el.innerHTML = `<div class="say read"><span class="say-tag">보고 말하기</span><p class="say-en en">${unitHTML(en, pattern, marks)}</p>${ko ? `<p class="say-ko">${esc(ko)}</p>` : ''}</div>`;
   } else {
-    el.innerHTML = `<div class="say recall"><span class="say-tag">안 보고 말하기 · 영어로 바꿔 말해요</span>${ko ? `<p class="say-ko-big">${esc(ko)}</p>` : `<p class="say-ko-big muted">한국어 문장이 없어요 · 기억나는 대로 말해요</p>`}
-      <div class="say-hint"></div><button class="say-peek" type="button">${ic('eye')} 정답 잠깐 보기</button><p class="say-en en peek hide">${esc(en)}</p></div>`;
+    el.innerHTML = `<div class="say recall"><span class="say-tag">안 보고 말하기</span>${ko ? `<p class="say-ko-big">${esc(ko)}</p>` : ''}<div class="say-hint"></div></div>`;
     hintBox($('.say-hint', el), en, { pattern, keywords });
-    const pk = $('.say-peek', el), ans = $('.say-en', el); let t;
-    pk.onclick = () => { ans.classList.remove('hide'); clearTimeout(t); t = setTimeout(() => ans.classList.add('hide'), 1800); };
   }
 }
 

@@ -5,6 +5,7 @@ import { tokens, splitPatterns, STOP, diffWords } from './compare.js';
 
 // ---------- 패턴 사전 ----------
 const P = (re, ko, ex, q, frame) => ({ re, ko, ex, q, frame });
+const Q_EN = ['What have you been up to lately?', 'What are you looking forward to these days?', 'What are you looking forward to?', "Is there something you used to do but don't anymore?", 'What are you used to now?', 'What are you going to do this weekend?', 'What do you want to do these days?', 'What do you need to do today?', 'What are you trying to do these days?', 'What do you feel like doing right now?', "Ask me if I've ever done something.", 'What are you into these days?', 'Who do you want to thank, and why?', 'Have you done anything for the first time in a while?', 'What should we do together?', 'What are you not sure about these days?', 'Did anything not go as planned recently?', "What would you tell a friend who's worried?", 'What should I remember to do today?', 'What do you miss these days?', 'What were you about to do before this?', 'What do you hope for these days?', 'What do you think of your day so far?', 'How are you feeling right now?', "What's something you really love?"];
 const LIB = [
   P(/\b(i'?ve|have|has|i have) been\b.*(~|ing)|been ~ing/i, '최근부터 지금까지 계속 ~하고 있어', ["I've been studying English.", "I've been listening to music a lot.", "I've been feeling tired lately."], '요즘 계속하고 있는 일이 있나요?', "I've been ______."),
   P(/can'?t wait to/i, '빨리 ~하고 싶어 (너무 기대돼)', ["I can't wait to see you.", "I can't wait to go home.", "I can't wait to try that cafe."], '요즘 제일 기다려지는 게 뭐예요?', "I can't wait to ______."),
@@ -32,6 +33,8 @@ const LIB = [
   P(/\b(i'?m|i am) (so|really)\b/i, '나 너무 ~해', ["I'm so happy right now.", "I'm really tired today.", "I'm so excited for tomorrow."], '지금 기분을 한 단어로 말하면?', "I'm so ______."),
   P(/\bi love\b/i, '~하는 게 정말 좋아', ['I love walking at night.', 'I love this song so much.', 'I love it when it snows.'], '정말 좋아하는 순간이 있나요?', 'I love ______.')
 ];
+LIB.forEach((p, i) => (p.qEn = Q_EN[i] || ''));
+export const libFor = text => LIB.find(p => p.re.test(String(text || ''))) || null;
 export function patternInfo(u) {
   const pat = (splitPatterns(u.pattern)[0] || '').trim();
   const hit = pat ? LIB.find(p => p.re.test(pat)) : null;
@@ -101,7 +104,9 @@ const RULES = [
   [/\ba (?!one\b|once\b|uni|use|euro|u\b)([aeio]\w*)/gi, (m, w) => `an ${w}`, '모음 소리 앞엔 an', 'grammar'],
   // ----- 한국어식 영어 → 원어민이 실제로 쓰는 표현 -----
   [/\b(I|i)('m| am) (feel|think|like|love|want|need|know|agree)\b/g, (m, s, be, v) => `I ${v.toLowerCase()}`, `${'feel/think/like 같은 동사 앞엔 am이 필요 없어요'}`, 'grammar'],
-  [new RegExp(`\\b(I'm|I am|you're|we're|they're|he's|she's) (${VERBS})\\b(?! to)`, 'g'), (m, s, v) => /^(be|have|know|like|love|want|need|feel)$/i.test(v) ? m : `${s} ${ING(v)}`, '지금 하고 있는 일은 be + ~ing', 'grammar'],
+  [new RegExp(`\\b(I'm|I am|you're|we're|they're|he's|she's) (${VERBS})\\b`, 'g'), (m, s, v) => /^(be|have|know|like|love|want|need|feel)$/i.test(v) ? m : `${s} ${ING(v)}`, '지금 하고 있는 일은 be + ~ing', 'grammar'],
+  [new RegExp(`\\b(have|has|I've|you've|we've|they've|he's|she's) been (${VERBS})\\b`, 'gi'), (m, a, v) => /^(be|have|know|like|love|want|need|feel)$/i.test(v) ? m : `${a} been ${ING(v)}`, 'have been 뒤엔 동사 ~ing', 'grammar'],
+  [/\b(eated|goed|buyed|runned|teached|catched|thinked|sleeped|drinked|writed|speaked|maked|taked|comed|getted|feeled|meeted|knowed|telled|sayed|swimmed|singed|leaved|bringed|finded|losed|sitted|standed|weared|forgeted|keeped|spended|sended|builded|choosed|drived|rided|breaked|falled|flyed|growed|hided|holded|payed|readed|throwed|understanded|waked|winned)\b/gi, w => ({ eated: 'ate', goed: 'went', buyed: 'bought', runned: 'ran', teached: 'taught', catched: 'caught', thinked: 'thought', sleeped: 'slept', drinked: 'drank', writed: 'wrote', speaked: 'spoke', maked: 'made', taked: 'took', comed: 'came', getted: 'got', feeled: 'felt', meeted: 'met', knowed: 'knew', telled: 'told', sayed: 'said', swimmed: 'swam', singed: 'sang', leaved: 'left', bringed: 'brought', finded: 'found', losed: 'lost', sitted: 'sat', standed: 'stood', weared: 'wore', forgeted: 'forgot', keeped: 'kept', spended: 'spent', sended: 'sent', builded: 'built', choosed: 'chose', drived: 'drove', rided: 'rode', breaked: 'broke', falled: 'fell', flyed: 'flew', growed: 'grew', hided: 'hid', holded: 'held', payed: 'paid', readed: 'read', throwed: 'threw', understanded: 'understood', waked: 'woke', winned: 'won' })[w.toLowerCase()], '불규칙 동사의 과거형이에요', 'grammar'],
   [/\b(I|i)('m| am| was) (so |very |really )?(exciting|boring|interesting|tiring|confusing|surprising)\b/g, (m, s, be, adv, w) => `I${be} ${adv || ''}${w.replace(/ing$/, 'ed')}`, '내 감정은 -ed (exciting은 “신나게 만드는”)', 'grammar'],
   [/\bgo(es|ing)? to home\b/gi, (m, e) => `go${e || ''} home`, 'home 앞엔 to를 안 써요', 'grammar'],
   [/\bcome(s)? to home\b/gi, (m, e) => `come${e || ''} home`, 'home 앞엔 to를 안 써요', 'grammar'],
@@ -229,7 +234,7 @@ export function hintsFor(en, { pattern = '', keywords = [] } = {}) {
 
 // ---------- 오래 이야기하기: 더 길게 말하도록 유도하는 작은 힌트 ----------
 // 정답을 알려주지 않고, 아직 안 한 종류의 이야기를 하나 제안해요.
-const TALK_HINTS = [
+export const TALK_HINTS = [
   { k: 'reason', test: /\b(because|since|so|that's why|the reason)\b/i, t: '이유를 하나 더해볼까?', ex: 'because …', ko: '왜 그런지 말해봐' },
   { k: 'example', test: /\b(for example|for instance|like when|such as|one time)\b/i, t: '구체적인 예를 들어볼까?', ex: 'For example, …', ko: '실제 있었던 일 하나' },
   { k: 'feeling', test: /\b(feel|felt|feeling|happy|sad|excited|nervous|tired|glad|upset|love|hate)\b/i, t: '그때 기분은 어땠어?', ex: 'It made me feel …', ko: '감정 한 단어 + 이유' },

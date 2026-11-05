@@ -13,7 +13,7 @@ const defaults = () => ({
   talkLogs: [],    // 통화 기록 {id, at, kind, videoId, sec, spoke, n}
   words: [],       // 따로 저장한 단어·표현 {id, text, ko, note, srcId, status, srs}
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [], customSits: [], hiddenSits: [] }
+  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [], customSits: [], hiddenSits: [], profile: { name: '', photo: '' } }
 });
 
 let db = load();
@@ -175,7 +175,7 @@ export function toggleHard(id) { const s = db.saved.find(x => x.id === id); if (
 // ---------- 단어·표현 ----------
 function normWord(w) {
   const srs = { interval: 0, reps: 0, lapses: 0, due: Date.now(), ...(w.srs || {}) };
-  return { id: w.id || uid(), text: String(w.text || '').trim(), ko: w.ko || '', note: w.note || '', srcId: w.srcId || null, kind: w.kind || 'expr',
+  return { id: w.id || uid(), text: String(w.text || '').trim(), ko: w.ko || '', note: w.note || '', q: w.q || '', srcId: w.srcId || null, kind: w.kind || 'expr',
     status: w.status || 'new', srs, history: arrOf(w.history), made: arrOf(w.made), createdAt: w.createdAt || Date.now(), updatedAt: w.updatedAt || 0 };
 }
 export function saveWord(item) {
@@ -214,6 +214,15 @@ export function nextInterval(s, status) {
   if (status === 'okay') return iv < 1 ? 1 : Math.min(60, Math.round(iv * 2));
   return iv < 4 ? 4 : Math.min(180, Math.round(iv * 2.5));
 }
+// 복습 결과를 고쳐 매길 때(맞힘 → 자동 완료 후 익숙함 선택) 직전 상태로 되돌리기
+export function rateSnap(id, words = false) {
+  const s = (words ? db.words : db.saved).find(x => x.id === id); if (!s) return null;
+  return { srs: { ...s.srs }, status: s.status, n: s.history.length };
+}
+export function unrate(id, snap, words = false) {
+  const s = (words ? db.words : db.saved).find(x => x.id === id); if (!s || !snap) return;
+  s.srs = { ...snap.srs }; s.status = snap.status; if (!words) s.hard = s.status === 'again'; s.history = s.history.slice(0, snap.n); save();
+}
 export function rate(id, status) {
   const s = db.saved.find(x => x.id === id); if (!s) return;
   const r = s.srs; const iv = nextInterval(s, status);
@@ -236,6 +245,24 @@ export function callStats() {
   const total = logs.reduce((n, l) => n + (l.sec || 0), 0);
   let streak = 0; for (let i = 0; i < 400; i++) { const d = new Date(); d.setDate(d.getDate() - i); if (db.days[today(d)]) streak++; else if (i > 0) break; }
   return { total, count: logs.length, longest: Math.max(0, ...logs.map(l => l.sec || 0)), streak, logs };
+}
+// 날짜별 통화 기록 ('YYYY-MM-DD')
+export const callLogs = () => db.talkLogs.filter(l => l.kind === 'call' || l.sec);
+export function callDay(day) {
+  const logs = callLogs().filter(l => today(new Date(l.at)) === day);
+  return { day, logs, total: logs.reduce((n, l) => n + (l.sec || 0), 0) };
+}
+export const callDays = () => new Set(callLogs().map(l => today(new Date(l.at))));
+// 내 프로필 (백현이가 부를 이름 · 사진)
+export const profile = () => ({ name: '', photo: '', ...(db.settings.profile || {}) });
+export function setProfile(patch) { db.settings.profile = { ...profile(), ...patch }; save(); }
+// 부르는 말: 받침 있으면 ‘아’, 없으면 ‘야’ (한글 이름) · 영어 이름은 그대로
+export function callName(withParticle = true) {
+  const n = profile().name.trim(); if (!n) return '';
+  if (!withParticle) return n;
+  const last = n.charCodeAt(n.length - 1);
+  if (last >= 0xAC00 && last <= 0xD7A3) return n + ((last - 0xAC00) % 28 ? '아' : '야');
+  return n;
 }
 
 // ---------- 백업 / 복원 ----------

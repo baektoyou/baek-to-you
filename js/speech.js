@@ -1,6 +1,6 @@
 // 음성: STT(Web Speech API) · TTS(speechSynthesis) · 녹음(MediaRecorder) · 녹음 분석(Web Audio)
 import { get } from './store.js';
-import { diff } from './compare.js';
+import { diff, lev, phon, STOP } from './compare.js';
 
 const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 const ua = navigator.userAgent;
@@ -80,22 +80,89 @@ export function speak(text, opt = {}) {
 }
 export const stopSpeak = () => support.tts && speechSynthesis.cancel();
 
-// ---------- 인식 보정 사전 ----------
+// ---------- 인식 보정 ----------
+// · 기본: Baekhyun · EXO-L
+// · SETTINGS › 인식 보정 단어에 단어만 적어 두면, 발음이 비슷하게 잘못 인식된 말을 그 단어로 자동 교정
+//   (예전 형식 ‘들린 말 = 원래 단어’도 그대로 지원)
 const BUILTIN_FIX = [
   [/\b(?:back|bag|bak|baek|bake|beck|pack|bike)[\s-]?(?:hyun|hyon|hyeon|hyan|hun|hin|young|yun|human|hum)\b/gi, 'Baekhyun'],
   [/\b(?:exo|x\s?o|echo)[\s-]?(?:l|el|elle)\b/gi, 'EXO-L']
 ];
 export function parseFixes(text) {
-  return String(text || '').split('\n').map(l => l.split('=').map(x => x.trim())).filter(p => p.length === 2 && p[0] && p[1]);
+  const pairs = [], terms = [];
+  String(text || '').split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
+    const p = l.split('=').map(x => x.trim());
+    if (p.length === 2 && p[0] && p[1]) { pairs.push(p); terms.push(p[1]); } else if (p.length === 1) terms.push(p[0]);
+  });
+  return { pairs, terms: [...new Set(terms)] };
+}
+const letters = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
+function soundsLike(a, b) {
+  if (a === b) return true;
+  if (a.length < 3 || b.length < 4) return false;
+  const r = a.length / b.length; if (r < 0.6 || r > 1.6) return false;
+  const sim = 1 - lev(a, b) / Math.max(a.length, b.length);
+  if (sim >= 0.75) return true;
+  const pa = phon(a), pb = phon(b);
+  if (pa.length >= 3 && pa === pb && sim >= 0.4) return true;
+  return pb.length >= 4 && 1 - lev(pa, pb) / Math.max(pa.length, pb.length) >= 0.75 && sim >= 0.5;
+}
+function fuzzyFix(t, terms) {
+  if (!terms.length) return t;
+  let w = t.split(' ');
+  for (const term of terms) {
+    const tl = letters(term); if (tl.length < 3) continue;
+    const tn = term.trim().split(/\s+/).length;
+    const out = [];
+    for (let i = 0; i < w.length; i++) {
+      let hit = 0;
+      for (const n of [tn + 1, tn, Math.max(1, tn - 1), 3, 2, 1].filter((x, k, a) => x >= 1 && a.indexOf(x) === k).sort((a, b) => b - a)) {
+        if (i + n > w.length) continue;
+        const win = w.slice(i, i + n), core = win.map(x => x.replace(/[^\w'-]/g, '').toLowerCase());
+        if (core.every(x => STOP.has(x) || x.length < 2)) continue;
+        if (n === 1 && core[0].length < 4) continue;
+        if (letters(win.join('')) === tl) { if (win.join(' ').replace(/[^\w\s'-]/g, '') === term) continue; }
+        if (soundsLike(letters(win.join('')), tl)) { hit = n; break; }
+      }
+      if (hit) { const tail = (w[i + hit - 1].match(/[^\w'-]+$/) || [''])[0]; out.push(term + tail); i += hit - 1; }
+      else out.push(w[i]);
+    }
+    w = out;
+  }
+  return w.join(' ');
 }
 export function fixText(t) {
   if (!t) return t;
   BUILTIN_FIX.forEach(([r, v]) => (t = t.replace(r, v)));
-  parseFixes(get().settings.sttFix).forEach(([from, to]) => {
+  const { pairs, terms } = parseFixes(get().settings.sttFix);
+  pairs.forEach(([from, to]) => {
     const re = new RegExp('\\b' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]*') + '\\b', 'gi');
     t = t.replace(re, to);
   });
-  return t;
+  return fuzzyFix(t, terms);
+}
+
+// ---------- 인식 결과 다듬기: 대문자 · 문장부호 · 겹친 단어 ----------
+const KEEP_DUP = /^(ha|haha|no|bye|so|yeah|yes|hey|la|na|oh|wow|very|really|knock|bla|blah|that|had)$/i;
+const LEAD = /^(oh|well|yeah|yes|no|hey|so|actually|honestly|okay|ok|um|uh|wow|hmm|hi|hello|right|anyway|basically|also)$/i;
+const Q_START = /^(do|does|did|are|is|am|was|were|can|could|would|will|should|have|has|what|how|why|where|when|who|which|whose|shall|may|isn't|aren't|don't|doesn't|didn't|won't|can't)\b/i;
+export function tidy(text, { final = true } = {}) {
+  let s = String(text || '').replace(/\s+/g, ' ').trim();
+  if (!s) return s;
+  // 겹친 단어 제거 (to to → to)
+  const w = s.split(' '), out = [];
+  for (const x of w) { const p = out[out.length - 1]; if (p && p.toLowerCase().replace(/[^\w']/g, '') === x.toLowerCase().replace(/[^\w']/g, '') && !KEEP_DUP.test(x.replace(/[^\w]/g, ''))) { if (/[.?!,]$/.test(x)) out[out.length - 1] = p.replace(/[.?!,]*$/, '') + x.slice(-1); continue; } out.push(x); }
+  s = out.join(' ');
+  s = s.replace(/\bi\b/g, 'I').replace(/\bi'(m|ve|ll|d)\b/gi, "I'$1");
+  // 문장 첫 감탄사 뒤 쉼표 (Yeah I → Yeah, I)
+  s = s.replace(/(^|[.?!]\s+)([A-Za-z]+)(\s+)(?=[A-Z]|(?:I|i|you|we|he|she|it|they|that|this|my|the|there|it's|that's|I'm|I've)\b)/g, (m, a, wd, sp) => LEAD.test(wd) && !/,$/.test(wd) ? `${a}${wd},${sp}` : m);
+  // 문장 첫 글자 대문자
+  s = s.replace(/(^|[.?!]\s+)([a-z])/g, (m, a, c) => a + c.toUpperCase());
+  if (final && !/[.?!]$/.test(s)) {
+    const last = s.split(/[.?!]\s+/).pop();
+    s += Q_START.test(last) || /\b(how|what|why|where|when|who|do|did|are|can|have)\s+(are|is|was|did|do|about|you)\b[^.?!]*$/i.test(last) && !/^(I|I'm|I've|I'll|My)\b/.test(last) ? '?' : '.';
+  }
+  return s;
 }
 
 // ---------- 마이크 캡처 ----------
@@ -122,7 +189,7 @@ export function capture(opt = {}) {
   const finish = () => {
     if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT); clearTimeout(silT);
     setState('done');
-    resolve({ text: fixText(full()), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
+    resolve({ text: tidy(fixText(full())), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
   };
   const pickAlt = r => {
     if (!targets.length || r.length < 2) return r[0].transcript;
@@ -147,7 +214,7 @@ export function capture(opt = {}) {
   }
   function startStt() {
     try {
-      rec = new SR(); rec.lang = get().settings.sttLang || 'en-US'; rec.interimResults = true; rec.continuous = manual; rec.maxAlternatives = targets.length ? 5 : 1;
+      rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = manual; rec.maxAlternatives = targets.length ? 5 : 1;
       rec.onstart = () => setState('listening');
       rec.onaudiostart = () => setState('listening');
       rec.onresult = e => {
@@ -163,7 +230,7 @@ export function capture(opt = {}) {
         }
         session = acc;
         setState('hearing');
-        opt.onInterim?.(fixText(full()));
+        opt.onInterim?.(tidy(fixText(full()), { final: false }));
         if (!manual) { clearTimeout(silT); if (full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 1600); }
       };
       rec.onerror = e => {
@@ -222,7 +289,7 @@ export function sttErrorText(e) {
     'mic-fail': '마이크를 열지 못했어요. 다른 앱이 마이크를 쓰고 있는지 확인해주세요.',
     'audio-capture': '마이크 입력을 받지 못했어요. 녹음과 인식이 충돌했을 수 있어요.',
     'network': '음성 인식 서버에 연결하지 못했어요. 네트워크를 확인해주세요.',
-    'language-not-supported': '선택한 인식 언어를 지원하지 않아요. SETTINGS › 인식 언어를 바꿔보세요.',
+    'language-not-supported': '이 기기에서 영어(미국) 음성 인식을 지원하지 않아요.',
     'restart-fail': '브라우저가 음성 인식을 멈췄어요. 이어서 말하려면 “이어 말하기”를 눌러주세요.',
     'unsupported': '이 브라우저는 음성 인식을 지원하지 않아요. 키보드의 받아쓰기(🎤)로 입력해주세요.',
     'stt-start': '음성 인식을 시작하지 못했어요. 잠시 후 다시 눌러주세요.'
