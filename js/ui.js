@@ -1,7 +1,7 @@
 // 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 힌트 · 레벨 비교 · 쉐도잉)
 import * as S from './speech.js';
 import * as D from './store.js';
-import { markPattern, diffWords } from './compare.js';
+import { markPattern, diffWords, normalize } from './compare.js';
 import { hintSteps } from './judge.js';
 import { aiGloss } from './ai.js';
 
@@ -49,6 +49,7 @@ const P = {
   wave: '<path d="M3 12h2M7 8v8M11 5v14M15 8v8M19 10v4"/>',
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
   volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
   sparkle: '<path d="M12 4l1.8 4.6L18.5 10l-4.7 1.6L12 16l-1.8-4.4L5.5 10l4.7-1.4z"/>',
   loop: '<path d="M17 2l3 3-3 3M3 11V9a4 4 0 0 1 4-4h13M7 22l-3-3 3-3M21 13v2a4 4 0 0 1-4 4H4"/>',
@@ -448,18 +449,78 @@ export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '�
     ${(f.xs || []).length ? `<div class="fxs">${f.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}
   </div>`;
 }
-// CHAT·CALL 코칭 카드: 한 줄 피드백 · 추천 문장(+ 한국어 작게) · 왜 이렇게 말하는지 · 핵심 표현(누르면 저장 + 언제 쓰는지)
-// 내 문장·문법 밑줄은 보여주지 않음
-export function coachHTML(f, { rec = '', recKo = '', label = '추천 문장', pattern = '' } = {}) {
+// ---------- 내 문장 ↔ 추천 문장 비교 (CHAT · CALL · SAVED 공통) ----------
+// 내 문장: 작고 연하게 · 잘못 쓴/불필요한 단어 취소선 · 빠진 단어는 제자리에 “+ 단어”
+// 추천 문장: 크게 · 고친 부분만 연핑크 · 저장 추천 표현은 그 부분만 형광펜 (두 표시는 겹쳐도 서로 안 가림)
+const nw = w => String(w || '').toLowerCase().replace(/[’‘]/g, "'").replace(/^[^a-z0-9']+|[^a-z0-9']+$/g, '');
+// 문장 단어들 중 phrase(단어 묶음)가 나오는 위치 → Set(index)
+function findRun(toks, phrase, set) {
+  const pw = String(phrase || '').split(/\s+/).map(nw).filter(Boolean); if (!pw.length) return false;
+  for (let i = 0; i <= toks.length - pw.length; i++) if (pw.every((w, j) => toks[i + j] === w)) { pw.forEach((_, j) => set.add(i + j)); return true; }
+  return false;
+}
+const hlParts = x => String(x || '').split(/~|\.\.\.|…|\(.*?\)|\[.*?\]|\bsomething\b|\bsomeone\b|\bsb\b|\bsth\b|\bone's\b/i).map(t => t.trim()).filter(t => t.replace(/[^a-z]/gi, '').length > 1);
+export function recSentHTML(sent, { chg = [], chgIdx = null, hl = [] } = {}) {
+  const raw = String(sent || '').trim().split(/\s+/).filter(Boolean), toks = raw.map(nw);
+  const C = new Set(chgIdx || []), H = new Set();
+  chg.forEach(m => findRun(toks, m, C));
+  hl.forEach(x => { if (!findRun(toks, x, H)) hlParts(x).forEach(p => findRun(toks, p, H)); });
+  let out = '', run = null, buf = [];
+  const flush = () => { if (!buf.length) return; out += (out ? ' ' : '') + (run ? `<span class="${run}">${buf.join(' ')}</span>` : buf.join(' ')); buf = []; };
+  raw.forEach((w, i) => { const k = [C.has(i) ? 'chg' : '', H.has(i) ? 'hl' : ''].filter(Boolean).join(' '); if (k !== run) { flush(); run = k; } buf.push(wspan(w)); });
+  flush();
+  return out;
+}
+// AI 비교가 없을 때(규칙 피드백): 문법 규칙으로 고친 문장(natural)과만 비교 · 다른 표현은 틀렸다고 표시하지 않음
+function localCmp(said, rec, f) {
+  const base = f.natural || '';
+  if (base) {
+    const d = diffWords(said, base);
+    if (d.sim >= 0.45) {
+      const mine = []; d.ops.forEach((o, i) => {
+        if (o.op === 'same') mine.push({ t: o.a, k: 'ok' });
+        else if (o.op === 'del') mine.push({ t: o.a, k: d.ops[i + 1]?.op === 'add' || d.ops[i - 1]?.op === 'add' ? 'wrong' : 'extra' });
+        else mine.push({ t: o.b, k: 'add' });
+      });
+      const same = String(rec).trim() === base.trim();
+      const idx = []; let j = 0; d.ops.forEach(o => { if (o.op === 'del') return; if (o.op === 'add') idx.push(j); j++; });
+      return { mine, marks: [], idx: same ? idx : [], reason: (f.fixes || [])[0]?.why || '' };
+    }
+  }
+  const low = said.toLowerCase(), bad = [];
+  (f.fixes || []).forEach(x => { const i = low.indexOf(String(x.wrong).toLowerCase()); if (i >= 0) bad.push([i, i + x.wrong.length]); });
+  let pos = 0;
+  const mine = said.split(/\s+/).filter(Boolean).map(w => { const st = low.indexOf(w.toLowerCase(), pos); pos = st + w.length; return { t: w, k: bad.some(([a, b]) => st < b && st + w.length > a) ? 'wrong' : 'ok' }; });
+  return { mine, marks: [], idx: [], reason: (f.fixes || [])[0]?.why || '' };
+}
+export function cmpHTML(f, { said = '', rec = '', recKo = '', hl = [], save = true } = {}) {
+  said = String(said || '').trim(); rec = String(rec || '').trim();
+  const canon = t => normalize(t).replace(/\s+/g, ' ');
+  if (!rec && !said) return '';
+  const sameAsMine = !rec || canon(rec) === canon(said);
+  const c = sameAsMine ? null : (f?.cmp || (f ? localCmp(said, rec, f) : null));
+  const changed = c && c.mine.some(x => x.k !== 'ok');
+  const meHTML = c ? c.mine.map(x => x.k === 'add' ? `<span class="dc-add">+ ${esc(x.t)}</span>` : x.k === 'ok' ? esc(x.t) : `<s>${esc(x.t)}</s>`).join(' ') : esc(said);
+  const sent = rec || said;
+  const reason = sameAsMine ? '' : (c?.reason || '');
+  return `<div class="dc">
+    ${said && !sameAsMine ? `<p class="dc-me en"><span class="dc-l">내 문장</span>${meHTML}</p>` : ''}
+    <div class="dc-rec"><div class="dc-b"><p class="en lp">${recSentHTML(sent, { chg: changed ? (c.marks || []) : [], chgIdx: changed ? c.idx : null, hl })}</p>${recKo ? `<p class="dc-ko">${esc(recKo)}</p>` : ''}</div>${save ? `<button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button>` : ''}</div>
+    ${reason ? `<p class="dc-why">${esc(reason)}</p>` : sameAsMine && said ? `<p class="dc-why ok">${ic('check')} 내 문장 그대로 자연스러워요</p>` : ''}
+  </div>`;
+}
+// CHAT·CALL 코칭 카드: 백현이 한마디 · 내 문장 → 추천 문장 비교 · 이유 한 줄 · 저장 추천 표현 · 왜 좋아?
+// real: 추천 문장이 백현이 실제 대사(의 영어)인지 · 아니면 AI가 제안한 문장
+export function coachHTML(f, { rec = '', recKo = '', label = '추천 문장', pattern = '', said = '', real = false } = {}) {
   if (!f) return '';
   const sent = rec || f.natural || '';
   const ko = recKo || f.recKo || '';
   const xs = (f.xs || []).length ? f.xs : pattern ? [{ text: pattern, ko: '', use: '이 문장의 핵심 패턴' }] : [];
   return `<div class="fb2 coach">
-    ${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}
-    ${sent ? `<div class="cs"><span class="fl">${esc(label)}</span><div class="cs-b"><p class="en lp">${lpHTML(sent)}</p>${ko ? `<p class="cs-ko">${esc(ko)}</p>` : ''}</div><button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button></div>` : ''}
-    ${xs.length ? `<div class="kx">${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : ''}
-    ${f.why ? `<div class="why"><span class="fl">왜 좋아?</span><p>${esc(f.why).replace(/\n/g, '<br>')}</p></div>` : ''}
+    ${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag" title="AI가 만든 말이에요">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}
+    ${sent || said ? cmpHTML(f, { said, rec: sent, recKo: ko, hl: xs.map(x => x.text) }) : ''}
+    ${xs.length ? `<div class="kx"><span class="kx-h">${ic('marker')} 저장 추천 표현</span>${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : ''}
+    ${f.why ? `<div class="why"><span class="fl">왜 좋아?</span><div><p>${esc(f.why).replace(/\n/g, '<br>')}</p><small class="why-src ${real ? 'real' : ''}">${real ? '백현이 실제 대사 기준' : 'AI 제안 문장 기준'}</small></div></div>` : ''}
   </div>`;
 }
 // AI 답변 (영어 질문하기)

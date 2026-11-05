@@ -1189,7 +1189,8 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .w{border-radius:4px;transition:background .15s}
 .w.ins{background:var(--pink-soft2)}
 .w.press{background:var(--pink-soft)}
-.w.saved{text-decoration:underline;text-decoration-color:var(--pink);text-decoration-thickness:1.5px;text-underline-offset:3px}
+/* 저장한 단어는 문장 안에 따로 표시하지 않음 (교정 밑줄로 오해 · 형광펜과 충돌 방지) */
+.w.saved{text-decoration:none}
 .acc-b{display:inline-block;margin-left:8px;font-style:normal;font-size:11px;font-weight:600;color:var(--muted)}
 .acc-b.hi{color:var(--ok)}
 .mini-acc{font-size:12.5px;color:var(--muted)} .mini-acc b{color:var(--ink);font-size:15px;margin-left:4px}
@@ -1388,3 +1389,65 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 /* 표현 목록: 추천 문장 바로 밑 */
 .coach .kx{border-top:0;padding-top:0}
 .coach .why{padding-top:10px;border-top:1px solid var(--line)}
+
+/* ---------- 내 문장 ↔ 추천 문장 비교 (2026.11.06 aa) ---------- */
+.dc{display:grid;gap:6px}
+.dc-me{margin:0;font-size:12.5px;line-height:1.6;color:#A9A2A6;overflow-wrap:anywhere}
+.dc-l{display:inline-block;font-family:var(--f);font-size:10px;font-weight:500;letter-spacing:.04em;color:var(--muted2);margin-right:7px;vertical-align:1px}
+.dc-me s{color:#B9A9B0;text-decoration-color:#D58AA6;text-decoration-thickness:1.4px}
+.dc-add{display:inline-block;color:var(--pink-ink);font-weight:500;font-size:11.5px;line-height:1.3;padding:0 5px;border-radius:6px;background:var(--pink-soft);margin:0 1px}
+.dc-rec{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:start}
+.dc-rec p.en{margin:0;font-size:17px;font-weight:500;line-height:1.55;color:var(--ink);overflow-wrap:anywhere}
+.dc-ko{margin:3px 0 0;font-size:12px;line-height:1.5;color:var(--muted);word-break:keep-all}
+.dc-why{margin:2px 0 0;font-size:12.5px;line-height:1.55;color:var(--ink2);word-break:keep-all;display:flex;gap:5px;align-items:flex-start}
+.dc-why::before{content:'';flex:none;width:3px;height:3px;border-radius:50%;background:var(--pink);margin-top:.7em}
+.dc-why.ok::before{display:none}
+.dc-why svg{width:14px;height:14px;color:var(--pink-ink);flex:none;margin-top:2px}
+/* 고친 부분 = 연핑크 바탕 · 저장 추천 표현 = 아래쪽 형광펜 (같이 쓰여도 둘 다 보임) */
+.chg{background-color:#FFE6EF;color:#B9476F;border-radius:5px;padding:0 2px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.hl{background-image:linear-gradient(transparent 56%,#FFD2E2 56%,#FFD2E2 92%,transparent 92%);padding:0 1px;box-decoration-break:clone;-webkit-box-decoration-break:clone}
+.chg.hl{background-image:linear-gradient(transparent 56%,#FFC3D8 56%,#FFC3D8 92%,transparent 92%)}
+.kx-h{display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);font-weight:500;margin:0 0 1px 2px}
+.kx-h svg{width:13px;height:13px;color:var(--pink-ink)}
+.coach .why>div{display:grid;gap:3px;min-width:0}
+.why-src{font-size:10.5px;color:var(--muted2);letter-spacing:.02em}
+.why-src.real{color:var(--pink-ink)}
+.coach .dc{padding:2px 0}
+.snd-tg{color:var(--pink-ink)}
+.snd-tg.off{color:var(--muted2)}
+.snd-tg.wait{animation:sndw 1.6s ease-in-out infinite}
+@keyframes sndw{0%,100%{background:transparent}50%{background:var(--pink-soft)}}
+.m-name .ai-tag{margin:0 0 0 3px;font-size:8.5px;padding:0 4px;vertical-align:1px}
+/* ---------- SAVED 복습 · 백현이 채팅 (2026.11.06 aa) ---------- */
+.rvc .meter{margin:0;height:2px;border-radius:0;background:var(--line)}
+.rvc .meter i{display:block;height:100%;background:var(--pink);transition:width .4s var(--ease)}
+.rvc .cv-title{display:flex;align-items:center;gap:9px;text-align:left}
+.rvc .cv-title b{letter-spacing:.04em}
+.rvc .cv-title small{letter-spacing:.02em}
+.rv-pl{padding:10px 18px 12px;background:#fff}
+.rv-pl .player{max-width:360px;margin:0 auto}
+.rvc .thread{padding:8px 18px 22px;background:linear-gradient(#FFFBFC,#FFFBFC)}
+.rvc .msg2.first{margin-top:18px}
+.rvc .m-bub{padding:12px 15px;border-color:#F6EAEF}
+.rvc .msg2.me .m-bub{background:var(--pink-soft2)}
+.rvc .msg2.wide .m-bub{padding:14px 15px}
+.rv-ko2{display:block;font-size:15.5px;line-height:1.6;color:var(--ink)}
+.rv-play{display:flex;align-items:center;gap:7px;margin-top:10px;height:36px;padding:0 14px 0 10px;border-radius:var(--pill);background:var(--pink-soft);color:var(--pink-ink);font-size:12.5px;font-weight:600;transition:transform .15s var(--spring),background .2s;-webkit-tap-highlight-color:transparent}
+.rv-play svg{width:15px;height:15px;fill:currentColor}
+.rv-play em{font-style:normal;font-weight:500;font-size:11px;color:#D995B0;margin-left:2px}
+.rv-play:active{transform:scale(.95);background:var(--pink-soft2)}
+.rv-ask{display:block;margin-top:9px;font-size:12px;color:var(--muted)}
+.rv-sub{display:block;margin-top:4px;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.rv-ai{display:block;margin-top:8px;font-size:10.5px;color:var(--muted2);letter-spacing:.01em}
+.rv-ai .ai-tag{font-size:8.5px;padding:0 4px;margin-right:4px}
+.rv-use{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 7px;margin:7px 0 0 4px;font-size:12px;color:var(--muted)}
+.rv-use span{font-size:10.5px;color:var(--muted2)}
+.rv-use b{font-weight:600;color:var(--pink-ink);font-size:12.5px}
+.rv-use small{font-size:11.5px;color:var(--muted)}
+.rvfb .fb-msg{margin:0 0 10px;font-size:14px}
+.rvfb .dc-rec p.en{font-size:18px}
+.rv-tip{margin:10px 0 0;padding-top:9px;border-top:1px dashed var(--line2);font-size:12px;color:var(--ink2)}
+.rv-tip b{color:var(--pink-ink);font-weight:600}
+.rvc .qchip small{font-size:10.5px;font-weight:400;opacity:.75;margin-left:3px}
+.rvc .quick{background:#FFFBFC}
+.rvc .bub-hint .hintbox{margin-top:2px}

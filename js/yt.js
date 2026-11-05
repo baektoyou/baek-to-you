@@ -90,7 +90,7 @@ export class Player {
     if (this.seg) { this.seg.resolve?.('stopped'); }
     let resolve; const done = new Promise(r => (resolve = r));
     this.seg = { start, end: end + tail, resolve, armed: false };
-    if (!this.ambient) this.sound(); // 항상 소리와 함께 재생 (음소거로 바꾸지 않음)
+    if (!this.ambient) { if (this.userMuted) this.mute(); else this.sound(); } // 소리와 함께 재생 (사용자가 소리를 끈 경우만 음소거)
     if (this.vid !== ytId) { this.vid = ytId; this.p.loadVideoById({ videoId: ytId, startSeconds: start }); }
     else { this.p.seekTo(start, true); this.p.playVideo(); }
     // 브라우저가 자동 재생을 막았으면(오래 시작 안 됨) → 화면을 한 번 탭하면 소리와 함께 재생
@@ -99,13 +99,19 @@ export class Player {
     // CALL: 음소거로 바꾸지 않고 ‘탭해서 재생’
     this._kickT = setTimeout(() => {
       if (!this.seg || this.state === 'playing' || this.state === 'buffering') return;
-      if (this.mutedFallback) { this.mute(); try { this.p.playVideo(); } catch { } this.mutedAuto = true; this.onState?.('muted'); }
+      const muteRun = () => { this.mute(); try { this.p.playVideo(); } catch { } if (!this.userMuted) { this.mutedAuto = true; this.onState?.('muted'); } };
+      // 이미 한 번 터치한 뒤라면(소리 재생 허용됨) 소리와 함께 한 번 더 시도 → 그래도 안 되면 음소거 재생
+      if (this.mutedFallback && this.touched && !this.userMuted) { try { this.p.playVideo(); } catch { } this._kickT = setTimeout(() => { if (this.seg && this.state !== 'playing' && this.state !== 'buffering') muteRun(); }, 1500); }
+      else if (this.mutedFallback || this.userMuted) muteRun();
       else { this.needTap = true; this.onState?.('blocked'); }
     }, this.mutedFallback ? 1200 : 3000);
     return done;
   }
   // 사용자 탭 안에서 호출 → 소리와 함께 재생 시작
-  kick() { if (this.mutedAuto) { this.mutedAuto = false; this.sound(); this.onState?.('unmuted'); return; } if (!this.needTap || !this.p) return; this.needTap = false; this.sound(); try { this.p.playVideo(); } catch { } this.onState?.('unblocked'); }
+  kick() { this.touched = true; if (this.userMuted) { if (this.needTap && this.p) { this.needTap = false; try { this.p.playVideo(); } catch { } } return; }
+    if (this.mutedAuto) { this.mutedAuto = false; this.sound(); this.onState?.('unmuted'); return; } if (!this.needTap || !this.p) return; this.needTap = false; this.sound(); try { this.p.playVideo(); } catch { } this.onState?.('unblocked'); }
+  // 사용자 소리 설정 (CHAT 상단 스피커 버튼)
+  setUserMuted(m) { this.userMuted = !!m; if (m) { this.mutedAuto = false; this.mute(); } else this.sound(); }
   sound() { try { this.p?.unMute?.(); this.p?.setVolume?.(100); } catch { } }
   mute() { try { this.p?.mute?.(); } catch { } }
   // 배경 재생: 말하는 동안 장면만 계속 흐르게 (소리 없이) — 녹음·타이머와 무관

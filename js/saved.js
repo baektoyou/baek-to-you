@@ -1,8 +1,12 @@
 // SAVED — 문장 · 표현 · 단어 저장 → 질문에 영어로 대답하며 복습
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
-import { esc, $, $$, ic, toast, sheet, micBlock, confirmSheet, ytLink, natOf, phrasePicker, hintBox, unitHTML, feedbackHTML, bindCompare } from './ui.js';
-import { smartFeedback } from './ai.js';
+import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx } from './ui.js';
+import { smartFeedback, aiReplyLine } from './ai.js';
+import * as S from './speech.js';
+import { Player } from './yt.js';
+import { avatarStyle } from './scene.js';
+import { BH_PROFILE } from './video.js';
 const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
 import { markPattern, splitPatterns, diff } from './compare.js';
 import { improve, patternParts } from './feedback.js';
@@ -139,72 +143,170 @@ function editSheet(s, done) {
   };
 }
 
-// ---------- 복습: 문장·표현·단어 같은 화면 ----------
-// 질문(영어) → 문장/표현을 써서 영어로 대답 → 자연스러운 피드백 → 맞으면 자동 복습 완료 · 틀리면 복습 대상으로 유지
+// ---------- 복습: 백현이와 채팅하듯 ----------
+// ① 백현이의 말 영어로 표현하기 — 저장한 백현이 문장: 한국어 원문 + 원본 영상 구간(저장된 시작·종료 시간) 반복 재생 → 영어로 말하기
+// ② 백현이에게 답장하기 — 표현·단어·내 문장: 백현이가 먼저 건네는 연습용 메시지(AI) → 저장한 표현으로 답장 (뜻이 자연스럽게 통하면 정답)
+// 답하면 바로 채팅 안에 내 문장(작게) → 추천 문장(크게, 고친 부분만 연핑크) → 이유 한 줄
+const AVS = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
 function review(root, items) {
-  let queue = [...items], i = 0, stop = null; const result = { ok: 0, again: [] }; const requeued = new Set();
+  let queue = [...items], i = 0, dead = false, cap = null, waiting = null, chipRes = null;
+  const result = { ok: 0, again: [] }; const requeued = new Set(); const lines = [];
   document.body.classList.add('no-tab');
-  const end = () => { stop?.(); document.body.classList.remove('no-tab'); saved(root); };
-  const next = () => { stop?.(); stop = null; i++; if (i >= queue.length) summary(); else card(); };
+  root.innerHTML = `<div class="chatv rvc">
+    <header class="cv-top"><button class="icon-btn" id="x" aria-label="닫기">${ic('x')}</button>
+      <div class="cv-title">${AVS(28)}<div><b>백현이</b><small id="cvi"></small></div></div><span class="icon-sp"></span></header>
+    <div class="meter"><i id="mt"></i></div>
+    <div class="cv-player rv-pl hide" id="plw"><div class="player clean" id="pl"></div></div>
+    <div class="thread" id="th"></div>
+    <div class="quick" id="qk"></div>
+    <div class="composer on" id="cp">
+      <button class="cp-mic" id="cpm" aria-label="말하기">${ic('mic')}</button>
+      <textarea id="cpt" rows="1" placeholder="영어로 말하거나 입력해요" autocapitalize="sentences" spellcheck="false"></textarea>
+      <button class="cp-send" id="cps" aria-label="보내기">${ic('send')}</button>
+    </div></div>`;
+  const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root), plw = $('#plw', root);
+  let pl = null;
+  const player = () => pl || (pl = new Player($('#pl', root), { controls: 0 }));
+  const end = () => { dead = true; cap?.stop(); pl?.destroy(); document.body.classList.remove('no-tab'); saved(root); };
+  $('#x', root).onclick = end;
+  const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
+  const wait = ms => new Promise(r => setTimeout(r, ms));
+  let lastWho = '';
+  const add = (who, html, cls = '') => {
+    const first = who !== lastWho; lastWho = who;
+    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' ? (first ? AVS(34) : '<span class="m-av sp"></span>') : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
+    th.appendChild(el); scroll(); return el;
+  };
+  const typing = () => add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
+  const sys = t => { lastWho = ''; th.appendChild(h(`<p class="m-sys">${t}</p>`)); scroll(); };
+  // 아래 버튼
+  const chips = list => new Promise(res => {
+    chipRes = res;
+    qk.innerHTML = list.map(([l, k, cls]) => `<button class="qchip ${cls || ''}" data-q="${k}">${l}</button>`).join('');
+    $$('[data-q]', qk).forEach(b => b.onclick = () => { const o = list.find(c => c[1] === b.dataset.q)?.[3]; if (o?.stay) { o.tap?.(); return; } qk.innerHTML = ''; chipRes = null; res(b.dataset.q); });
+  });
+  // 입력: 말하기(마이크) 또는 키보드
+  const askInput = targets => new Promise(res => { ta.value = ''; fit(); waiting = { res, targets }; });
+  function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
+  ta.oninput = fit;
+  function startMic() {
+    if (cap || !waiting) { if (!waiting) toast('백현이 메시지를 기다려요'); return; }
+    if (!S.support.stt) { ta.focus(); toast('키보드의 받아쓰기(🎤)로 말해도 돼요'); return; }
+    pl?.pause();
+    micB.classList.add('live'); cp.classList.add('rec'); micB.innerHTML = ic('stop');
+    const c = cap = S.capture({ stt: true, prefix: ta.value.trim(), targets: waiting.targets || [], onInterim: t => { ta.value = t; fit(); } });
+    fit();
+    c.result.then(r => {
+      if (cap === c) cap = null;
+      micB.classList.remove('live'); cp.classList.remove('rec'); micB.innerHTML = ic('mic');
+      if (r.text) ta.value = r.text; else if (r.sttError) toast(S.sttErrorText(r.sttError));
+      fit(); if (r.text) doSend();
+    });
+  }
+  const doSend = () => {
+    const t = ta.value.trim(); if (!t) return;
+    if (!waiting) { toast('아래 버튼을 눌러 진행해요'); return; }
+    const w = waiting; waiting = null; ta.value = ''; fit(); qk.innerHTML = ''; chipRes = null;
+    lastWho = ''; add('me', `<span class="en">${esc(t)}</span>`); w.res(t);
+  };
+  micB.onclick = () => { if (cap) { cap.stop(); return; } startMic(); };
+  sendB.onclick = () => { if (cap) { cap.stop(); return; } doSend(); };
+  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendB.onclick(); } };
 
-  function card() {
+  const kindOf = (it, x) => {
+    if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; }
+    return { mode: 'reply' };
+  };
+  const next = () => { i++; if (dead) return; if (i >= queue.length) summary(); else card(); };
+
+  async function card() {
     const it = queue[i]; const isW = it.t === 'w';
     const x = isW ? D.get().words.find(w => w.id === it.id) : D.get().saved.find(s => s.id === it.id);
     if (!x) return next();
-    const target = isW ? x.text : enOf(x);
-    const expr = isW ? x.text : (splitPatterns(x.pattern)[0] || (x.marks || [])[0] || '');
+    const k = kindOf(it, x);
+    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'say' ? '백현이의 말 영어로' : '백현이에게 답장'}`;
+    $('#mt', root).style.width = `${(i / queue.length) * 100}%`;
+    if (th.children.length) sys(`${i + 1} / ${queue.length}`);
+    if (k.mode === 'say') return say(it, x, k);
+    return reply(it, x);
+  }
+
+  // ---- ① 백현이의 말 영어로 표현하기 ----
+  async function say(it, x, { u, v }) {
+    const target = enOf(x);
+    setLpCtx({ ko: u.ko });
+    const canPlay = !!(v && v.ytId && u.end > u.start);
+    plw.classList.toggle('hide', !canPlay);
+    if (canPlay) player().cue(v.ytId, u.start);
+    const play = () => { if (!canPlay) return; player().playSegment(v.ytId, u.start, u.end).catch(() => { }); };
+    const t0 = typing(); await wait(380); if (dead) return; t0.remove(); lastWho = '';
+    const b = add('bh', `<span class="ko rv-ko2">${esc(u.ko)}</span>${canPlay ? `<button class="rv-play" type="button">${ic('play')}<span>원본 영상 듣기</span><em>${D.fmt(u.start)}–${D.fmt(u.end)}</em></button>` : ''}<span class="rv-ask">이 말, 영어로 해볼래?</span>`);
+    if (canPlay) $('.rv-play', b).onclick = e => { e.stopPropagation(); play(); };
+    await turn(it, x, { target, mode: 'say', targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: x.pattern, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: u.ko, pattern: x.pattern || '' }), rec: () => target, hl: [...splitPatterns(x.pattern), ...(x.marks || [])], save: false });
+  }
+
+  // ---- ② 백현이에게 답장하기 ----
+  async function reply(it, x) {
+    const isW = it.t === 'w';
+    plw.classList.add('hide'); pl?.pause();
+    const expr = isW ? x.text : (splitPatterns(x.pattern)[0] || (x.marks || [])[0] || enOf(x));
+    const exprKo = isW ? (x.ko || '') : (expr === enOf(x) ? (x.ko || '') : '');
     const src = isW && x.srcId && D.get().saved.find(s => s.id === x.srcId);
-    const q = isW ? (x.q ? { en: x.q, ko: '' } : questionFor({ expr: x.text, sentence: src ? enOf(src) : '', pattern: x.text })) : questionFor({ sentence: target, pattern: x.pattern, note: x.note, ko: x.ko });
-    root.innerHTML = `<div class="screen full practice">
-      <header class="top"><button class="icon-btn" id="x" aria-label="닫기">${ic('x')}</button><h2 class="ttl-sm">${i + 1} / ${queue.length}</h2><span class="icon-sp"></span></header>
-      <div class="meter"><i style="width:${(i / queue.length) * 100}%"></i></div>
-      <section class="rv2">
-        ${q.en ? `<p class="rv-q en">${unitHTML(q.en)}</p>${q.ko ? `<p class="rv-qko">${esc(q.ko)}</p>` : ''}` : `<p class="rv-q">${esc(q.ko)}</p>`}
-        <div class="rv-t2">${isW
-          ? `<b class="rv-x en">${esc(x.text)}</b>${x.ko ? `<span class="rv-ko">${esc(x.ko)}</span>` : ''}`
-          : `<button class="rv-s en veil" id="peek" type="button">${unitHTML(target, x.pattern, x.marks)}</button>`}<div class="rv-hint" id="rh"></div></div>
-        <div class="hide" id="rr"></div>
-      </section>
-      <div id="zone"></div><div id="fbz"></div><div id="act"></div></div>`;
-    $('#x', root).onclick = end;
-    if (!isW) {
-      hintBox($('#rh', root), target, { pattern: x.pattern, keywords: [] });
-      const pk = $('#peek', root); let t; pk.onclick = () => { pk.classList.remove('veil'); clearTimeout(t); t = setTimeout(() => !pk.dataset.open && pk.classList.add('veil'), 1800); };
-    }
-    let snap = null, judged = false, seq = 0;
-    const act = $('#act', root), fbz = $('#fbz', root), rr = $('#rr', root);
-    const m = micBlock($('#zone', root), { placeholder: '영어로 대답해요', targets: () => [target], onStart: () => { fbz.innerHTML = ''; }, onResult: t => t && check(t), onEdit: t => { judged = false; act.innerHTML = t ? `<button class="btn block" id="ck">확인</button>` : ''; $('#ck', act) && ($('#ck', act).onclick = () => check(m.text)); } });
-    stop = () => m.stop();
-    async function check(text) {
-      const my = ++seq; judged = true;
-      if (!isW) { const pk = $('#peek', root); pk.classList.remove('veil'); pk.dataset.open = '1'; }
-      fbz.innerHTML = '<p class="small muted rv-wait">확인하는 중…</p>';
-      const f = await smartFeedback({ mode: 'review', said: text, question: q.en, qko: q.ko, expr, target: isW ? '' : target, pattern: x.pattern || '' }); if (my !== seq) return;
+    const context = isW ? (src ? enOf(src) : (x.note || '')) : enOf(x);
+    const t0 = typing();
+    let line = isW && x.q ? { en: x.q, ko: '' } : await aiReplyLine({ expr, ko: exprKo, context, avoid: lines });
+    if (!line) { const q = isW ? questionFor({ expr: x.text, sentence: context, pattern: x.text }) : questionFor({ sentence: enOf(x), pattern: x.pattern, note: x.note, ko: x.ko }); line = { en: q.en || q.ko, ko: q.en ? q.ko : '' }; }
+    if (dead) return; t0.remove(); lastWho = '';
+    lines.push(line.en);
+    setLpCtx({ ko: line.ko });
+    add('bh', `<span class="en">${esc(line.en)}</span>${line.ko ? `<span class="rv-sub">${esc(line.ko)}</span>` : ''}<span class="rv-ai">${x.q ? '연습용 메시지' : '<i class="ai-tag">AI</i>연습용으로 만든 메시지 · 실제 발언 아님'}</span>`, 'rvm');
+    // 이번에 쓸 표현 (말풍선 아래 작게)
+    th.lastElementChild.querySelector('.m-col').insertAdjacentHTML('beforeend', `<div class="rv-use"><span>이번 표현</span><b class="en">${esc(expr)}</b>${exprKo ? `<small>${esc(exprKo)}</small>` : ''}</div>`);
+    scroll();
+    await turn(it, x, { target: '', mode: 'reply', expr, targets: [expr], hint: line.sample ? () => { lastWho = ''; add('bh', `<span class="bub-tag">이렇게도 답할 수 있어</span><span class="en">${esc(line.sample)}</span>`); } : null,
+      check: said => smartFeedback({ mode: 'answer', said, question: line.en, qko: line.ko, expr, pattern: expr }), rec: (f, said) => f.natural || said, hl: [expr], save: true });
+  }
+
+  // ---- 공통: 답하기 → 바로 피드백 → 결과 기록 ----
+  async function turn(it, x, { target, mode, expr = '', targets, hint, check, rec, hl, save }) {
+    const isW = it.t === 'w';
+    let snap = null, hinted = false;
+    for (;;) {
+      const inp = askInput(targets);
+      const opts = [];
+      if (hint && !hinted) opts.push(['힌트', 'hint', '', { stay: true, tap: () => { hinted = true; hint(); qk.querySelector('[data-q="hint"]')?.remove(); } }]);
+      opts.push(['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cap?.stop(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]);
+      chips(opts);
+      const said = await inp;
+      if (dead) return;
+      if (said && said.skip) { if (!requeued.has(x.id)) { requeued.add(x.id); queue.push(it); } if (!result.again.includes(x.id)) result.again.push(x.id); return next(); }
+      const ty = typing();
+      const f = await check(said); if (dead) return;
+      ty.remove(); lastWho = '';
       let ok = f.correct;
-      // 문장 복습: AI가 없을 때 저장한 문장을 거의 그대로 기억해 말했으면 맞음
-      if (!isW && !f.ai && !ok) { const d = diff(text, target); if (d.keyRecall >= 0.7 && !f.fixes.length) { ok = true; f.feedback = '잘 기억했어요.'; } }
-      fbz.innerHTML = feedbackHTML(f, text);
-      bindCompare(fbz, t => { if (isW) D.updateWord(x.id, { made: [...(D.get().words.find(w => w.id === x.id)?.made || []), { text: t, at: Date.now() }] }); return { kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: t, before: text, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: q.en || q.ko }; });
-      D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text });
-      // 결과 기록: 맞으면 자동 완료, 틀리면 복습 대상으로
+      if (mode === 'say' && !f.ai && !ok) { const d = diff(said, target); if (d.keyRecall >= 0.7 && !f.fixes.length) { ok = true; f.feedback = '오, 거의 그대로 기억했네!'; } }
+      const recS = rec(f, said);
+      const el = add('bh', `${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}${cmpHTML(f, { said, rec: recS, hl, save })}${mode === 'reply' && expr && !f.usedTarget ? `<p class="rv-tip">다음엔 <b class="en">${esc(expr)}</b>도 넣어서 답해봐</p>` : ''}`, 'wide rvfb');
+      bindCompare(el, t => { if (isW) D.updateWord(x.id, { made: [...(D.get().words.find(w => w.id === x.id)?.made || []), { text: t, at: Date.now() }] }); return { kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: f.recKo || '', text: t, before: said, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: '' }; });
+      D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text: said });
       const rateFn = isW ? D.rateWord : D.rate;
       if (snap) D.unrate(x.id, snap, isW); else snap = D.rateSnap(x.id, isW);
       rateFn(x.id, ok ? 'okay' : 'again');
       if (ok) {
         result.again = result.again.filter(id => id !== x.id);
-        act.innerHTML = `<div class="grades two">
-          <button data-q="okay"><b>어느 정도 알아요</b><small>${nextLabel(snap, 'okay')}</small></button><button data-q="mastered"><b>완전히 익혔어요</b><small>${nextLabel(snap, 'mastered')}</small></button></div>`;
-        $$('[data-q]', act).forEach(b => b.onclick = () => { if (b.dataset.q === 'mastered') { D.unrate(x.id, snap, isW); rateFn(x.id, 'mastered'); } result.ok++; next(); });
-      } else {
-        if (!result.again.includes(x.id)) result.again.push(x.id);
-        act.innerHTML = `<div class="row"><button class="btn soft grow" id="re">${ic('mic')} 다시 말하기</button><button class="btn grow" id="nx">다음</button></div>`;
-        $('#re', act).onclick = () => { fbz.innerHTML = ''; act.innerHTML = ''; m.text = ''; m.start(); };
-        $('#nx', act).onclick = () => { if (!requeued.has(x.id)) { requeued.add(x.id); queue.push(it); } next(); };
+        const g = await chips([[`어느 정도 알아요 <small>${nextLabel(snap, 'okay')}</small>`, 'okay', 'line'], [`완전히 익혔어요 <small>${nextLabel(snap, 'mastered')}</small>`, 'mastered', 'pri']]); if (dead) return;
+        if (g === 'mastered') { D.unrate(x.id, snap, isW); rateFn(x.id, 'mastered'); }
+        result.ok++; return next();
       }
+      if (!result.again.includes(x.id)) result.again.push(x.id);
+      const g = await chips([['다시 말하기', 'retry', 'pri'], ['다음', 'next', 'line']]); if (dead) return;
+      if (g === 'retry') { lastWho = ''; add('bh', '<span class="ko">한 번 더 해보자 ㅎㅎ</span>'); continue; }
+      if (!requeued.has(x.id)) { requeued.add(x.id); queue.push(it); }
+      return next();
     }
   }
   function summary() {
-    stop?.();
+    cap?.stop(); pl?.destroy(); pl = null; dead = true;
     const again = result.again.filter(id => D.get().saved.some(s => s.id === id) || D.get().words.some(w => w.id === id));
     root.innerHTML = `<div class="screen full done-scr">
       <header class="top"><span class="icon-sp"></span><h2>복습 완료</h2><button class="icon-btn" id="x" aria-label="닫기">${ic('x')}</button></header>
@@ -212,7 +314,8 @@ function review(root, items) {
       <div class="sum two"><div><b>${result.ok}</b><span>복습 완료</span></div><div><b>${again.length}</b><span>다시 복습</span></div></div>
       ${again.length ? `<button class="btn block" id="again">${ic('refresh')} 틀린 것 다시 복습</button>` : ''}
       <button class="btn soft block mt8" id="done">SAVED로 돌아가기</button></div>`;
-    $('#x', root).onclick = end; $('#done', root).onclick = end;
+    const back = () => { document.body.classList.remove('no-tab'); saved(root); };
+    $('#x', root).onclick = back; $('#done', root).onclick = back;
     $('#again', root) && ($('#again', root).onclick = () => review(root, again.map(id => ({ t: D.get().words.some(w => w.id === id) ? 'w' : 's', id }))));
   }
   card();

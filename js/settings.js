@@ -42,6 +42,7 @@ export function settings(root) {
     <div class="card stack">
       <div class="row between"><b class="set-b">인식 언어</b><span class="small muted">영어 (미국)</span></div>
       <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>CHAT에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>CHAT 백현이 목소리 자동 재생</b><small>대사가 오면 바로 소리와 함께 재생 · CHAT 위쪽 스피커로도 켜고 끌 수 있어요</small></span><input type="checkbox" id="chs" ${st.chatSound !== false ? 'checked' : ''}><i></i></label>
     </div>
     ${edit ? `<div class="sec-title label">음성 인식 단어 · 관리자</div>
     <div class="card stack"><div id="sttw"></div>
@@ -127,6 +128,7 @@ export function settings(root) {
 
 
   // 인식
+  $('#chs', root).onchange = e => D.setSetting('chatSound', e.target.checked);
   $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
   $('#aion', root).onchange = e => D.setSetting('aiOn', e.target.checked);
   const drawAI = () => {
@@ -153,7 +155,7 @@ export function settings(root) {
     if (D.get().settings.aiOn === false) { st2.textContent = '위 스위치를 켜주세요'; return; }
     if (!aiOn()) { st2.textContent = 'API 키를 넣어주세요'; return; }
     st2.textContent = '확인 중…';
-    const r = await callAI('Return ONLY JSON {"natural": "..."} — a natural English version of the Korean line.', 'Korean: 나 오늘 라면 먹었어');
+    const r = await callAI('Return ONLY JSON {"natural": "..."} — a natural English version of the Korean line.', 'Korean: 나 백현이 사랑해'); // 예시: I love Baekhyun.
     st2.textContent = r && !r.error && r.natural ? `연결됐어요 · “${r.natural}”` : `안 돼요 · ${AI_ERR[r?.error] || r?.error || '알 수 없는 오류'}${r?.status ? ` (${r.status})` : ''}`;
   };
 

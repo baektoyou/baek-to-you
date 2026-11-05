@@ -254,7 +254,7 @@ function call(root, mode, v = null, { start = null } = {}) {
   // ----- 채팅 -----
   const chat = $v('#vchat');
   function msg(who, html, cls = '') {
-    const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : who === 'ai' ? `<i class="ai-av">AI</i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? 'AI 코치' : esc(myName)}</b>${html}</div></div>`);
+    const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' || who === 'ai' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? `${NAME} <i class="ai-tag" title="AI가 만든 말이에요 · 실제 발언 아님">AI</i>` : esc(myName)}</b>${html}</div></div>`);
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text, u = null) => {
@@ -347,7 +347,7 @@ function call(root, mode, v = null, { start = null } = {}) {
   }
   const NX = (nextU, label = '다음') => ['next', `${label} ${ic('next')}`, 'nx', { tap: () => nextU && startClip(nextU) }];
   // 보면서 따라 말하기(정답) → 안 보고 말하기(몇 번이든, 앞의 내 발화는 흐리게) → 정답 비교 + 정확도
-  async function practice(target, { ko = '', uttId = null, pattern = '', nextU = null, save } = {}) {
+  async function practice(target, { ko = '', uttId = null, pattern = '', nextU = null, save, real = true } = {}) {
     const tg = $v('#vtg');
     tg.classList.remove('hide'); sayCard(tg, { en: target, pattern, mode: 'read' });
     const a = await turn({ label: '보면서 따라 말해요' }); log('sp-practice', a, uttId); if (stopped) return 'stop';
@@ -361,10 +361,10 @@ function call(root, mode, v = null, { start = null } = {}) {
       tg.classList.add('hide'); tg.innerHTML = '';
       if (stopped) return 'stop'; if (b.skipped) return 'next';
       status('확인하는 중…');
-      const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko }); if (stopped) return 'stop';
+      const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko, notReal: !real }); if (stopped) return 'stop';
       const right = !!(b.text && f.correct); // 맞히면 완료 · ‘다음’만
       if (right && uttId) D.markStep(uttId, 'recall');
-      const k2 = await card(coachHTML(f, { rec: target, recKo: ko, pattern }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
+      const k2 = await card(coachHTML(f, { rec: target, recKo: ko, pattern, said: b.text, real }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k2 === 'next') return k2;
       a.text = '';
     }
@@ -381,7 +381,7 @@ function call(root, mode, v = null, { start = null } = {}) {
       status('다듬는 중…');
       const f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       const save = saveMine(u, r.text);
-      const k = await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern }),
+      const k = await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern, said: r.text, real: true }),
         [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
       if (stopped) return;
       if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }
@@ -409,9 +409,9 @@ function call(root, mode, v = null, { start = null } = {}) {
         const ans = q.real ? answerClip(q.u) : null;
         const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
         const save = saveMine(q.u, r.text);
-        const k = await card(coachHTML(f), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
+        const k = await card(coachHTML(f, { said: r.text }), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
         if (stopped) return;
-        if (k === 'read') { const k2 = await practice(f.natural || r.text, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
+        if (k === 'read') { const k2 = await practice(f.natural || r.text, { ko: f.recKo || '', uttId: q.u.id, nextU: null, save, real: false }); if (k2 === 'stop') return; goNext(); }
         if (ans) { await say(ans); if (stopped) return; say2('baek', ans.ko, ans); if (nq) startClip(nq.u); }
         q = nq;
       } else q = left.shift();
@@ -462,13 +462,13 @@ function call(root, mode, v = null, { start = null } = {}) {
       const next = kit?.next || null;
       await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${w} / ${GOALS[i]}단어${w >= GOALS[i] ? ' ✓' : ''}${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${f ? coachHTML(f) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${f ? coachHTML(f, { said: r.text }) : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last && next ? `<div class="next-q"><span class="cor-l">이어서</span><p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}</div>` : ''}
           <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      if (next) { cur = next; say2('ai', next.en); }
+      if (next) { cur = next; msg('ai', `<p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}<small class="appq">AI가 이어서 만든 연습 대사예요</small>`); }
       prevW = w;
     }
     tg.classList.add('hide');

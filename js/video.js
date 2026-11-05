@@ -66,8 +66,8 @@ export function study(root, uttId) {
   root.innerHTML = `<div class="chatv">
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
       <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
-      <span class="icon-sp"></span></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div><button class="snd-pill hide" id="snd">${ic('volume')} 소리 켜기</button></div>
+      <button class="icon-btn snd-tg" id="sndt" aria-label="백현이 목소리 켜기/끄기"></button></header>
+    <div class="cv-player"><div class="player clean" id="pl"></div></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
@@ -78,10 +78,16 @@ export function study(root, uttId) {
     </div>
   </div>`;
   const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root);
-  const snd = () => $('#snd', root);
-  const pl = new Player($('#pl', root), { controls: 0, mutedFallback: true, onState: st => { if (st === 'blocked' || st === 'muted') snd()?.classList.remove('hide'); if (st === 'unblocked' || st === 'unmuted' || (st === 'playing' && !pl?.mutedAuto)) snd()?.classList.add('hide'); } });
-  // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기
-  const unmute = () => pl.unmute();
+  // 소리: 백현이 대사가 오면 자동으로 소리와 함께 재생 (설정으로 끄고 켤 수 있음)
+  // · 브라우저가 소리 있는 자동 재생을 막으면 소리 없이 먼저 재생 → 화면을 처음 터치하는 순간부터 소리와 함께 자동 재생
+  let soundOn = D.get().settings.chatSound !== false, waitTap = false;
+  const sndt = $('#sndt', root);
+  const drawSnd = () => { sndt.innerHTML = ic(soundOn ? 'volume' : 'mute'); sndt.classList.toggle('off', !soundOn); sndt.classList.toggle('wait', soundOn && waitTap); sndt.setAttribute('aria-pressed', soundOn ? 'true' : 'false'); };
+  const pl = new Player($('#pl', root), { controls: 0, mutedFallback: true, onState: st => { if (st === 'muted' || st === 'blocked') { waitTap = true; drawSnd(); } if (st === 'unmuted' || st === 'unblocked' || (st === 'playing' && !pl?.mutedAuto)) { waitTap = false; drawSnd(); } } });
+  pl.userMuted = !soundOn; drawSnd();
+  sndt.onclick = e => { e.stopPropagation(); soundOn = !soundOn; D.setSetting('chatSound', soundOn); pl.setUserMuted(!soundOn); waitTap = false; drawSnd(); toast(soundOn ? '백현이 목소리 켜짐' : '백현이 목소리 꺼짐'); };
+  // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기 (그다음부터는 계속 소리와 함께)
+  const unmute = e => { if (e?.target?.closest?.('#sndt')) return; pl.unmute(); };
   root.addEventListener('pointerdown', unmute, { capture: true });
   pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
@@ -90,9 +96,10 @@ export function study(root, uttId) {
 
   // ----- 말풍선 -----
   let lastWho = '';
+  const bhLike = w => w === 'bh' || w === 'ai'; // 영어 질문 답변(AI)도 백현이 프로필로 · AI 표시
   const add = (who, html, cls = '') => {
     const first = who !== lastWho; lastWho = who;
-    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' && first ? AV(34) : who === 'bh' ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : who === 'ai' && first ? '<span class="m-name">AI 코치</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
+    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${bhLike(who) && first ? AV(34) : bhLike(who) ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${bhLike(who) && first ? `<span class="m-name">백현이${who === 'ai' ? ' <i class="ai-tag" title="AI가 만든 답이에요">AI</i>' : ''}</span>` : ''}<div class="m-bub">${html}</div></div></div>`);
     if (th.classList.contains('veil')) el.classList.add('keep');
     th.appendChild(el); scroll(); return el;
   };
@@ -187,7 +194,7 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern }), 'wide');
+    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, said, real: true }), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
@@ -210,7 +217,7 @@ export function study(root, uttId) {
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
       const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
-      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko, pattern: x.pattern }), 'wide');
+      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko, pattern: x.pattern, said: t2, real: true }), 'wide');
       bindCompare(fl, saveItem(x, t2));
       if (t2 && f2.correct) { // 정답 → 완료 처리 · 다시 말하기 없이 다음만
         D.markStep(x.id, 'recall');
