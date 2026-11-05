@@ -3,7 +3,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, bindSaves, swipeDelete, feedbackHTML, aiAnswerHTML, bindCompare, setLpCtx } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, bindSaves, swipeDelete, feedbackHTML, coachHTML, aiAnswerHTML, bindCompare, setLpCtx } from './ui.js';
 import { diff } from './compare.js';
 import { smartFeedback, aiAsk, aiKit, aiPickNext, aiOn } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
@@ -362,7 +362,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko }); if (stopped) return 'stop';
       const right = !!(b.text && f.correct); // 맞히면 완료 · ‘다음’만
       if (right && uttId) D.markStep(uttId, 'recall');
-      const k2 = await card(feedbackHTML(f, b.text, { rec: target }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
+      const k2 = await card(coachHTML(f, { rec: target, recKo: ko }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k2 === 'next') return k2;
       a.text = '';
     }
@@ -379,7 +379,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       status('다듬는 중…');
       const f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       const save = saveMine(u, r.text);
-      const k = await card(feedbackHTML(f, r.text, { rec: target }),
+      const k = await card(coachHTML(f, { rec: target, recKo: u.ko }),
         [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
       if (stopped) return;
       if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }
@@ -407,7 +407,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
         const ans = q.real ? answerClip(q.u) : null;
         const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
         const save = saveMine(q.u, r.text);
-        const k = await card(feedbackHTML(f, r.text, { natLabel: '더 좋은 문장' }), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
+        const k = await card(coachHTML(f), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
         if (stopped) return;
         if (k === 'read') { const k2 = await practice(f.natural || r.text, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
         if (ans) { await say(ans); if (stopped) return; say2('baek', ans.ko, ans); if (nq) startClip(nq.u); }
@@ -460,7 +460,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const next = kit?.next || null;
       await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${w} / ${GOALS[i]}단어${w >= GOALS[i] ? ' ✓' : ''}${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${f ? feedbackHTML(f, r.text, { natLabel: '더 좋은 문장' }) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${f ? coachHTML(f) : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last && next ? `<div class="next-q"><span class="cor-l">이어서</span><p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}</div>` : ''}
           <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));

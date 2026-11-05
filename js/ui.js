@@ -320,7 +320,7 @@ export function swipeDelete(row, onDelete) {
 // [data-sv]: 문장 저장 토글 · [data-sw]: 단어·표현 저장 토글
 export function bindSaves(el, make = t => ({ kind: 'mine', level: 'mine', ko: '', text: t, en: { easy: '', natural: t, advanced: '' } })) {
   $$('[data-sv]', el).forEach(b => saveToggle(b, b.dataset.sv, () => make(b.dataset.sv)));
-  $$('[data-sw]', el).forEach(b => saveToggle(b, b.dataset.sw, () => ({ text: b.dataset.sw, ko: b.dataset.ko || '', kind: b.dataset.sw.trim().split(/\s+/).length > 1 || /[~…]/.test(b.dataset.sw) ? 'expr' : 'word' }), { word: true }));
+  $$('[data-sw]', el).forEach(b => saveToggle(b, b.dataset.sw, () => ({ text: b.dataset.sw, ko: b.dataset.ko || '', note: b.dataset.note || '', kind: b.dataset.sw.trim().split(/\s+/).length > 1 || /[~…]/.test(b.dataset.sw) ? 'expr' : 'word' }), { word: true }));
 }
 // 더 자연스러운 표현 (원어민 답변 예시 · 추천 문장) — 누르면 저장/취소
 export function naturalHTML(list, label = '더 자연스럽게') {
@@ -446,6 +446,19 @@ export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '�
     ${nat ? row(natLabel || (rec ? '더 자연스럽게' : '추천'), nat, rec ? 'nat' : 'rec') : ''}
     ${showA ? row(answerLabel, answer, 'ans') : ''}
     ${(f.xs || []).length ? `<div class="fxs">${f.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}
+  </div>`;
+}
+// CHAT·CALL 코칭 카드: 한 줄 피드백 · 추천 문장(+ 한국어 작게) · 왜 이렇게 말하는지 · 핵심 표현(누르면 저장 + 언제 쓰는지)
+// 내 문장·문법 밑줄은 보여주지 않음
+export function coachHTML(f, { rec = '', recKo = '', label = '추천 문장' } = {}) {
+  if (!f) return '';
+  const sent = rec || f.natural || '';
+  const ko = recKo || f.recKo || '';
+  return `<div class="fb2 coach">
+    ${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}
+    ${sent ? `<div class="cs"><span class="fl">${esc(label)}</span><div class="cs-b"><p class="en lp">${lpHTML(sent)}</p>${ko ? `<p class="cs-ko">${esc(ko)}</p>` : ''}</div><button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button></div>` : ''}
+    ${f.why ? `<div class="why"><span class="fl">왜 좋아?</span><p>${esc(f.why).replace(/\n/g, '<br>')}</p></div>` : ''}
+    ${(f.xs || []).length ? `<div class="kx"><span class="fl">표현 · 눌러서 저장</span>${f.xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : ''}
   </div>`;
 }
 // AI 답변 (영어 질문하기)

@@ -80,13 +80,16 @@ Return ONLY JSON:
  "asr": words that are most likely speech-recognition errors, not English mistakes (sound-alike words like eight/ate, their/there, for/four, a dropped "a/the/to" at a pause, a name heard wrongly) — [{"heard": EXACT substring from the learner's sentence, "meant": what they probably said}]. Judge "correct" as if they said the meant words. Empty if none.
  "natural": a natural version of the LEARNER'S OWN sentence ONLY if "awkward" is true or "fixes" is not empty; otherwise "". Never rewrite a sentence that is already fine. In translate mode never copy the reference.
 If the learner's sentence is correct and fine: correct=true, awkward=false, fixes=[], natural="", and feedback just says it is right (no "but you could say…").
- "expressions": up to 3 useful, real, commonly used English expressions the learner did NOT use but could use here — [{"en": short chunk (2–6 words, complete and correctly spaced), "ko": Korean meaning}]. No whole sentences, no made-up phrases, nothing the learner already said.
+ "rec": the RECOMMENDED sentence — in translate mode the reference exactly as given; in reply/long modes the same as "natural"; in review mode "natural".
+ "why": Korean, 1–2 short friendly lines (each ≤ 45 chars, separated by "\n") explaining why the recommended sentence is said this way and why it is good (nuance, natural structure, what a key word adds). Concrete, not generic.
+ "rec_ko": natural Korean meaning of the recommended sentence (casual, short).
+ "expressions": 2–3 key reusable expressions taken from the recommended sentence (2–6 words, complete chunks, correctly spaced) — [{"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 40 chars — when/in what situation to use it (e.g. "오래 계속해온 일을 말할 때")}]. No whole sentences, no made-up phrases.
 }
 Modes:
  translate — the learner tried to say Baekhyun's Korean line in English. The reference translation was written by the app owner and is shown to the learner as-is; never rewrite or replace it. Any wording with the same meaning and natural grammar is correct.
  reply / long — the learner answered Baekhyun's question in their own words. Correct = on-topic, sensible answer (grammar slips are fixes, not "incorrect").
-  In these modes "natural" = the learner's OWN answer rewritten the way a native speaker would say it: keep exactly their content, facts and opinion (never invent details, never answer differently, never use a sample answer). Fix grammar and make it sound natural. Give it whenever there is any real improvement; "" only if their answer is already natural. "expressions" must be [] in these modes.
-  "feedback": 1–2 short Korean lines — what was good, and the single most useful point about their grammar or phrasing.
+  In these modes "natural" = the learner's OWN answer rewritten the way a native speaker would say it: keep exactly their content, facts and opinion (never invent details, never answer differently, never use a sample answer). Fix grammar and make it sound natural. ALWAYS give it (if their answer is already natural, return it with only light polishing).
+  "feedback": 1 short friendly Korean line — what was good about their answer. No grammar lecture (grammar is not shown to the learner here).
  review — the learner answered a review question and should use the target expression/sentence. Correct only if it fits the question AND uses the target (or the target sentence's meaning). In "natural", answer the question using the target.
 If the learner used Korean, correct=false and feedback "영어로 말해볼까?".`;
 function fbUser(b) {
@@ -124,7 +127,8 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
     return {
       correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes, used: use.filter(u => usedAI.has(u.toLowerCase()) || usedIn(said, u)),
       natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== sl.replace(/[^a-z ]/g, '') ? nat : '',
-      xs: own ? [] : (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !said.toLowerCase().includes(x.text.toLowerCase())).slice(0, 3),
+      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko), use: cleanX(x?.use).slice(0, 60) })).filter(x => goodChunk(x.text)).slice(0, 3),
+      why: cleanF(a.why).slice(0, 140), recKo: cleanX(a.rec_ko).slice(0, 120),
       ai: true
     };
   }
@@ -134,7 +138,7 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
   const fixes = (imp.changes || []).filter(c => c.from && said.toLowerCase().includes(c.from.toLowerCase())).slice(0, 3).map(c => ({ wrong: c.from, right: c.to, why: c.why || '' }));
   // 규칙 피드백: 질문하기·대화하기는 내 문장을 고친 것만 (다른 사람 예시 답변은 추천하지 않음)
   const nat = !imp.same ? imp.after : '';
-  const msg = ev.ok ? (fixes.length ? '뜻은 잘 통해요. 표시한 부분만 고치면 돼요.' : '뜻이 잘 통해요.') : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '뜻이 조금 달라요. 추천 문장을 참고해봐요.') : '조금 빠진 부분이 있어요. 추천 문장을 참고해봐요.';
+  const msg = ev.ok ? '뜻이 잘 통해요.' : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '뜻이 조금 달라요. 추천 문장을 참고해봐요.') : '조금 빠진 부분이 있어요. 추천 문장을 참고해봐요.';
   return { correct: ev.ok, feedback: msg, fixes, asr: [], used: use.filter(u => usedIn(said, u)), natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
 }
 

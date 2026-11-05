@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx } from './ui.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
@@ -187,7 +187,7 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', feedbackHTML(f, said, { rec: target }), 'wide');
+    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko }), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
@@ -210,7 +210,7 @@ export function study(root, uttId) {
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
       const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
-      const fl = add('bh', feedbackHTML(f2, t2, { rec: target }), 'wide');
+      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko }), 'wide');
       bindCompare(fl, saveItem(x, t2));
       if (t2 && f2.correct) { // 정답 → 완료 처리 · 다시 말하기 없이 다음만
         D.markStep(x.id, 'recall');
