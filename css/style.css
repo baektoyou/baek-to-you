@@ -1206,12 +1206,10 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .cmp-r.ans .cmp-l{color:var(--muted)}
 
 /* ===================== v10 · AI 중심 ===================== */
-/* 영상: 확대 없이, 위·아래 유튜브 제목/로고 영역만 잘라내기 */
+/* 영상: YouTube 공식 플레이어 그대로 (제목·로고를 자르거나 가리지 않음) */
 .player.clean{overflow:hidden}
 .player.clean>div:not(.tap-hint){transform:none}
-.player.clean iframe{position:absolute;left:0;width:100%!important;top:-60px;height:calc(100% + 120px)!important}
 .vc-video #vp{transform:none}
-.vc-video iframe{top:-60px!important;bottom:auto!important;height:calc(100% + 120px)!important}
 .snd-pill{position:absolute;left:12px;bottom:12px;z-index:6;display:inline-flex;align-items:center;gap:5px;height:30px;padding:0 12px;border-radius:var(--pill);background:rgba(0,0,0,.6);color:#fff;font-size:12px;font-weight:500;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
 .snd-pill svg{width:15px;height:15px}
 .vcall .snd-pill{top:calc(var(--safe-t) + 92px);bottom:auto;left:50%;transform:translateX(-50%)}
@@ -1269,3 +1267,50 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .practice .mic-row{padding-top:4px}
 .practice #fbz{margin:6px 2px 14px}
 .practice .grades.two button{height:52px}
+
+/* ===== v11 · 계정 · 권한 · 개인정보 ===== */
+.icon-btn.ghost{visibility:hidden;pointer-events:none}
+.clamp1{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.chip.pink{background:var(--pink,#FFEEF5);color:#D2477F}
+.sync-row.sub{margin-top:6px;padding-left:38px}
+.acct-form{display:grid;gap:8px;margin-top:12px}
+.acct-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.link-btn{justify-self:start;background:none;border:0;padding:4px 0;color:var(--ink2);text-decoration:underline;text-underline-offset:3px;font:inherit;cursor:pointer}
+.or{display:flex;align-items:center;gap:10px;margin:12px 0 10px;color:var(--ink3,#9a9a9a);font-size:11.5px}
+.or::before,.or::after{content:"";flex:1;height:1px;background:var(--line,#eee)}
+.g-btn.block{display:flex;justify-content:center;gap:8px}
+.danger-zone{display:grid;gap:8px;margin-top:14px;padding-top:12px;border-top:1px solid var(--line,#eee)}
+.danger-t{color:var(--danger)!important}
+.btn.danger-bg{background:var(--danger);color:#fff}
+.doc h3{font-size:16px;margin:0}
+.doc h4{font-size:13px;margin:6px 0 0;font-weight:600}
+.doc p,.doc li{line-height:1.6;word-break:keep-all;overflow-wrap:anywhere}
+.foot-note{line-height:1.6;word-break:keep-all;overflow-wrap:anywhere;padding:0 12px}
+/* CALL: 힌트 + 건너뛰기 한 줄 · 한국어 자막 조금 작게 */
+.vc-hrow{display:flex;align-items:flex-start;gap:8px;min-height:0}
+.vc-hrow .vc-hint{flex:1;min-width:0;align-self:auto}
+.vc-hrow .vc-hint.hide+.vc-acts{margin-left:auto}
+.vc-hrow .vc-acts{margin-left:auto;flex-wrap:nowrap;justify-content:flex-end;flex:none}
+.vc-hrow:has(.vc-hint.hide):has(.vc-acts:empty){display:none}
+.vc-cap{font-size:15.5px}
+/* AI 피드백: 줄바꿈 · 잘림 없음 */
+.fb-msg{white-space:normal;overflow-wrap:anywhere;word-break:keep-all;line-height:1.55}
+.fb2 .fr p,.fb2 .fx li,.fb2 .fx-i span{overflow-wrap:anywhere;min-width:0}
+.fb2 .fr{min-width:0}
+.w.asr{text-decoration:underline dotted #9aa3ad;text-decoration-thickness:2px;text-underline-offset:4px}
+.asr-note{margin:2px 0 0;font-size:12.5px;line-height:1.5;color:var(--ink2)}
+.asr-note small{display:block;color:var(--ink3,#9a9a9a);font-size:11.5px}
+.fr.nat .fl{color:var(--ink2)}
+/* CALL 모드 카드: 두 카드 높이 같게 (각각 독립 카드) */
+.modes{border:0;border-radius:0;overflow:visible;gap:10px;grid-auto-rows:64px}
+.modes .mode{height:64px;box-sizing:border-box;border:1px solid var(--line);border-radius:var(--r-xl);touch-action:manipulation}
+.modes .mode+.mode{border-top:1px solid var(--line)}
+.fr{grid-template-columns:52px minmax(0,1fr) auto}
+.fl{word-break:keep-all;line-height:1.35}
+
+/* YouTube 정책: 플레이어 표시(제목·로고·컨트롤)를 자르거나 덮지 않음 */
+.player.clean iframe,.vc-video iframe{position:absolute;inset:0;width:100%!important;height:100%!important;top:0!important;transform:none!important}
+.yt-shield{display:none!important}
+.kit-wc{margin:8px 0 0;font-size:12px;color:var(--ink2)}
+.kit-wc b{font-weight:600;color:var(--ink)}
+.kit-wc.hit b#kwc{color:var(--pink-ink)}

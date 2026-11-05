@@ -7,7 +7,6 @@ import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
 import { smartFeedback, aiAsk } from './ai.js';
-import { banmal } from './banmal.js';
 import { isLive, avatarStyle } from './scene.js';
 
 // 듣기(한국어) → 영어로 번역 → 내 문장·교정·추천 비교 → 보면서 따라 말하기(정답) → 안 보고 말하기(정확도)
@@ -24,7 +23,7 @@ export function videoList(root) {
   const vids = db.videos.filter(v => !isLive(v)); // 라이브 영상은 CALL 전용
   const due = D.dueList().length;
   root.innerHTML = `<div class="screen">
-    <header class="top">${WORDMARK}<a class="icon-btn" href="#/settings" aria-label="영상 추가">${ic('plus')}</a></header>
+    <header class="top">${WORDMARK}${D.canEdit() ? `<a class="icon-btn" href="#/settings" aria-label="영상 추가">${ic('plus')}</a>` : ''}</header>
     <div class="stats-strip">
       <div><b>${db.utts.filter(u => vids.some(v => v.id === u.videoId)).length}</b><span>문장</span></div>
       <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
@@ -35,7 +34,7 @@ export function videoList(root) {
       return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumb(v.ytId)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>
       <div class="vmeta"><b>${esc(v.title)}</b><span class="cnt">${done}/${us.length}</span></div></a>`;
     }).join('')}</div>`
-      : `<div class="empty"><b>아직 영상이 없어요</b><p>백현이 YouTube 영상을 추가해보세요</p><a class="btn" href="#/settings">${ic('plus')} 영상 추가</a></div>`}
+      : `<div class="empty"><b>아직 영상이 없어요</b>${D.canEdit() ? `<p>백현이 YouTube 영상을 추가해보세요</p><a class="btn" href="#/settings">${ic('plus')} 영상 추가</a>` : '<p>곧 영상이 올라올 거예요</p>'}</div>`}
   </div>`;
 }
 
@@ -43,14 +42,14 @@ export function videoDetail(root, vid) {
   const v = D.video(vid); if (!v) { location.hash = '#/video'; return; }
   const us = D.uttsOf(vid), db = D.get();
   root.innerHTML = `<div class="screen">
-    <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(v.title)}</h2><a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a></header>
+    <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(v.title)}</h2>${D.canEdit() ? `<a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a>` : '<span class="icon-btn ghost"></span>'}</header>
     <div class="vthumb hero-thumb" style="background-image:url('${thumb(v.ytId)}')"></div>
     <div class="row between sub-row"><span class="label">SENTENCES · ${us.length}</span><a class="link-sm" href="${ytLink(v.ytId)}" target="_blank" rel="noopener">${ic('external')} YouTube</a></div>
     ${us.length ? `<div class="ulist">${us.map(u => {
       const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => stepDone(st, s)).length;
       return `<a class="uitem" href="#/study/${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div>
       <div class="dots">${STEPS.map(s => `<i class="${stepDone(st, s) ? 'on' : ''}"></i>`).join('')}</div></div>${n === STEPS.length ? `<span class="done-badge">${ic('check')}</span>` : D.isSavedUtt(u.id) ? `<span class="mark-saved">${ic('bookmark')}</span>` : ''}</a>`;
-    }).join('')}</div>` : `<div class="empty"><b>등록된 문장이 없어요</b><p>영상 관리에서 JSON으로 문장을 넣어주세요</p><a class="btn" href="#/settings/video/${v.id}">문장 넣기</a></div>`}
+    }).join('')}</div>` : `<div class="empty"><b>등록된 문장이 없어요</b>${D.canEdit() ? `<p>영상 관리에서 JSON으로 문장을 넣어주세요</p><a class="btn" href="#/settings/video/${v.id}">문장 넣기</a>` : '<p>문장이 준비되면 여기에 보여요</p>'}</div>`}
   </div>`;
 }
 
@@ -68,7 +67,7 @@ export function study(root, uttId) {
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
       <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
       <span class="icon-sp"></span></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div><button class="yt-shield" id="ysh" aria-label="재생/일시정지"></button><button class="snd-pill hide" id="snd">${ic('volume')} 소리 켜기</button></div>
+    <div class="cv-player"><div class="player clean" id="pl"></div><button class="snd-pill hide" id="snd">${ic('play')} 탭해서 재생</button></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
@@ -80,13 +79,12 @@ export function study(root, uttId) {
   </div>`;
   const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root);
   const snd = () => $('#snd', root);
-  const pl = new Player($('#pl', root), { controls: 0, onState: st => { if (st === 'muted') snd()?.classList.remove('hide'); if (st === 'unmuted') snd()?.classList.add('hide'); } });
+  const pl = new Player($('#pl', root), { controls: 0, onState: st => { if (st === 'blocked') snd()?.classList.remove('hide'); if (st === 'unblocked' || st === 'playing') snd()?.classList.add('hide'); } });
   // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기
   const unmute = () => pl.unmute();
   root.addEventListener('pointerdown', unmute, { capture: true });
   pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
-  $('#ysh', root).onclick = () => { if (pl.playing) pl.pause(); else playU(u); };
   const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
@@ -175,7 +173,7 @@ export function study(root, uttId) {
   const accBadge = (el, a) => { const b = $('.m-bub', el); b && b.insertAdjacentHTML('beforeend', `<em class="acc-b ${a >= 85 ? 'hi' : ''}">${a}%</em>`); };
 
   async function run(x) {
-    u = x; const i = idxOf(x); const target = natOf(x), ko = banmal(x.ko); ta.placeholder = '영어로 말하거나 입력해요';
+    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; ta.placeholder = '영어로 말하거나 입력해요';
     $('#cvi', root).textContent = `${i + 1} / ${list.length}`;
     if (location.hash !== `#/study/${x.id}`) history.replaceState(null, '', `#/study/${x.id}`);
     if (th.children.length) sys(`${i + 1} / ${list.length}`);
@@ -188,7 +186,7 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', feedbackHTML(f, said), 'wide');
+    const el = add('bh', feedbackHTML(f, said, { rec: target }), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
@@ -210,7 +208,7 @@ export function study(root, uttId) {
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 }); D.markStep(x.id, 'recall');
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
       const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
-      const fl = add('bh', feedbackHTML(f2, t2, { answer: target }), 'wide');
+      const fl = add('bh', feedbackHTML(f2, t2, { rec: target }), 'wide');
       bindCompare(fl, saveItem(x, t2));
     }
   }

@@ -62,7 +62,10 @@ const P = {
   heart: '<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>',
   chat: '<path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v7A2.5 2.5 0 0 1 17 16h-6l-4 3.5V16a2.5 2.5 0 0 1-2.5-2.5z"/>',
   timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
-  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>',
+  info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5.5M12 7.6v.01"/>',
+  user: '<circle cx="12" cy="8.5" r="3.8"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/>',
+  shield: '<path d="M12 3l7.5 3v5.5c0 4.6-3.2 8.2-7.5 9.5-4.3-1.3-7.5-4.9-7.5-9.5V6z"/>'
 };
 export const ic = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -373,20 +376,28 @@ export function bindCompare(el, make) { bindSaves(el, make); bindLongPress(el); 
 
 // ---------- AI 피드백 카드: 한 줄 피드백 · 내 문장(고칠 부분만 밑줄) · 추천 문장 · 내가 안 쓴 표현 ----------
 // f: smartFeedback() 결과 {correct, feedback, fixes, natural, xs, ai}
-export function feedbackHTML(f, said, { answer = '', answerLabel = '정답' } = {}) {
+// rec: 업로드한 영어 문장 → 항상 ‘추천 문장’으로 그대로 보여줌 (AI가 바꾸지 않음)
+//      AI의 natural은 내 문장이 맞았는데 더 자연스럽게 다듬을 수 있을 때만 ‘더 자연스럽게’로 따로
+export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '정답' } = {}) {
   if (!f) return '';
-  const low = said.toLowerCase(), marks = [];
+  const low = said.toLowerCase(), marks = [], amarks = [];
   (f.fixes || []).forEach(x => { const i = low.indexOf(String(x.wrong).toLowerCase()); if (i >= 0) marks.push([i, i + x.wrong.length]); });
+  (f.asr || []).forEach(x => { const i = low.indexOf(String(x.heard).toLowerCase()); if (i >= 0) amarks.push([i, i + x.heard.length]); });
   let pos = 0;
-  const saidHTML = said.split(/(\s+)/).map(tok => { const st = pos; pos += tok.length; if (/^\s+$/.test(tok) || !tok) return tok; const err = marks.some(([a, b]) => st < b && st + tok.length > a); return wspan(tok, err ? 'err' : ''); }).join('');
+  const hit = (m, st, len) => m.some(([a, b]) => st < b && st + len > a);
+  const saidHTML = said.split(/(\s+)/).map(tok => { const st = pos; pos += tok.length; if (/^\s+$/.test(tok) || !tok) return tok; return wspan(tok, hit(marks, st, tok.length) ? 'err' : hit(amarks, st, tok.length) ? 'asr' : ''); }).join('');
   const c = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
   const row = (label, t, cls) => `<div class="fr ${cls}"><span class="fl">${label}</span><p class="en lp">${lpHTML(t)}</p><button class="sv" type="button" data-sv="${esc(t)}" aria-label="저장">${ic('bookmark')}</button></div>`;
-  const showA = answer && c(answer) !== c(said) && c(answer) !== c(f.natural);
+  const recRow = rec && c(rec) !== c(said) ? rec : '';
+  const nat = f.natural && c(f.natural) !== c(said) && c(f.natural) !== c(rec) && (!rec || f.correct) ? f.natural : '';
+  const showA = answer && c(answer) !== c(said) && c(answer) !== c(nat) && c(answer) !== c(recRow);
   return `<div class="fb2">
-    <p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback || '')}</p>
+    <p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback || '').replace(/\n/g, '<br>')}</p>
     <div class="fr me"><span class="fl">내 문장</span><p class="en lp">${saidHTML}</p></div>
+    ${(f.asr || []).length ? `<p class="asr-note">${f.asr.map(x => `<span class="en">${esc(x.heard)}</span> → <span class="en">${esc(x.meant)}</span>`).join(', ')} <small>음성 인식이 잘못 들은 것 같아요 · 영어 실수 아님</small></p>` : ''}
     ${(f.fixes || []).length ? `<ul class="fx">${f.fixes.map(x => `<li><span class="en"><s>${esc(x.wrong)}</s> → <b>${esc(x.right)}</b></span>${x.why ? `<small>${esc(x.why)}</small>` : ''}</li>`).join('')}</ul>` : ''}
-    ${f.natural ? row('추천', f.natural, 'rec') : ''}
+    ${recRow ? row('추천 문장', recRow, 'rec') : ''}
+    ${nat ? row(rec ? '더 자연스럽게' : '추천', nat, rec ? 'nat' : 'rec') : ''}
     ${showA ? row(answerLabel, answer, 'ans') : ''}
     ${(f.xs || []).length ? `<div class="fxs">${f.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}
   </div>`;

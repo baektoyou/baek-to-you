@@ -4,7 +4,7 @@ import { ic } from './ui.js';
 import { videoList, videoDetail, study } from './video.js';
 import { speak } from './speak.js';
 import { saved } from './saved.js';
-import { settings, videoEditor, uttEditor, videoListAll } from './settings.js';
+import { settings, videoEditor, uttEditor, videoListAll, privacy } from './settings.js';
 import { stopSpeak } from './speech.js';
 import { registerSW } from './pwa.js';
 import { loadUserPhotos } from './scene.js';
@@ -36,7 +36,10 @@ function route(keepScroll) {
   switch (p[0]) {
     case 'talk': case 'speak': tab = 'talk'; cleanup = speak(root); break;
     case 'saved': saved(root); break;
+    case 'privacy': tab = 'settings'; privacy(root); break;
     case 'settings':
+      // 영상·문장 편집 화면은 관리자만 (주소로 직접 들어와도 막음 · 서버 보안 규칙도 같은 기준)
+      if (['video', 'videos', 'utt'].includes(p[1]) && !D.canEdit()) { location.replace('#/settings'); return; }
       if (p[1] === 'video' && p[2]) cleanup = videoEditor(root, p[2]);
       else if (p[1] === 'videos') videoListAll(root, p[2] || 'call');
       else if (p[1] === 'utt' && p[2] && p[3]) cleanup = uttEditor(root, p[2], p[3]);
@@ -50,6 +53,8 @@ function route(keepScroll) {
   if (keepScroll !== true) window.scrollTo(0, 0);
 }
 window.addEventListener('hashchange', () => route());
+// 관리자 여부가 확인되면 편집 버튼을 보이거나 숨김
+D.onChange(e => { if (!e?.role) return; const h = location.hash || '#/video'; if (/^#\/(settings|video)/.test(h) || h === '#/' || h === '') route(true); });
 route();
 registerSW();
 loadUserPhotos().then(() => { if (/^#\/settings/.test(location.hash)) route(true); });
@@ -63,12 +68,9 @@ window.addEventListener('b2u:remote', () => {
   if (busy) { renderTabs(curTab); toast('다른 기기의 변경 사항을 가져왔어요'); }
   else { const y = window.scrollY; route(true); window.scrollTo(0, y); }
 });
-// 다른 Google 계정으로 로그인했을 때 이 기기 데이터를 어떻게 할지
-Y.setAsk(() => new Promise(res => {
-  let v = 'merge';
-  const s = sheet(`<h3>다른 계정으로 로그인했어요</h3><p class="sheet-p">이 기기에는 이전 계정의 데이터가 있어요. 어떻게 할까요?</p>
-    <div class="stack"><button class="btn block" data-v="merge">이 기기 데이터를 새 계정에 합치기</button><button class="btn soft block" data-v="cloud">새 계정의 클라우드 데이터만 쓰기</button></div>
-    <p class="tiny muted mt8">‘클라우드 데이터만 쓰기’를 고르면 지금 데이터는 SETTINGS › 직전 상태로 되돌리기에 보관돼요.</p>`, { onClose: () => res(v) });
-  $$('[data-v]', s).forEach(b => b.onclick = () => { v = b.dataset.v; s.close(); });
-}));
+// 안내: AI 사용량 한도 · 키 오류 · 네트워크
+const AI_MSG = { quota: 'AI 사용량 한도를 넘었어요 · 잠시 동안 앱 규칙 피드백으로 이어가요', key: 'AI API 키를 확인해주세요 (SETTINGS › AI) · 지금은 앱 규칙 피드백이에요', network: 'AI에 연결할 수 없어요 · 인터넷을 확인해주세요', model: 'AI 모델 이름을 확인해주세요 (SETTINGS › AI)' };
+window.addEventListener('b2u:aierr', e => toast(AI_MSG[e.detail] || 'AI 오류'));
+window.addEventListener('offline', () => toast('인터넷 연결이 끊겼어요 · 영상·AI·동기화는 연결되면 다시 돼요'));
+window.addEventListener('online', () => toast('다시 연결됐어요'));
 Y.init();

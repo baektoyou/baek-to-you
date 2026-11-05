@@ -6,9 +6,13 @@ import * as D from './store.js';
 import { improve } from './feedback.js';
 import { judgeTranslation, judgeReply, bestReply } from './judge.js';
 
-const KEYS = 'baek-to-you:aikeys';
-export const aiKeys = () => { try { return JSON.parse(localStorage.getItem(KEYS) || '{}'); } catch { return {}; } };
-export const setAiKeys = p => { try { localStorage.setItem(KEYS, JSON.stringify({ ...aiKeys(), ...p })); } catch { } };
+// 키는 계정마다 따로 (같은 기기에서 다른 계정으로 로그인해도 서로의 키가 보이지 않음)
+const LEGACY = 'baek-to-you:aikeys';
+const KEYS = () => 'baek-to-you:aikeys:' + D.accountKey();
+(() => { try { const old = localStorage.getItem(LEGACY); if (old) { const k = 'baek-to-you:aikeys:' + (localStorage.getItem('b2u:acct') || localStorage.getItem('b2u:lastUid') || 'guest'); if (!localStorage.getItem(k)) localStorage.setItem(k, old); localStorage.removeItem(LEGACY); } } catch { } })();
+export const aiKeys = () => { try { return JSON.parse(localStorage.getItem(KEYS()) || '{}'); } catch { return {}; } };
+export const setAiKeys = p => { try { localStorage.setItem(KEYS(), JSON.stringify({ ...aiKeys(), ...p })); } catch { } };
+export const clearAiKeys = (acct = D.accountKey()) => { try { localStorage.removeItem('baek-to-you:aikeys:' + acct); } catch { } };
 export const PROVIDERS = [['gemini', 'Gemini'], ['openai', 'ChatGPT']];
 export const DEFAULT_MODEL = { gemini: 'gemini-flash-latest', openai: 'gpt-4o-mini' };
 export const provider = () => { const p = D.get().settings.aiProvider; return p === 'openai' ? 'openai' : 'gemini'; };
@@ -17,7 +21,17 @@ export const aiOn = () => D.get().settings.aiOn !== false && !!aiKeys()[provider
 const parse = t => { try { return JSON.parse(String(t || '').replace(/^\s*```(json)?|```\s*$/g, '').trim()); } catch { return null; } };
 const errOf = s => s === 400 || s === 401 || s === 403 ? 'key' : s === 429 ? 'quota' : s === 404 ? 'model' : `http_${s}`;
 // 시스템 지시 + 사용자 내용 → JSON
-export async function callAI(sys, user, { ms = 15000, temp = 0.35 } = {}) {
+// AI 오류(한도 초과·키 오류·연결 끊김)는 화면에 한 번 알려줌 (그동안은 앱 규칙 피드백)
+const errSeen = {};
+function noteErr(r) {
+  if (r && r.error && ['quota', 'key', 'network', 'model'].includes(r.error) && Date.now() - (errSeen[r.error] || 0) > 600000) {
+    errSeen[r.error] = Date.now();
+    window.dispatchEvent(new CustomEvent('b2u:aierr', { detail: r.error }));
+  }
+  return r;
+}
+export async function callAI(sys, user, opt) { return noteErr(await callAI0(sys, user, opt)); }
+async function callAI0(sys, user, { ms = 15000, temp = 0.35 } = {}) {
   if (!aiOn()) return null;
   const p = provider(), k = aiKeys(), ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
   try {
@@ -44,20 +58,21 @@ export const AI_ERR = { key: 'API 키가 맞지 않아요', quota: '사용 한�
 const ok = a => a && !a.error;
 const clip = (t, n = 300) => String(t || '').slice(0, n);
 const COACH = `You are a warm, friendly native-English speaking coach for a Korean learner (casual, encouraging, never stiff).
-The learner practices by watching K-pop idol Baekhyun's video clips and speaking English. Their sentence comes from speech recognition, so ignore capitalization, punctuation and obvious recognition glitches (e.g. "to to").`;
+The learner practices by watching K-pop idol Baekhyun's video clips and speaking English. Their sentence comes from speech recognition (accent, intonation, speed and short pauses can cause sound-alike mistakes), so ignore capitalization, punctuation and obvious recognition glitches (e.g. "to to").`;
 
 // ---------- 1) 피드백: 의미 평가 · 꼭 고칠 부분 · 더 자연스러운 문장 · 내가 안 쓴 유용한 표현 ----------
 const FB_SYS = `${COACH}
 Return ONLY JSON:
 {
  "correct": true/false — true if the meaning/answer is right. Different words with the same meaning and context ARE correct.
- "feedback": Korean, 1–2 short friendly sentences (max 70 chars). If correct, acknowledge it first (e.g. "뜻이 정확하게 전달돼요."), then at most one nuance tip. If not, say kindly what is missing or wrong. No scores, no headings, never just "자연스러워요".
- "fixes": real mistakes only (grammar / wrong word / missing meaning) — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 30 chars}]. Empty if none. Never list style preferences as mistakes.
- "natural": a more natural native-speaker sentence that keeps the learner's own meaning and context — ONLY if it is meaningfully more natural; otherwise "".
+ "feedback": Korean, 1–2 short friendly sentences (max 80 chars), each sentence on its own line ("\n"). If correct, acknowledge it first (e.g. "뜻이 정확하게 전달돼요."), then at most one nuance tip. If not, say kindly what is missing. Do NOT repeat what "fixes" already explain. No scores, no headings, never just "자연스러워요".
+ "fixes": real English mistakes only (grammar / wrong word / missing meaning) — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. Empty if none. Never list style preferences or speech-recognition errors as mistakes.
+ "asr": words that are most likely speech-recognition errors, not English mistakes (sound-alike words like eight/ate, their/there, for/four, a dropped "a/the/to" at a pause, a name heard wrongly) — [{"heard": EXACT substring from the learner's sentence, "meant": what they probably said}]. Judge "correct" as if they said the meant words. Empty if none.
+ "natural": a more natural native-speaker version of the LEARNER'S OWN sentence — ONLY if it is meaningfully more natural; otherwise "". In translate mode never copy the reference.
  "expressions": up to 3 useful, real, commonly used English expressions the learner did NOT use but could use here — [{"en": short chunk (2–6 words, complete and correctly spaced), "ko": Korean meaning}]. No whole sentences, no made-up phrases, nothing the learner already said.
 }
 Modes:
- translate — the learner tried to say Baekhyun's Korean line in English. A reference translation is given; any wording with the same meaning is correct.
+ translate — the learner tried to say Baekhyun's Korean line in English. The reference translation was written by the app owner and is shown to the learner as-is; never rewrite or replace it. Any wording with the same meaning and natural grammar is correct.
  reply / long — the learner answered Baekhyun's question. Correct = on-topic, sensible answer (grammar slips are fixes, not "incorrect").
  review — the learner answered a review question and should use the target expression/sentence. Correct only if it fits the question AND uses the target (or the target sentence's meaning). In "natural", answer the question using the target.
 If the learner used Korean, correct=false and feedback "영어로 말해볼까?".`;
@@ -66,16 +81,19 @@ function fbUser(b) {
     b.question ? `Question (English): ${clip(b.question)}` : '', b.qko ? `Question (Korean): ${clip(b.qko)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
 }
 const cleanX = x => String(x || '').replace(/\s+/g, ' ').trim();
+const cleanF = x => String(x || '').split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // 반환 {correct, feedback, fixes:[{wrong,right,why}], natural, xs:[{text,ko}], ai}
 export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [] }) {
   const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr }));
   const a = await aiP;
   if (ok(a) && typeof a.feedback === 'string') {
-    const nat = cleanX(a.natural);
+    const nat = cleanX(a.natural), sl = said.toLowerCase();
+    const asr = (Array.isArray(a.asr) ? a.asr : []).filter(x => x && x.heard && x.meant && sl.includes(String(x.heard).toLowerCase()) && cleanX(x.heard).toLowerCase() !== cleanX(x.meant).toLowerCase()).slice(0, 2).map(x => ({ heard: cleanX(x.heard), meant: cleanX(x.meant) }));
+    const asrSet = new Set(asr.map(x => x.heard.toLowerCase()));
     return {
-      correct: !!a.correct, feedback: cleanX(a.feedback).slice(0, 120),
-      fixes: (Array.isArray(a.fixes) ? a.fixes : []).filter(f => f && f.wrong && said.toLowerCase().includes(String(f.wrong).toLowerCase())).slice(0, 3).map(f => ({ wrong: cleanX(f.wrong), right: cleanX(f.right), why: cleanX(f.why).slice(0, 50) })),
+      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr,
+      fixes: (Array.isArray(a.fixes) ? a.fixes : []).filter(f => f && f.wrong && sl.includes(String(f.wrong).toLowerCase()) && !asrSet.has(String(f.wrong).toLowerCase()) && cleanX(f.wrong).toLowerCase() !== cleanX(f.right).toLowerCase()).slice(0, 3).map(f => ({ wrong: cleanX(f.wrong), right: cleanX(f.right), why: cleanX(f.why).slice(0, 50) })),
       natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== said.toLowerCase().replace(/[^a-z ]/g, '') ? nat : '',
       xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !said.toLowerCase().includes(x.text.toLowerCase())).slice(0, 3),
       ai: true
@@ -88,7 +106,7 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
   const alt = mode === 'translate' ? target : mode === 'review' ? '' : bestReply(said, replies);
   const nat = !imp.same ? imp.after : alt;
   const msg = ev.ok ? (fixes.length ? '뜻은 잘 통해요. 표시한 부분만 고치면 돼요.' : '뜻이 잘 통해요.') : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '뜻이 조금 달라요. 추천 문장을 참고해봐요.') : '조금 빠진 부분이 있어요. 추천 문장을 참고해봐요.';
-  return { correct: ev.ok, feedback: msg, fixes, natural: nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
+  return { correct: ev.ok, feedback: msg, fixes, asr: [], natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
 }
 
 // ---------- 2) 영어 질문하기 (채팅) ----------
@@ -106,14 +124,15 @@ export async function aiAsk(q, ctx = {}) {
 const KIT_SYS = `${COACH}
 You help the learner keep a conversation going with Baekhyun.
 Given the current question and what the learner has said so far, return ONLY JSON:
-{"expressions": exactly 3 useful, real English expressions that fit THIS question and the learner's situation (not generic, not repeated from the history), each {"en": 2–6 words, "ko": Korean meaning},
+{"expressions": exactly 3 useful, real English expressions the learner can use in their NEXT answer — tied to this question and to what the learner actually said (their topic, people, feelings, details). Not generic fillers, nothing they already used, nothing in the "Already suggested" list. Each {"en": 2–6 words, "ko": Korean meaning},
  "next": a natural follow-up question Baekhyun could ask next, based on what the learner just said (casual, short) {"en": "...", "ko": "자연스러운 반말"} — or null if nothing was said yet}`;
-export async function aiKit({ question, qko, history = [] }) {
+export async function aiKit({ question, qko, history = [], avoid = [] }) {
   if (!aiOn()) return null;
-  const a = await callAI(KIT_SYS, [`Question: ${clip(question)}`, qko ? `(Korean: ${clip(qko)})` : '', history.length ? `Learner said so far:\n${history.map(h => '- ' + clip(h, 400)).join('\n')}` : 'Learner has not answered yet.'].filter(Boolean).join('\n'), { temp: 0.6 });
+  const a = await callAI(KIT_SYS, [`Question: ${clip(question)}`, qko ? `(Korean: ${clip(qko)})` : '', history.length ? `Learner said so far:\n${history.map(h => '- ' + clip(h, 400)).join('\n')}` : 'Learner has not answered yet.', avoid.length ? `Already suggested (do not repeat): ${avoid.slice(-12).join(' | ')}` : ''].filter(Boolean).join('\n'), { temp: 0.7 });
   if (!ok(a)) return null;
+  const said = history.join(' ').toLowerCase(), av = new Set(avoid.map(x => String(x).toLowerCase()));
   return {
-    xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text)).slice(0, 3),
+    xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !av.has(x.text.toLowerCase()) && !said.includes(x.text.toLowerCase())).slice(0, 3),
     next: a.next && a.next.en ? { en: cleanX(a.next.en), ko: cleanX(a.next.ko) } : null
   };
 }

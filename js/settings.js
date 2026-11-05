@@ -15,11 +15,13 @@ let vtab = 'chat'; // 영상 목록: chat | call
 let vmore = false;
 
 export function settings(root) {
-  const db = D.get(); const st = db.settings; const snap = D.snapshotInfo();
+  const db = D.get(); const st = db.settings; const snap = D.snapshotInfo(); const edit = D.canEdit();
   root.innerHTML = `<div class="screen">
     <header class="top"><h1 class="page-title">Settings</h1></header>
     <section class="prof-card" id="prof"></section>
-    <section class="add-card">
+    <div class="sec-title label">ACCOUNT</div>
+    <section class="sync-card" id="sync"></section>
+    ${edit ? `<section class="add-card">
       <span class="label">ADD VIDEO</span>
       <div class="url-row"><input class="input" id="url" type="url" placeholder="YouTube 링크 붙여넣기" autocomplete="off" autocapitalize="off" spellcheck="false">
         <button class="icon-btn" id="paste" aria-label="붙여넣기">${ic('paste')}</button><button class="btn" id="add" aria-label="추가">${ic('plus')}</button></div>
@@ -33,7 +35,7 @@ export function settings(root) {
       ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
         ${list.length > shown.length ? `<a class="li more" href="#/settings/videos/${vtab}"><span class="grow">전체 ${list.length}개 보기</span>${ic('next')}</a>` : ''}</div>`
         : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
-    })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
+    })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}` : ''}
 
 
     <div class="sec-title label">SPEECH RECOGNITION</div>
@@ -41,15 +43,15 @@ export function settings(root) {
       <div class="row between"><b class="set-b">인식 언어</b><span class="small muted">영어 (미국)</span></div>
       <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>CHAT에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
       <button class="btn soft block" id="mt">${ic('mic')} 인식 테스트 시작</button><div id="mres" class="small hide test-res"></div>
-      <label class="field"><span>인식 보정 단어 · 한 줄에 하나</span>
-        <textarea class="textarea en" id="fix" rows="3" placeholder="Mongryong&#10;tteokbokki">${esc(st.sttFix || '')}</textarea></label>
+      ${edit ? `<label class="field"><span>인식 보정 단어 · 한 줄에 하나 · 모든 사용자 공통</span>
+        <textarea class="textarea en" id="fix" rows="3" placeholder="Mongryong&#10;tteokbokki">${esc(st.sttFix || '')}</textarea></label>` : ''}
       <p class="tiny muted">단어만 적어 두면, 발음이 비슷하게 잘못 인식된 말을 자동으로 고쳐요 (예: mong young → Mongryong). 인식 결과는 첫 글자 대문자·문장부호를 넣고 겹친 단어(to to)를 지워요.</p>
     </div>
 
-    <div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
+    ${edit ? `<div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
     <div class="card"><div class="photo-grid manage" id="phg"></div>
       <label class="btn sm soft block mt12">${ic('plus')} 사진 추가<input type="file" id="phadd" accept="image/*" class="hide"></label>
-      <p class="tiny muted mt8">추가한 사진은 이 기기에만 저장돼요 (동기화·백업에 포함되지 않아요).</p></div>
+      <p class="tiny muted mt8">${D.isAdmin() ? '추가한 사진은 모든 사용자에게 공유돼요.' : '추가한 사진은 이 기기에만 저장돼요.'}</p></div>` : ''}
 
     <div class="sec-title label">AI</div>
     <div class="card stack">
@@ -60,12 +62,12 @@ export function settings(root) {
     </div>
 
     <div class="sec-title label">DATA</div>
-    <section class="sync-card" id="sync"></section>
     <div class="list">
-      <button class="li" id="exp"><div class="ic">${ic('download')}</div><div class="grow"><b>JSON 백업</b><small>영상·문장·SAVED·학습 기록·설정 (녹음 파일 제외)</small></div></button>
+      <button class="li" id="exp"><div class="ic">${ic('download')}</div><div class="grow"><b>JSON 백업</b><small>${edit ? '영상·문장·SAVED·학습 기록·설정' : '내 SAVED·학습 기록·설정'} (녹음 파일·API 키 제외)</small></div></button>
       <label class="li" style="cursor:pointer"><div class="ic">${ic('upload')}</div><div class="grow"><b>JSON 복원</b><small>합치기 또는 전체 바꾸기</small></div><input type="file" id="imp" accept="application/json,.json" class="hide"></label>
       ${snap ? `<button class="li" id="undo"><div class="ic">${ic('replay')}</div><div class="grow"><b>직전 상태로 되돌리기</b><small>${esc(snap.reason)} 전 · ${new Date(snap.at).toLocaleString('ko-KR')}</small></div></button>` : ''}
-      <button class="li" id="rst"><div class="ic danger">${ic('trash')}</div><div class="grow"><b>모든 데이터 초기화</b></div></button>
+      <button class="li" id="rst"><div class="ic danger">${ic('trash')}</div><div class="grow"><b>내 학습 데이터 초기화</b><small>SAVED·단어·진도·기록 · 영상과 문장은 그대로</small></div></button>
+      <a class="li" href="#/privacy"><div class="ic">${ic('info')}</div><div class="grow"><b>개인정보 처리방침 · 저작권 안내</b></div>${ic('next')}</a>
     </div>
 
     <details class="adv help"><summary>YouTube Premium 안내</summary><div class="stack yt-info">
@@ -87,12 +89,12 @@ export function settings(root) {
       <div class="row ver-row"><span class="tiny muted grow">버전 <span class="en">${esc(APP_VERSION)}</span></span><button class="btn xs soft" id="upd">${ic('refresh')} 업데이트 확인</button></div>
       <div class="note">
         • 발음·억양 점수는 전용 음성 평가 엔진(유료)이 필요해서 제공하지 않아요.<br>
-        • 답변 평가·추천 표현은 AI가 아니라 앱에 내장된 규칙(뜻 비교·질문 유형·문법·한국식 영어 표현) + JSON의 원어민 답변 예시(replies) + 선택 시 LanguageTool이에요. 확실하지 않으면 칭찬하지 않고 추천 문장을 보여줘요.<br>
-        • 통화 영상 자동 선택·사진 매칭은 영상 제목·메모·대본의 키워드로 장면을 추정해요. 정확하지 않으면 영상 관리에서 장면 태그나 사진을 직접 골라주세요.<br>
-        • 데이터는 이 기기 브라우저에만 저장돼요 (기기 연동을 켜지 않았다면). 주기적으로 백업하세요.
+        • AI 키를 넣으면 의미 판단·교정·표현 추천을 AI가 해요. 추천 문장은 항상 업로드한 영어 문장 그대로예요. 키가 없거나 한도를 넘으면 앱 규칙 피드백으로 바뀌어요.<br>
+        • iPhone은 음성 인식을 시작할 때 시스템 효과음이 날 수 있어요 (웹에서 끌 수 없어요).<br>
+        • 로그인하면 내 학습 기록은 계정에, 로그인 전에는 이 기기에만 저장돼요.
       </div>
     </details>
-    <p class="tiny muted foot-note">BAEK TO YOU · personal fan-made study app · 영상 저작권은 원저작자에게 있어요</p>
+    <p class="tiny muted foot-note">BAEK TO YOU · 비공식 팬메이드 영어 학습 앱<br>영상·사진·음성의 저작권은 각 원저작자에게 있어요</p>
   </div>`;
   const unsub = mountSync($('#sync', root));
   mountProfile($('#prof', root));
@@ -101,6 +103,7 @@ export function settings(root) {
   function row(ok, t, d) { return `<div><span class="${ok ? 'ok-dot' : 'no-dot'}"></span><b>${t}</b> <span class="muted tiny">${esc(d)}</span></div>`; }
 
   const urlIn = $('#url', root), addB = $('#add', root);
+  if (edit) {
   const add = async () => {
     const id = parseYouTubeId(urlIn.value);
     if (!id) return toast('YouTube 링크를 확인해주세요');
@@ -117,6 +120,7 @@ export function settings(root) {
     try { const t = await navigator.clipboard.readText(); urlIn.value = t.trim(); if (parseYouTubeId(urlIn.value)) add(); else toast('클립보드에 YouTube 링크가 없어요'); }
     catch { urlIn.focus(); toast('입력칸을 길게 눌러 붙여넣어 주세요'); }
   };
+  }
 
 
   // 인식
@@ -126,7 +130,7 @@ export function settings(root) {
     const p = D.get().settings.aiProvider === 'openai' ? 'openai' : 'gemini', k = aiKeys();
     $('#aibox', root).innerHTML = `<label class="field"><span>${p === 'gemini' ? 'Gemini API 키 · aistudio.google.com (무료)' : 'OpenAI API 키 · platform.openai.com (유료 크레딧)'}</span><input class="input en" id="aikey" type="password" value="${esc(k[p] || '')}" placeholder="${p === 'gemini' ? 'AIza…' : 'sk-…'}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
       <label class="field"><span>모델 (비우면 ${DEFAULT_MODEL[p]})</span><input class="input en" id="aimodel" value="${esc(k[p + 'Model'] || '')}" placeholder="${DEFAULT_MODEL[p]}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-      <p class="tiny muted">키는 이 기기에만 저장돼요 (동기화·백업 제외).</p>`;
+      <p class="tiny muted">키는 이 기기의 <b>지금 계정</b>에만 저장돼요 · 다른 계정·동기화·백업에 들어가지 않아요.</p>`;
     $('#aikey', root).onchange = e => setAiKeys({ [p]: e.target.value.trim() });
     $('#aimodel', root).onchange = e => setAiKeys({ [p + 'Model']: e.target.value.trim() });
     $('#aist', root).textContent = '';
@@ -152,9 +156,11 @@ export function settings(root) {
     $('#phmore', root) && ($('#phmore', root).onclick = () => { photosOpen = true; drawPhotos(); });
     $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제')) { await removePhoto(b.dataset.del); settings(root); } });
   };
+  if (edit) {
   drawPhotos();
   $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
-  $('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); };
+  }
+  $('#fix', root) && ($('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); });
   let testCap = null;
   $('#mt', root).onclick = async () => {
     const r = $('#mres', root), b = $('#mt', root);
@@ -180,7 +186,7 @@ export function settings(root) {
     const f = e.target.files[0]; if (!f) return;
     const txt = await f.text(); e.target.value = '';
     let info = '';
-    try { const d = JSON.parse(txt); if (!Array.isArray(d.videos) || !Array.isArray(d.utts)) throw 0; info = `영상 ${d.videos.length} · 문장 ${d.utts.length} · SAVED ${(d.saved || []).length}`; }
+    try { const d = JSON.parse(txt); if (!Array.isArray(d.saved) && !Array.isArray(d.videos)) throw 0; info = (edit ? `영상 ${(d.videos || []).length} · 문장 ${(d.utts || []).length} · ` : '') + `SAVED ${(d.saved || []).length} · 단어 ${(d.words || []).length}`; }
     catch { toast('BAEK TO YOU 백업 파일이 아니에요'); return; }
     const s = sheet(`<h3>백업 복원</h3><p class="sheet-p">${esc(info)}<br>복원 전 현재 상태를 자동으로 저장해 두니, 잘못되면 ‘직전 상태로 되돌리기’로 돌아올 수 있어요.</p>
       <div class="stack"><button class="btn block" data-m="merge">기존 데이터에 합치기 (추천)</button><button class="btn block soft" data-m="replace">전체 바꾸기</button></div>`);
@@ -190,7 +196,7 @@ export function settings(root) {
     if (!await confirmSheet('직전 상태로 되돌릴까요?', '되돌리기', `${esc(snap.reason)} 직전의 데이터로 돌아가요. 그 이후 바뀐 내용은 사라져요.`)) return;
     try { D.restoreSnapshot(); toast('되돌렸어요'); settings(root); } catch (e) { toast(e.message); }
   });
-  $('#rst', root).onclick = async () => { if (await confirmSheet('정말 모든 데이터를 지울까요?', '모두 삭제', '먼저 JSON 백업을 권장해요. 직전 상태 1개는 자동 보관돼요.')) { D.resetAll(); toast('초기화했어요'); settings(root); } };
+  $('#rst', root).onclick = async () => { if (await confirmSheet('내 학습 데이터를 초기화할까요?', '초기화', 'SAVED·단어·진도·통화 기록이 지워져요 (로그인 중이면 클라우드에서도). 직전 상태 1개는 자동 보관돼요.')) { D.resetAll(); toast('초기화했어요'); settings(root); } };
   $('#upd', root).onclick = async () => { const b = $('#upd', root); b.disabled = true; const r = await checkUpdate(true); b.disabled = false; toast(r); };
   return unsub;
 }
@@ -201,44 +207,81 @@ const GLOGO = '<svg viewBox="0 0 24 24" aria-hidden="true" style="stroke:none"><
 const STATE_TXT = { loading: ['준비 중…', 'mid'], syncing: ['동기화 중…', 'mid'], pending: ['변경 사항 저장 대기', 'mid'], synced: ['동기화됨', 'ok'], offline: ['오프라인', 'warn'], error: ['오류', 'bad'] };
 function mountSync(el) {
   let tick = null;
-  const head = right => `<div class="sync-row"><span class="sync-ic">${ic('refresh')}</span><b class="grow">기기 연동</b>${right}</div>`;
+  const head = (right, title = '계정') => `<div class="sync-row"><span class="sync-ic">${ic('user')}</span><b class="grow clamp1">${title}</b>${right}</div>`;
+  const err = e => toast(Y.authErrorText(e));
   const render = st => {
     if (!el.isConnected) { unsub(); clearInterval(tick); return; }
     if (!st.configured) {
-      el.innerHTML = head('<span class="chip">꺼짐</span>') + `<p class="tiny muted sync-p">이 기기에만 저장돼요 · 설정 방법은 ZIP 안의 FIREBASE_SETUP.md</p>`;
+      el.innerHTML = head('<span class="chip">이 기기만</span>') + `<p class="tiny muted sync-p">Firebase 설정 전이라 이 기기에만 저장돼요 · FIREBASE_SETUP.md</p>`;
       return;
     }
     if (!st.user) {
       const busy = st.state === 'loading';
-      el.innerHTML = head(`<button class="btn xs line g-btn" id="g" ${busy ? 'disabled' : ''}>${GLOGO} 로그인</button>`)
+      el.innerHTML = head('<span class="chip">로그인 전</span>')
         + (st.state === 'error' ? `<div class="note warn">${esc(st.detail)}</div>` : '')
-        + `<details class="adv"><summary>이메일로 로그인</summary>
-          <input class="input" id="em" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off">
-          <input class="input mt8" id="pw" type="password" autocomplete="current-password" placeholder="비밀번호">
-          <div class="row mt8"><button class="btn sm grow" id="el">로그인</button><button class="btn sm soft" id="rp">비밀번호 재설정</button></div></details>`;
-      $('#g', el).onclick = () => Y.loginGoogle().then(() => toast('로그인했어요 · 동기화를 시작해요')).catch(e => toast(Y.authErrorText(e)));
-      $('#el', el).onclick = () => { const em = $('#em', el).value, pw = $('#pw', el).value; if (!em || !pw) return toast('이메일과 비밀번호를 입력해주세요'); Y.loginEmail(em, pw).then(() => toast('로그인했어요')).catch(e => toast(Y.authErrorText(e))); };
-      $('#rp', el).onclick = () => { const em = $('#em', el).value; if (!em) return toast('이메일을 먼저 입력해주세요'); Y.resetPassword(em).then(() => toast('재설정 메일을 보냈어요')).catch(e => toast(Y.authErrorText(e))); };
+        + `<form class="acct-form" id="af" autocomplete="on">
+          <input class="input" id="em" type="email" autocomplete="username" inputmode="email" placeholder="이메일" autocapitalize="off" spellcheck="false">
+          <input class="input" id="pw" type="password" autocomplete="current-password" placeholder="비밀번호 (6자 이상)">
+          <div class="acct-btns"><button class="btn sm" id="el" type="submit" ${busy ? 'disabled' : ''}>로그인</button><button class="btn sm soft" id="su" type="button" ${busy ? 'disabled' : ''}>회원가입</button></div>
+          <button class="link-btn tiny" id="rp" type="button">비밀번호를 잊었어요</button>
+        </form>
+        <div class="or"><span>또는</span></div>
+        <button class="btn sm line block g-btn" id="g" ${busy ? 'disabled' : ''}>${GLOGO} Google로 계속하기</button>
+        <p class="tiny muted sync-p">로그인하면 내 학습 기록이 계정에 저장돼요. 영상과 문장은 모든 사용자가 같이 봐요.</p>`;
+      const em = () => $('#em', el).value.trim(), pw = () => $('#pw', el).value;
+      $('#g', el).onclick = () => Y.loginGoogle().then(() => toast('로그인했어요')).catch(err);
+      $('#af', el).onsubmit = e => { e.preventDefault(); if (!em() || !pw()) return toast('이메일과 비밀번호를 입력해주세요'); Y.loginEmail(em(), pw()).then(() => toast('로그인했어요')).catch(err); };
+      $('#su', el).onclick = () => {
+        if (!em()) return toast('이메일을 입력해주세요'); if (pw().length < 6) return toast('비밀번호는 6자 이상으로 해주세요');
+        Y.signup(em(), pw()).then(() => toast('가입했어요 · 확인 메일을 보냈어요')).catch(err);
+      };
+      $('#rp', el).onclick = () => { if (!em()) return toast('위에 이메일을 먼저 입력해주세요'); Y.resetPassword(em()).then(() => toast('재설정 메일을 보냈어요 · 메일함(스팸함)을 확인해주세요')).catch(err); };
       return;
     }
     const [txt, tone] = STATE_TXT[st.state] || ['', 'mid'];
     const u = st.user; const hasPw = u.providers.includes('password');
-    el.innerHTML = head(`<span class="sync-st ${tone}"><i></i>${txt}${st.state === 'synced' && st.lastSyncAt ? ` · ${ago(st.lastSyncAt)}` : ''}</span>`)
+    el.innerHTML = head(`<span class="chip ${st.admin ? 'pink' : ''}">${st.admin ? '관리자' : '학습자'}</span>`, esc(u.email || u.name || '내 계정'))
+      + `<div class="sync-row sub"><span class="sync-st ${tone}"><i></i>${txt}${st.state === 'synced' && st.lastSyncAt ? ` · ${ago(st.lastSyncAt)}` : ''}</span></div>`
       + (st.detail && (st.state === 'error' || st.state === 'offline') ? `<div class="note ${st.state === 'error' ? 'warn' : ''}">${esc(st.detail)}</div>` : '')
-      + `<details class="adv"><summary>연동 관리</summary>
+      + (hasPw && u.verified === false ? `<p class="tiny muted sync-p">이메일 인증 메일을 보냈어요 · 인증하지 않아도 앱은 쓸 수 있어요</p>` : '')
+      + `<details class="adv"><summary>계정 관리</summary>
         <div class="row"><button class="btn sm soft grow" id="sn">${ic('refresh')} 지금 동기화</button><button class="btn sm line" id="lo">로그아웃</button></div>
-        ${hasPw ? '' : `<p class="tiny muted mt12">홈 화면 앱에서 Google 창이 안 열리면, 여기서 이메일 로그인을 추가해 두세요.</p>
-        <input class="input" id="lem" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off">
+        ${hasPw ? `<button class="btn sm soft block mt8" id="rp2">비밀번호 재설정 메일 받기</button>` : `<p class="tiny muted mt12">홈 화면 앱에서 Google 창이 안 열리면, 이메일 로그인을 추가해 두세요.</p>
+        <input class="input" id="lem" type="email" autocomplete="username" placeholder="이메일" autocapitalize="off" value="${esc(u.email || '')}">
         <input class="input mt8" id="lpw" type="password" autocomplete="new-password" placeholder="새 비밀번호 (6자 이상)">
-        <button class="btn sm block mt8" id="lk">이메일 로그인 추가</button>`}</details>`;
+        <button class="btn sm block mt8" id="lk">이메일 로그인 추가</button>`}
+        <div class="danger-zone">
+          <button class="btn sm line block" id="dmd">내 학습 데이터 삭제</button>
+          <button class="btn sm line block danger-t" id="dac">계정 삭제</button>
+        </div></details>`;
     $('#sn', el).onclick = () => { Y.syncNow(); };
-    $('#lo', el).onclick = async () => { if (await confirmSheet('로그아웃할까요?', '로그아웃', '이 기기의 데이터는 그대로 남아요.')) { await Y.logout(); toast('로그아웃했어요'); } };
-    $('#lk', el) && ($('#lk', el).onclick = () => { const em = $('#lem', el).value, pw = $('#lpw', el).value; if (!em || pw.length < 6) return toast('이메일과 6자 이상 비밀번호를 입력해주세요'); Y.linkEmail(em, pw).then(() => toast('이메일 로그인을 추가했어요')).catch(e => toast(Y.authErrorText(e))); });
+    $('#lo', el).onclick = async () => { if (await confirmSheet('로그아웃할까요?', '로그아웃', '내 기록은 계정에 저장돼 있어요. 다시 로그인하면 그대로 이어져요.')) { await Y.logout(); toast('로그아웃했어요'); } };
+    $('#rp2', el) && ($('#rp2', el).onclick = () => Y.resetPassword(u.email).then(() => toast('재설정 메일을 보냈어요')).catch(err));
+    $('#lk', el) && ($('#lk', el).onclick = () => { const em = $('#lem', el).value, pw = $('#lpw', el).value; if (!em || pw.length < 6) return toast('이메일과 6자 이상 비밀번호를 입력해주세요'); Y.linkEmail(em, pw).then(() => toast('이메일 로그인을 추가했어요')).catch(err); });
+    $('#dmd', el).onclick = async () => {
+      if (!await confirmSheet('내 학습 데이터를 모두 지울까요?', '삭제', 'SAVED·단어·진도·통화 기록이 이 기기와 클라우드에서 지워져요. 되돌릴 수 없어요. 영상과 문장은 그대로예요.')) return;
+      try { await Y.deleteMyData(); toast('내 학습 데이터를 지웠어요'); } catch (e) { err(e); }
+    };
+    $('#dac', el).onclick = () => deleteAccountSheet();
   };
   const unsub = Y.onStatus(render);
   render(Y.status());
-  tick = setInterval(() => el.isConnected ? (Y.status().state === 'synced' && !el.querySelector('details[open]') && render(Y.status())) : clearInterval(tick), 30000);
+  tick = setInterval(() => el.isConnected ? (Y.status().state === 'synced' && !el.querySelector('details[open]') && !el.contains(document.activeElement) && render(Y.status())) : clearInterval(tick), 30000);
   return () => { unsub(); clearInterval(tick); };
+}
+function deleteAccountSheet() {
+  const pw = Y.needsPassword();
+  const s = sheet(`<h3>계정을 삭제할까요?</h3><p class="sheet-p">계정과 내 학습 데이터(SAVED·단어·진도·기록)가 모두 지워지고 되돌릴 수 없어요. 필요하면 먼저 JSON 백업을 받아두세요.</p>
+    ${pw ? `<input class="input" id="dpw" type="password" autocomplete="current-password" placeholder="비밀번호 확인">` : `<p class="tiny muted">확인을 위해 Google 로그인 창이 한 번 더 열릴 수 있어요.</p>`}
+    <div class="stack mt12"><button class="btn block danger-bg" id="dgo">계정 삭제</button><button class="btn soft block" id="dno">취소</button></div>`);
+  $('#dno', s).onclick = () => s.close();
+  $('#dgo', s).onclick = async () => {
+    const v = pw ? $('#dpw', s).value : '';
+    if (pw && !v) return toast('비밀번호를 입력해주세요');
+    $('#dgo', s).disabled = true;
+    try { await Y.deleteAccount(v); s.close(); toast('계정을 삭제했어요'); }
+    catch (e) { $('#dgo', s).disabled = false; toast(Y.authErrorText(e)); }
+  };
 }
 
 // ---------- 내 프로필: 이름(백현이가 부르는 이름) · 사진 ----------
@@ -493,4 +536,43 @@ function sitSheet(vid, done) {
   const sh = sheet(`<h3>상황 고르기</h3><div class="sit-body"></div><button class="btn block mt12" id="sitdone">완료</button>`, { onClose: done });
   $('#sitdone', sh).onclick = () => sh.close();
   draw();
+}
+
+// ---------- 개인정보 처리방침 · 저작권 안내 ----------
+export function privacy(root) {
+  root.innerHTML = `<div class="screen doc-page">
+    <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>개인정보 · 저작권</h2><span class="icon-btn ghost"></span></header>
+    <section class="card stack doc">
+      <h3>개인정보 처리방침</h3>
+      <p class="small">BAEK TO YOU는 개인이 운영하는 비공식 영어 학습 앱이에요. 서비스에 꼭 필요한 정보만 처리해요.</p>
+      <h4>모으는 정보</h4>
+      <ul class="small bullets">
+        <li><b>계정</b>: 이메일 주소(또는 Google 계정의 이메일·이름·프로필 사진), Firebase가 만드는 사용자 ID</li>
+        <li><b>학습 데이터</b>: 저장한 표현·단어, 학습 진도, 통화 기록, 내가 입력하거나 말한 영어 문장, 프로필 이름·사진</li>
+      </ul>
+      <h4>저장 위치와 기간</h4>
+      <ul class="small bullets">
+        <li>학습 데이터는 이 기기 브라우저와 Google Firebase(Firestore, 서울 리전)에 계정별로 저장되고, 본인만 읽고 쓸 수 있어요.</li>
+        <li>녹음 파일과 AI API 키는 이 기기에만 저장되고 서버로 보내지 않아요.</li>
+        <li>계정을 삭제하면 계정과 학습 데이터가 바로 지워져요.</li>
+      </ul>
+      <h4>외부 서비스</h4>
+      <ul class="small bullets">
+        <li><b>음성 인식</b>: 브라우저·기기의 음성 인식 기능을 써요 (iPhone은 Apple, Chrome은 Google이 처리할 수 있어요).</li>
+        <li><b>AI 피드백</b>: 직접 넣은 API 키로 Google Gemini 또는 OpenAI에 내가 말한 영어와 문장 내용을 보내요. 각 회사의 정책이 적용돼요.</li>
+        <li><b>YouTube</b>: 영상은 YouTube 공식 플레이어로 재생되고 YouTube의 개인정보 처리방침이 적용돼요.</li>
+      </ul>
+      <h4>내 권리</h4>
+      <p class="small">SETTINGS › 계정 관리에서 언제든 <b>내 학습 데이터 삭제</b>, <b>계정 삭제</b>를 할 수 있고, DATA › JSON 백업으로 내 데이터를 받을 수 있어요. 그 밖의 요청은 앱을 공유한 관리자에게 연락해주세요.</p>
+    </section>
+    <section class="card stack doc mt12">
+      <h3>저작권 안내</h3>
+      <ul class="small bullets">
+        <li>이 앱은 아티스트·소속사와 관계없는 비공식 팬메이드 학습 도구예요.</li>
+        <li>영상은 YouTube 공식 임베드 플레이어로만 재생하고, 영상 파일을 복사하거나 저장하지 않아요. 영상의 권리는 각 원저작자에게 있어요.</li>
+        <li>통화 사진·대사 자막의 권리도 각 원저작자에게 있어요. 권리자의 요청이 있으면 바로 내려요.</li>
+        <li>앱 안의 영어 예문·번역·발음 음성(기기 음성 합성)은 학습용으로 만든 것이고, 아티스트 본인의 목소리가 아니에요.</li>
+      </ul>
+    </section>
+  </div>`;
 }

@@ -58,6 +58,7 @@ export class Player {
     this.state = name;
     if (name === 'playing') { this._startPoll(); this._noCC(); }
     if (name === 'ended' && this.seg) this._segEnd();
+    if (name === 'ended' && this.ambient && !this.seg) { try { this.p.seekTo(0, true); this.p.playVideo(); } catch { } } // 배경 재생은 끝나면 처음부터
     this.onState?.(name);
   }
   // 유튜브 자막은 항상 끔 (계정 설정에서 자막을 켜 둔 경우도)
@@ -88,18 +89,25 @@ export class Player {
     if (this.seg) { this.seg.resolve?.('stopped'); }
     let resolve; const done = new Promise(r => (resolve = r));
     this.seg = { start, end: end + tail, resolve, armed: false };
+    if (!this.ambient) this.sound(); // 항상 소리와 함께 재생 (음소거로 바꾸지 않음)
     if (this.vid !== ytId) { this.vid = ytId; this.p.loadVideoById({ videoId: ytId, startSeconds: start }); }
     else { this.p.seekTo(start, true); this.p.playVideo(); }
-    // iOS가 자동 재생을 막으면 사용자 탭이 필요
-    // 소리 있는 자동재생이 막히면 → 음소거로 먼저 재생(iOS 허용) · 첫 터치에 소리 켜기
-    setTimeout(() => {
+    // 브라우저가 자동 재생을 막았으면(오래 시작 안 됨) → 화면을 한 번 탭하면 소리와 함께 재생
+    clearTimeout(this._kickT);
+    this._kickT = setTimeout(() => {
       if (!this.seg || this.state === 'playing' || this.state === 'buffering') return;
-      try { this.p.mute(); this.p.playVideo(); this.mutedAuto = true; this.onState?.('muted'); } catch { this.onState?.('blocked'); }
-    }, 1200);
+      this.needTap = true; this.onState?.('blocked');
+    }, 3000);
     return done;
   }
+  // 사용자 탭 안에서 호출 → 소리와 함께 재생 시작
+  kick() { if (!this.needTap || !this.p) return; this.needTap = false; this.sound(); try { this.p.playVideo(); } catch { } this.onState?.('unblocked'); }
+  sound() { try { this.p?.unMute?.(); this.p?.setVolume?.(100); } catch { } }
+  mute() { try { this.p?.mute?.(); } catch { } }
+  // 배경 재생: 말하는 동안 장면만 계속 흐르게 (소리 없이) — 녹음·타이머와 무관
+  ambientPlay(on) { this.ambient = !!on; if (!this.p) return; if (on) { const sg = this.seg; this.seg = null; sg?.resolve?.('stopped'); this.mute(); try { this.p.playVideo(); } catch { } } else { this.sound(); } }
   // 영상만 잠깐 멈춤 (구간 정보는 유지 → resume으로 이어서 재생)
-  unmute() { if (this.mutedAuto) { try { this.p.unMute(); this.p.setVolume?.(100); } catch { } this.mutedAuto = false; this.onState?.('unmuted'); } }
+  unmute() { this.kick(); }
   pause() { this.p?.pauseVideo?.(); }
   resume() { if (this.p?.playVideo) { this.p.playVideo(); return true; } return false; }
   get playing() { return this.state === 'playing' || this.state === 'buffering'; }

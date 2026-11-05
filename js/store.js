@@ -98,17 +98,20 @@ export function snapshot(reason) {
 export function snapshotInfo() { try { const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); return s ? { at: s.at, reason: s.reason } : null; } catch { return null; } }
 export function restoreSnapshot() {
   const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); if (!s?.data) throw new Error('되돌릴 기록이 없어요');
-  db = migrate(s.data); localStorage.removeItem(SNAP); save();
+  const d = migrate(s.data);
+  if (!canEdit()) { d.videos = db.videos; d.utts = db.utts; CONTENT_SETTINGS.forEach(k => (d.settings[k] = db.settings[k])); } // 일반 사용자는 내 데이터만 되돌림
+  db = d; localStorage.removeItem(SNAP); save();
 }
+export const clearSnapshot = () => { try { localStorage.removeItem(SNAP); } catch { } }; // 계정 바꿀 때 (이전 계정 데이터가 남지 않게)
 
 // ---------- 영상 ----------
-export function addVideo(ytId, title) {
+export function addVideo(ytId, title) { if (!gate('addVideo')) return null;
   if (db.videos.some(v => v.ytId === ytId)) return db.videos.find(v => v.ytId === ytId);
   const v = { id: uid(), ytId, title: title || 'YouTube 영상', addedAt: Date.now() };
   db.videos.unshift(v); save(); return v;
 }
-export function updateVideo(id, patch) { const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch, { updatedAt: Date.now() }); save(); } }
-export function deleteVideo(id) {
+export function updateVideo(id, patch) { if (!gate('updateVideo')) return null; const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch, { updatedAt: Date.now() }); save(); } }
+export function deleteVideo(id) { if (!gate('deleteVideo')) return null;
   snapshot('영상 삭제');
   const ids = new Set(db.utts.filter(u => u.videoId === id).map(u => u.id));
   db.videos = db.videos.filter(v => v.id !== id);
@@ -121,16 +124,16 @@ export const uttsOf = vid => db.utts.filter(u => u.videoId === vid).sort((a, b) 
 export const utt = id => db.utts.find(u => u.id === id);
 export const savedLinkedTo = vid => { const ids = new Set(db.utts.filter(u => u.videoId === vid).map(u => u.id)); return db.saved.filter(s => ids.has(s.uttId)); };
 
-export function upsertUtt(u) {
+export function upsertUtt(u) { if (!gate('upsertUtt')) return null;
   const n = normUtt({ ...u, updatedAt: Date.now() });
   const i = db.utts.findIndex(x => x.id === n.id);
   if (i >= 0) db.utts[i] = n; else db.utts.push(n);
   save(); return n;
 }
-export function deleteUtt(id) { db.utts = db.utts.filter(u => u.id !== id); db.saved.forEach(s => { if (s.uttId === id) s.uttId = null; }); save(); }
+export function deleteUtt(id) { if (!gate('deleteUtt')) return null; db.utts = db.utts.filter(u => u.id !== id); db.saved.forEach(s => { if (s.uttId === id) s.uttId = null; }); save(); }
 
 // 특정 영상의 문장만 전부 삭제 (영상·다른 영상·SAVED 내용은 유지)
-export function clearUtts(vid) {
+export function clearUtts(vid) { if (!gate('clearUtts')) return { removed: 0 };
   snapshot('문장 전체 삭제');
   const ids = new Set(db.utts.filter(u => u.videoId === vid).map(u => u.id));
   let detached = 0;
@@ -237,7 +240,7 @@ export function grade(id, q) { rate(id, q === 0 ? 'again' : q === 3 ? 'mastered'
 export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due));
 export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
-export function setSetting(k, v) { db.settings[k] = v; save(); }
+export function setSetting(k, v) { if (CONTENT_SETTINGS.includes(k) && !gate(k)) return; db.settings[k] = v; save(); }
 export function addTalkLog(log) { db.talkLogs.unshift({ id: uid(), at: Date.now(), ...log }); db.talkLogs = db.talkLogs.slice(0, 400); bump(); save(); }
 // 통화 기록 요약 (총 통화 시간 중심)
 export function callStats() {
@@ -269,18 +272,21 @@ export function callName(withParticle = true) {
 }
 
 // ---------- 백업 / 복원 ----------
-export function exportJSON() { return JSON.stringify({ app: 'BAEK TO YOU', exportedAt: new Date().toISOString(), ...db }, null, 2); }
+export function exportJSON() { return JSON.stringify({ app: 'BAEK TO YOU', exportedAt: new Date().toISOString(), ...getPersonal(), ...(canEdit() ? getContent() : {}), settings: { ...getPersonal().settings, ...(canEdit() ? getContent().settings : {}) } }, null, 2); }
 export function importJSON(text, mode = 'replace') {
   const d = JSON.parse(text);
-  if (!d || !Array.isArray(d.videos) || !Array.isArray(d.utts)) throw new Error('BAEK TO YOU 백업 파일 형식이 아니에요.');
+  if (!d || !(Array.isArray(d.saved) || Array.isArray(d.videos))) throw new Error('BAEK TO YOU 백업 파일 형식이 아니에요.');
+  const edit = canEdit();
+  // 일반 사용자: 공용 콘텐츠(영상·문장)는 건드리지 않고 내 학습 데이터만 복원
+  if (!edit) { d.videos = db.videos; d.utts = db.utts; CONTENT_SETTINGS.forEach(k => { if (d.settings) d.settings[k] = db.settings[k]; }); }
   const inc = migrate(d);
   snapshot('백업 복원');
   if (mode === 'replace') db = inc;
   else {
     const vmap = {};
-    inc.videos.forEach(v => { const ex = db.videos.find(x => x.ytId === v.ytId); if (ex) vmap[v.id] = ex.id; else { db.videos.push(v); vmap[v.id] = v.id; } });
+    if (edit) inc.videos.forEach(v => { const ex = db.videos.find(x => x.ytId === v.ytId); if (ex) vmap[v.id] = ex.id; else { db.videos.push(v); vmap[v.id] = v.id; } });
     const uids = new Set(db.utts.map(u => u.id));
-    inc.utts.forEach(u => { if (!uids.has(u.id)) db.utts.push({ ...u, videoId: vmap[u.videoId] || u.videoId }); });
+    if (edit) inc.utts.forEach(u => { if (!uids.has(u.id)) db.utts.push({ ...u, videoId: vmap[u.videoId] || u.videoId }); });
     const sids = new Set(db.saved.map(s => s.id));
     inc.saved.forEach(s => { if (!sids.has(s.id)) db.saved.push(s); });
     const aids = new Set(db.attempts.map(a => a.id));
@@ -292,22 +298,60 @@ export function importJSON(text, mode = 'replace') {
   }
   save();
 }
-export function resetAll() { snapshot('전체 초기화'); db = defaults(); save(); AudioStore.clear(); window.dispatchEvent(new Event('b2u:reset')); }
+// 내 학습 데이터만 초기화 (공용 영상·문장은 그대로)
+export function resetAll() { snapshot('내 데이터 초기화'); applyPersonal(emptyPersonal()); save(); AudioStore.clear(); window.dispatchEvent(new Event('b2u:reset')); }
 
-// ---------- 동기화용 ----------
-// 기기마다 다른 설정(음성 목록 등)은 동기화하지 않음
-export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera', 'userPhotos', 'hiddenPhotos']; // 사진 파일은 이 기기에만 있어서 함께 기기별로
-export function getShared() {
-  const settings = { ...db.settings }; LOCAL_ONLY_SETTINGS.forEach(k => delete settings[k]);
-  return { version: db.version, videos: db.videos, utts: db.utts, saved: db.saved, words: db.words, attempts: db.attempts, progress: db.progress, talkLogs: db.talkLogs, days: db.days, settings };
+// ---------- 공용 콘텐츠 / 개인 학습 데이터 분리 ----------
+// · 공용 콘텐츠(모든 사용자 같음 · 관리자만 수정): 영상 · 문장 · 아래 설정
+// · 개인 데이터(계정마다 따로): SAVED · 단어 · 학습 진도 · 기록 · 통화 기록 · 개인 설정
+export const CONTENT_SETTINGS = ['sttFix', 'customSits', 'hiddenSits', 'hiddenPhotos', 'userPhotos'];
+export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera']; // 기기마다 다른 값
+const PERSONAL_LISTS = ['saved', 'attempts', 'talkLogs', 'words'];
+
+// 권한: Firebase를 쓰는 동안엔 관리자만 콘텐츠 수정 가능 (서버 보안 규칙도 같은 기준)
+let role = { cloud: false, admin: false };
+let acctKey = (() => { try { return localStorage.getItem('b2u:acct') || localStorage.getItem('b2u:lastUid') || 'guest'; } catch { return 'guest'; } })();
+export const setRole = r => { role = { ...role, ...r }; listeners.forEach(fn => fn({ role: true })); };
+export const isAdmin = () => role.admin;
+export const canEdit = () => !role.cloud || role.admin;
+export const accountKey = () => acctKey;
+export const setAccountKey = k => { acctKey = k || 'guest'; try { localStorage.setItem('b2u:acct', acctKey); } catch { } };
+function gate(what) { if (canEdit()) return true; console.warn('[권한] 관리자만 수정할 수 있어요:', what); return false; }
+
+export function getContent() {
+  const settings = {}; CONTENT_SETTINGS.forEach(k => (settings[k] = db.settings[k]));
+  return { version: db.version, videos: db.videos, utts: db.utts, settings };
 }
-export const normalize = d => migrate(JSON.parse(JSON.stringify(d || {})));
-export function applyShared(data) {
-  const keep = {}; LOCAL_ONLY_SETTINGS.forEach(k => (keep[k] = db.settings[k]));
-  db = migrate({ ...data, settings: { ...(data.settings || {}), ...keep } });
+export function applyContent(c) {
+  const d = migrate({ ...db, videos: c.videos || [], utts: c.utts || [], settings: { ...db.settings, ...pick(c.settings || {}, CONTENT_SETTINGS) } });
+  db = d; clearTimeout(saveTimer); flush();
+  listeners.forEach(fn => fn({ remote: true, content: true }));
+}
+export function getPersonal() {
+  const settings = { ...db.settings }; CONTENT_SETTINGS.concat(LOCAL_ONLY_SETTINGS).forEach(k => delete settings[k]);
+  const out = { version: db.version, progress: db.progress, days: db.days, settings };
+  PERSONAL_LISTS.forEach(k => (out[k] = db[k]));
+  return out;
+}
+export function applyPersonal(p) {
+  const keep = {}; CONTENT_SETTINGS.concat(LOCAL_ONLY_SETTINGS).forEach(k => (keep[k] = db.settings[k]));
+  const base = defaults();
+  db = migrate({ ...base, ...(p || {}), videos: db.videos, utts: db.utts, settings: { ...base.settings, ...((p || {}).settings || {}), ...keep } });
   clearTimeout(saveTimer); flush();
-  listeners.forEach(fn => fn({ remote: true }));
+  listeners.forEach(fn => fn({ remote: true, personal: true }));
 }
+export const emptyPersonal = () => { const d = defaults(); const st = { ...d.settings }; CONTENT_SETTINGS.concat(LOCAL_ONLY_SETTINGS).forEach(k => delete st[k]); const out = { version: 2, progress: {}, days: {}, settings: st }; PERSONAL_LISTS.forEach(k => (out[k] = [])); return out; };
+export const hasPersonal = p => !!p && (PERSONAL_LISTS.some(k => (p[k] || []).length) || Object.keys(p.progress || {}).length > 0);
+// 계정별 개인 데이터 보관 (이 기기) — 계정을 바꿔도 다른 사람 기록이 보이지 않게
+const PKEY = k => 'baek-to-you:personal:' + k;
+export function stashPersonal(k) { try { localStorage.setItem(PKEY(k), JSON.stringify(getPersonal())); } catch { } }
+export function loadStash(k) { try { return JSON.parse(localStorage.getItem(PKEY(k)) || 'null'); } catch { return null; } }
+export function dropStash(k) { try { localStorage.removeItem(PKEY(k)); } catch { } }
+const pick = (o, keys) => { const r = {}; keys.forEach(k => { if (o[k] !== undefined) r[k] = o[k]; }); return r; };
+export const normalize = d => migrate(JSON.parse(JSON.stringify(d || {})));
+// 예전 함수 (호환)
+export function getShared() { return { ...getContent(), ...getPersonal(), settings: { ...getPersonal().settings, ...getContent().settings } }; }
+export function applyShared(data) { applyContent(data); applyPersonal(data); }
 
 // ---------- 문장 JSON 검사 / 추가 / 교체 ----------
 // 업로드 전 전체를 검사하고, 오류가 하나라도 있으면 아무것도 바꾸지 않음
@@ -339,7 +383,7 @@ export function validateUtts(input) {
   return { ok: !errors.length && items.length > 0, errors: errors.length ? errors : (items.length ? [] : ['문장이 0개예요']), warns, items };
 }
 // mode: 'add' | 'replace'
-export function applyUtts(videoId, items, mode = 'add') {
+export function applyUtts(videoId, items, mode = 'add') { if (!gate('applyUtts')) return { added: 0, removed: 0, relinked: 0, detached: 0 };
   snapshot(mode === 'replace' ? '문장 교체' : '문장 추가');
   const old = db.utts.filter(u => u.videoId === videoId);
   const fresh = items.map(raw => normUtt({ ...raw, id: uid(), videoId }));
