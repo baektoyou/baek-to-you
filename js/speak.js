@@ -6,6 +6,7 @@ import { Player } from './yt.js';
 import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, naturalHTML, bindSaves, swipeDelete, compareHTML, bindCompare } from './ui.js';
 import { diff } from './compare.js';
 import { banmal } from './banmal.js';
+import { smartFeedback } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
 import { judgeReply, judgeTranslation, bestReply, keyExpressions } from './judge.js';
 import { appQuestion, detectTopics } from './talk-engine.js';
@@ -352,9 +353,9 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords }, replay: () => startClip(u) }); log('sp-call', r, u.id); if (stopped) return;
       if (r.skipped || !r.text) { if (!stopped) callPos = i + 1; continue; }
       status('다듬는 중…');
-      const imp = await improve(r.text, { pattern: u.pattern, useLT: D.get().settings.autoLT !== false }); if (stopped) return;
+      const f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       const save = saveMine(u, r.text);
-      const k = await card(compareHTML({ said: r.text, fixed: imp.after, target, label: '추천', ev: judgeTranslation(r.text, target), acc: diff(r.text, target).score, why: imp.changes?.[0]?.why || '', xs: keyExpressions(target, { pattern: u.pattern, said: r.text }) }),
+      const k = await card(compareHTML({ said: r.text, fixed: f.fixed, target: f.natural, answer: target, label: '추천', ev: f.ev, acc: diff(r.text, target).score, why: f.why, xs: f.xs, ai: f.ai }),
         [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
       if (stopped) return;
       if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }
@@ -371,17 +372,15 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const r = await turn({ label: '영어로 대답해볼까?', hint: replyHint(q.u), replay: () => startClip(q.u) }); log('sp-chat', r, q.u.id); if (stopped) return;
       if (r.skipped || !r.text) continue;
       status('다듬는 중…');
-      const ev = judgeReply(r.text, { question: q.en, strict: true });
-      const imp = await improve(r.text, { useLT: D.get().settings.autoLT !== false }); if (stopped) return;
-      const rec = bestReply(r.text, q.u.replies);
+      const f = await smartFeedback({ mode: 'reply', said: r.text, question: q.en, qko: q.ko, replies: q.u.replies }); if (stopped) return;
       const ans = q.real ? answerClip(q.u) : null;
       const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
       const save = saveMine(q.u, r.text);
-      const tgt = rec && canon(rec) !== canon(imp.after) ? rec : '';
-      const k = await card(compareHTML({ said: r.text, fixed: imp.after, target: tgt, label: '추천', ev, why: imp.changes?.[0]?.why || '', xs: keyExpressions(tgt || imp.after, { said: r.text }) }),
+      const tgt = f.natural && canon(f.natural) !== canon(f.fixed) ? f.natural : '';
+      const k = await card(compareHTML({ said: r.text, fixed: f.fixed, target: tgt, label: '추천', ev: f.ev, why: f.why, xs: f.xs, ai: f.ai }),
         [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
       if (stopped) return;
-      if (k === 'read') { const k2 = await practice(tgt || imp.after, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
+      if (k === 'read') { const k2 = await practice(tgt || f.fixed, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
       if (ans) { await say(ans); if (stopped) return; say2('baek', banmal(ans.ko)); if (nq) startClip(nq.u); }
     }
   }
@@ -423,13 +422,12 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       tg.classList.add('hide');
       const w = words(r.text);
       hint = talkHint(r.text, used); used.push(hint.k);
-      const ev = r.text ? judgeReply(r.text, { question: q.en, strict: false }) : null;
-      const imp = r.text ? await improve(r.text, { useLT: D.get().settings.autoLT !== false }) : null; if (stopped) return;
-      const br = bestReply(r.text, q.u.replies);
+      if (r.text) status('다듬는 중…');
+      const f = r.text ? await smartFeedback({ mode: 'long', said: r.text, question: q.en, qko: q.ko, replies: q.u.replies }) : null; if (stopped) return;
       const last = i === ROUNDS.length - 1;
       await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${ROUNDS[i]}초 · ${w}단어${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${r.text ? compareHTML({ said: r.text, fixed: imp?.after, target: br && imp && canon(br) !== canon(imp.after) ? br : '', label: '추천', ev, why: imp?.changes?.[0]?.why || '' }) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${f ? compareHTML({ said: r.text, fixed: f.fixed, target: f.natural, label: '추천', ev: f.ev, why: f.why, xs: f.xs, ai: f.ai }) : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last ? `<div class="long-hint"><span class="lh-tag">${ic('bulb')} 다음 라운드에 넣어볼 것</span><b>${esc(hint.t)}</b><p><span class="en">${esc(hint.ex)}</span> · ${esc(hint.ko)}</p></div>` : ''}
           <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 라운드 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));

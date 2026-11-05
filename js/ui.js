@@ -351,16 +351,18 @@ function fixHTML(before, after) {
   return d.ops.filter(o => o.op !== 'del').map(o => String(o.b || '').split(/\s+/).filter(Boolean).map(w => wspan(w, o.op === 'add' ? 'ins' : '')).join(' ')).join(' ');
 }
 // opt: {said, fixed, target, label:'추천'|'정답', ev, acc, why, xs:[표현]}
-export function compareHTML({ said = '', fixed = '', target = '', label = '추천', ev = null, acc = null, why = '', xs = [] } = {}) {
+export function compareHTML({ said = '', fixed = '', target = '', label = '추천', ev = null, acc = null, why = '', xs = [], answer = '', ai = false } = {}) {
   const showFix = fixed && canonT(fixed) !== canonT(said);
   const showT = target && canonT(target) !== canonT(showFix ? fixed : said);
-  const seen = new Set([canonT(said), canonT(fixed), canonT(target)]);
+  const showA = answer && ![said, fixed, target].some(x => canonT(x) === canonT(answer));
+  const seen = new Set([canonT(said), canonT(fixed), canonT(target), canonT(answer)]);
   const chips = (xs || []).filter(x => { const k = canonT(x.text || x); if (!k || seen.has(k)) return false; seen.add(k); return true; });
   return `<div class="cmp">
-    ${ev ? `<div class="cmp-h"><div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b></div>${acc != null ? `<span class="acc">정확도 <b>${acc}%</b></span>` : ''}</div>` : ''}
+    ${ev ? `<div class="cmp-h"><div class="vd ${ev.level}"><b><i></i>${esc(ev.title)}</b></div><span class="acc">${ai ? '<i class="ai-tag">AI</i>' : ''}${acc != null ? `정확도 <b>${acc}%</b>` : ''}</span></div>` : ''}
     ${said ? `<div class="cmp-r me"><span class="cmp-l">내 문장</span><p class="en lp">${lpHTML(said)}</p></div>` : ''}
     ${showFix ? `<div class="cmp-r fix"><span class="cmp-l">교정</span><p class="en lp">${fixHTML(said, fixed)}</p><button class="sv" type="button" data-sv="${esc(fixed)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
     ${showT ? `<div class="cmp-r tg"><span class="cmp-l">${esc(label)}</span><p class="en lp">${lpHTML(target)}</p><button class="sv" type="button" data-sv="${esc(target)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
+    ${showA ? `<div class="cmp-r tg ans"><span class="cmp-l">정답</span><p class="en lp">${lpHTML(answer)}</p><button class="sv" type="button" data-sv="${esc(answer)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
     ${!showFix && !showT && said ? `<div class="cmp-r ok"><span class="cmp-l"></span><p class="cmp-ok">${ic('check')} 그대로 자연스러워요</p><button class="sv" type="button" data-sv="${esc(said)}" aria-label="저장">${ic('bookmark')}</button></div>` : ''}
     ${why && showFix ? `<p class="cmp-why">${esc(why)}</p>` : ''}
     ${exprChips(chips)}

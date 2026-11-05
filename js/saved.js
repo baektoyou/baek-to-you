@@ -1,7 +1,9 @@
 // SAVED — 문장 · 표현 · 단어 저장 → 질문에 영어로 대답하며 복습
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
-import { esc, $, $$, ic, toast, sheet, micBlock, confirmSheet, ytLink, natOf, phrasePicker, hintBox, unitHTML, verdictHTML } from './ui.js';
+import { esc, $, $$, ic, toast, sheet, micBlock, confirmSheet, ytLink, natOf, phrasePicker, hintBox, unitHTML, verdictHTML, compareHTML, bindCompare } from './ui.js';
+import { smartFeedback } from './ai.js';
+const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
 import { markPattern, splitPatterns, diff } from './compare.js';
 import { improve, patternParts } from './feedback.js';
 import { judgeReply, questionFor } from './judge.js';
@@ -176,16 +178,18 @@ function review(root, items) {
     stop = () => m.stop();
     async function check(text) {
       const my = ++seq; judged = true;
-      let ev = judgeReply(text, { question: q.en, expr, strict: !!q.en });
-      let ok = ev.ok;
-      if (!isW) { const d = diff(text, target); if (d.keyRecall >= 0.7 && !(ev.gram || []).length) { ok = true; if (ev.level !== 'great') ev = { ...ev, level: 'great', title: '잘 기억했어요', msg: '' }; } }
       if (!isW) { const pk = $('#peek', root); pk.classList.remove('veil'); pk.dataset.open = '1'; }
-      fbz.innerHTML = verdictHTML(ev);
-      // 다듬은 내 문장 → 위 카드에서 바로 저장
-      const r = await improve(text, { pattern: expr, useLT: D.get().settings.autoLT !== false }); if (my !== seq) return;
-      const fixed = r?.after || text;
+      fbz.innerHTML = '<p class="small muted rv-wait">확인하는 중…</p>';
+      const f = await smartFeedback({ mode: 'review', said: text, question: q.en, qko: q.ko, expr, target: isW ? '' : target, pattern: x.pattern || '' }); if (my !== seq) return;
+      let ev = f.ev, ok = ev.ok;
+      // 문장 복습: 저장한 문장을 거의 그대로 기억해 말했으면 맞음
+      if (!isW) { const d = diff(text, target); if (d.keyRecall >= 0.7 && ev.level !== 'off' && !(ev.gram || []).length) { ok = true; if (!ev.ok) ev = { ...ev, level: 'great', title: '잘 기억했어요', ok: true }; } }
+      fbz.innerHTML = compareHTML({ said: text, fixed: f.fixed, ev, why: f.why, xs: f.xs, ai: f.ai });
+      bindCompare(fbz, t => ({ kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: t, before: text, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: q.en || q.ko }));
+      // 추천 문장 → 위 핑크 카드에서 바로 저장
+      const fixed = f.natural || f.fixed || text;
       rr.classList.remove('hide');
-      rr.innerHTML = `<span class="rv-l">${r && !r.same ? '다듬은 내 문장' : '내 문장'}</span><button class="rv-save" id="rsv" type="button"><span class="en">${unitHTML(fixed, expr)}</span><i>${ic('bookmark')}</i></button>`;
+      rr.innerHTML = `<span class="rv-l">${f.ai ? '이렇게 말해봐요' : canon(fixed) !== canon(text) ? '다듬은 내 문장' : '내 문장'}</span><button class="rv-save" id="rsv" type="button"><span class="en">${unitHTML(fixed, expr)}</span><i>${ic('bookmark')}</i></button>`;
       $('#rsv', root).onclick = e => {
         const s2 = D.saveExpr({ kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: '', text: fixed, before: text, en: { easy: '', natural: fixed, advanced: '' }, pattern: expr, note: q.en || q.ko });
         if (isW) D.updateWord(x.id, { made: [...(x.made || []), { text: fixed, at: Date.now() }] });

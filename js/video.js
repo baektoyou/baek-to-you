@@ -6,6 +6,7 @@ import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, compareHTML, bindComp
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
+import { smartFeedback } from './ai.js';
 import { banmal } from './banmal.js';
 import { isLive, avatarStyle } from './scene.js';
 
@@ -169,9 +170,9 @@ export function study(root, uttId) {
     await chips([['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [target] }]], { replay: true }); if (dead) return;
     const said = await askInput('영어로 말해봐요', [target]); if (dead) return;
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
-    const ev = judgeTranslation(said, target), acc = diff(said, target).score;
-    const r = await improve(said, { pattern: x.pattern, useLT: D.get().settings.autoLT !== false }); if (dead) return;
-    const el = await bh(compareHTML({ said, fixed: r.after, target, label: '추천', ev, acc, why: r.changes?.[0]?.why || '', xs: keyExpressions(target, { pattern: x.pattern, said }) }), 'wide'); if (dead) return;
+    const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
+    const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
+    const el = add('bh', compareHTML({ said, fixed: f.fixed, target: f.natural, answer: target, label: '추천', ev: f.ev, acc: diff(said, target).score, why: f.why, xs: f.xs, ai: f.ai }), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;

@@ -1,5 +1,6 @@
 // SETTINGS — 영상 라이브러리 · 문장 관리 · 음성 · 데이터 백업
 import * as D from './store.js';
+import { askAI, AI_ERR, aiOn, aiKeys, setAiKeys, PROVIDERS, DEFAULT_MODEL } from './ai.js';
 import * as S from './speech.js';
 import { parseYouTubeId, fetchTitle, thumb, Player } from './yt.js';
 import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
@@ -54,6 +55,13 @@ export function settings(root) {
     <div class="card stack">
       <label class="switch"><span><b>문장 다듬기에 LanguageTool 함께 쓰기</b><small>무료 공개 문법 검사 서버 · 내가 말한 영어 문장이 그 서버로 전송돼요. 끄면 앱 안의 규칙만 사용해요</small></span><input type="checkbox" id="lt" ${st.autoLT !== false ? 'checked' : ''}><i></i></label>
       <label class="switch"><span><b>통화 화면 꽉 채우기</b><small>끄면 가로 영상이 잘리지 않게 전체로 보여요 (통화 중에도 바꿀 수 있어요)</small></span><input type="checkbox" id="cf" ${st.callFill !== false ? 'checked' : ''}><i></i></label>
+    </div>
+    <div class="sec-title label">AI 피드백</div>
+    <div class="card stack">
+      <label class="switch"><span><b>AI로 교정·추천하기</b><small>안 되면 앱 안의 규칙 피드백으로 자동 전환</small></span><input type="checkbox" id="aion" ${st.aiOn !== false ? 'checked' : ''}><i></i></label>
+      <div class="seg" id="aiprov">${PROVIDERS.map(([k, l]) => `<button data-p="${k}" class="${(st.aiProvider || 'worker') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div id="aibox"></div>
+      <div class="row"><button class="btn sm soft" id="aitest">연결 테스트</button><span class="small muted grow" id="aist"></span></div>
     </div>
 
     <div class="sec-title label">DATA</div>
@@ -119,6 +127,35 @@ export function settings(root) {
   // 인식
   $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
   $('#lt', root).onchange = e => D.setSetting('autoLT', e.target.checked);
+  $('#aion', root).onchange = e => D.setSetting('aiOn', e.target.checked);
+  const drawAI = () => {
+    const p = D.get().settings.aiProvider || 'worker', k = aiKeys(), st3 = D.get().settings;
+    $('#aibox', root).innerHTML = p === 'worker'
+      ? `<label class="field"><span>Worker 주소</span><input class="input en" id="aiurl" value="${esc(st3.aiUrl || '')}" placeholder="https://baek-ai.이름.workers.dev" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+         <label class="field"><span>앱 토큰 (Worker의 APP_TOKEN과 같게)</span><input class="input en" id="aitok" value="${esc(st3.aiToken || '')}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+         <p class="tiny muted">키는 내 Cloudflare Worker에만 있어요 · 설정 방법: ZIP 안의 AI_SETUP.md</p>`
+      : `<label class="field"><span>${p === 'gemini' ? 'Gemini API 키 (aistudio.google.com · 무료)' : 'OpenAI API 키 (platform.openai.com · 유료 크레딧)'}</span><input class="input en" id="aikey" type="password" value="${esc(k[p] || '')}" placeholder="${p === 'gemini' ? 'AIza…' : 'sk-…'}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+         <label class="field"><span>모델 (비우면 ${DEFAULT_MODEL[p]})</span><input class="input en" id="aimodel" value="${esc(k[p + 'Model'] || '')}" placeholder="${DEFAULT_MODEL[p]}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+         <p class="tiny muted">키는 이 기기에만 저장돼요 (동기화·JSON 백업에 안 들어가요). ${p === 'gemini' ? '무료 등급은 보낸 문장이 Google 서비스 개선에 쓰일 수 있어요.' : 'ChatGPT API는 쓴 만큼 크레딧이 차감돼요.'}</p>`;
+    $('#aiurl', root) && ($('#aiurl', root).onchange = e => D.setSetting('aiUrl', e.target.value.trim()));
+    $('#aitok', root) && ($('#aitok', root).onchange = e => D.setSetting('aiToken', e.target.value.trim()));
+    $('#aikey', root) && ($('#aikey', root).onchange = e => setAiKeys({ [p]: e.target.value.trim() }));
+    $('#aimodel', root) && ($('#aimodel', root).onchange = e => setAiKeys({ [p + 'Model']: e.target.value.trim() }));
+    $('#aist', root).textContent = '';
+  };
+  drawAI();
+  $$('[data-p]', root).forEach(b => b.onclick = () => { D.setSetting('aiProvider', b.dataset.p); $$('[data-p]', root).forEach(x => x.classList.toggle('on', x === b)); drawAI(); });
+  $('#aitest', root).onclick = async () => {
+    const p = D.get().settings.aiProvider || 'worker';
+    if (p === 'worker') { D.setSetting('aiUrl', $('#aiurl', root).value.trim()); D.setSetting('aiToken', $('#aitok', root).value.trim()); }
+    else setAiKeys({ [p]: $('#aikey', root).value.trim(), [p + 'Model']: $('#aimodel', root).value.trim() });
+    const st2 = $('#aist', root);
+    if (D.get().settings.aiOn === false) { st2.textContent = '위 스위치를 켜주세요'; return; }
+    if (!aiOn()) { st2.textContent = p === 'worker' ? 'Worker 주소를 넣어주세요' : 'API 키를 넣어주세요'; return; }
+    st2.textContent = '확인 중…';
+    const r = await askAI({ mode: 'translate', ko: '나 오늘 라면 먹었어', target: 'I had ramen today.', said: 'i eat ramen today' });
+    st2.textContent = r && !r.error && r.natural ? `연결됐어요 · “${r.natural}”` : `안 돼요 · ${AI_ERR[r?.error] || r?.error || '알 수 없는 오류'}${r?.status ? ` (${r.status})` : ''}`;
+  };
   // ----- 통화 사진 관리 -----
   const drawPhotos = () => {
     const all = allPhotos(); const more = all.length > 8 && !photosOpen;

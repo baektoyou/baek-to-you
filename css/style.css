@@ -1202,3 +1202,5 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .sit-row.center .sit{height:34px;padding:0 16px;font-size:13px}
 .sit.more{border-style:solid;color:var(--ink2)}
 .modes{gap:10px}
+.ai-tag{display:inline-block;font-style:normal;font-size:9.5px;font-weight:600;letter-spacing:.06em;color:var(--pink-ink);background:var(--pink-soft);border-radius:5px;padding:1px 5px;margin-right:6px;vertical-align:1px}
+.cmp-r.ans .cmp-l{color:var(--muted)}
