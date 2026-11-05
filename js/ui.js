@@ -450,15 +450,16 @@ export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '�
 }
 // CHAT·CALL 코칭 카드: 한 줄 피드백 · 추천 문장(+ 한국어 작게) · 왜 이렇게 말하는지 · 핵심 표현(누르면 저장 + 언제 쓰는지)
 // 내 문장·문법 밑줄은 보여주지 않음
-export function coachHTML(f, { rec = '', recKo = '', label = '추천 문장' } = {}) {
+export function coachHTML(f, { rec = '', recKo = '', label = '추천 문장', pattern = '' } = {}) {
   if (!f) return '';
   const sent = rec || f.natural || '';
   const ko = recKo || f.recKo || '';
+  const xs = (f.xs || []).length ? f.xs : pattern ? [{ text: pattern, ko: '', use: '이 문장의 핵심 패턴' }] : [];
   return `<div class="fb2 coach">
     ${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}
     ${sent ? `<div class="cs"><span class="fl">${esc(label)}</span><div class="cs-b"><p class="en lp">${lpHTML(sent)}</p>${ko ? `<p class="cs-ko">${esc(ko)}</p>` : ''}</div><button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button></div>` : ''}
+    ${xs.length ? `<div class="kx">${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : ''}
     ${f.why ? `<div class="why"><span class="fl">왜 좋아?</span><p>${esc(f.why).replace(/\n/g, '<br>')}</p></div>` : ''}
-    ${(f.xs || []).length ? `<div class="kx"><span class="fl">표현 · 눌러서 저장</span>${f.xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : ''}
   </div>`;
 }
 // AI 답변 (영어 질문하기)

@@ -179,7 +179,7 @@ function answerFrames(qEn) {
 // ---------- 통화 ----------
 // 전화하기 = 백현이 한국어를 듣고 영어로 번역해서 말하기 (정답 영어는 말하기 전에 안 보여줌)
 // 단계: 백현이 말함(한국어 자막) → 내가 영어로 → 내 문장 교정 + 자연스러운 표현 → [다시 말하기 · 연습 · 다음] → 다음 누르면 다음 구간 재생
-function call(root, mode, v = null, { start = 0 } = {}) {
+function call(root, mode, v = null, { start = null } = {}) {
   active?.(); active = null;
   let qs = mode === 'ask' ? shuffle(questionPool()) : mode === 'long' ? questionPool().map(q => ({ q, s: richScore(q) + Math.random() * 1.5 })).sort((a, b) => b.s - a.s).map(x => x.q) : [];
   if (mode !== 'call') v = (qs[0] && D.video(qs[0].u.videoId)) || v;
@@ -188,6 +188,8 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   const ph = pickPhoto(v);
   const st = D.get().settings, me = D.profile(), myName = me.name || '나';
   const list = mode === 'call' && v ? callTurns(v) : [];
+  // 새 전화는 영상 속 랜덤 위치에서 시작 (이어서 하기는 그 위치부터) · 최소 3문장은 남게
+  if (start == null) start = mode === 'call' && list.length > 1 ? Math.floor(Math.random() * Math.max(1, list.length - 2)) : 0;
   root.innerHTML = `<div class="vcall fill">
     <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
       <div class="vc-wait" id="vwait"><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
@@ -336,7 +338,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   // 카드: 버튼을 누를 때까지 기다림 (자동으로 안 넘어감) · 왼쪽 = 연습, 오른쪽 = 다음(작게)
   function card(html, btns, save) {
     return new Promise(res => {
-      fb.innerHTML = `<div class="fbc">${html}<div class="fbc-btns">${btns.map(([k, l, cls]) => `<button class="${cls === 'nx' ? 'nx-btn' : 'btn sm'}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
+      fb.innerHTML = `<div class="fbc ${html ? '' : 'bare'}">${html}<div class="fbc-btns">${btns.map(([k, l, cls]) => `<button class="${cls === 'nx' ? 'nx-btn' : 'btn sm'}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
       fb.classList.remove('hide'); fb.scrollTop = 0; $v('.vc-low').classList.add('fbon'); status('');
       bindCompare(fb, save);
       $$('[data-k]', fb).forEach(b => b.onclick = () => { const o = btns.find(x => x[0] === b.dataset.k)?.[3]; o?.tap?.(); if (b.dataset.k === 'read' || b.dataset.k === 'recall') micEarly = true; skipTurn = null; hideFb(); res(b.dataset.k); });
@@ -362,7 +364,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko }); if (stopped) return 'stop';
       const right = !!(b.text && f.correct); // 맞히면 완료 · ‘다음’만
       if (right && uttId) D.markStep(uttId, 'recall');
-      const k2 = await card(coachHTML(f, { rec: target, recKo: ko }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
+      const k2 = await card(coachHTML(f, { rec: target, recKo: ko, pattern }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k2 === 'next') return k2;
       a.text = '';
     }
@@ -379,7 +381,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       status('다듬는 중…');
       const f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       const save = saveMine(u, r.text);
-      const k = await card(coachHTML(f, { rec: target, recKo: u.ko }),
+      const k = await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern }),
         [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save);
       if (stopped) return;
       if (k === 'read') { const k2 = await practice(target, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, nextU: nx, save }); if (k2 === 'stop') return; }

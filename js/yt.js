@@ -36,7 +36,8 @@ export async function fetchTitle(id) {
 }
 
 export class Player {
-  constructor(el, { onState, onReady, controls = 1 } = {}) {
+  constructor(el, { onState, onReady, controls = 1, mutedFallback = false } = {}) {
+    this.mutedFallback = mutedFallback;
     this.el = el; this.onState = onState; this.ready = false; this.seg = null; this.loop = false; this._poll = null; this.vid = null;
     this.readyP = loadAPI().then(YT => new Promise(res => {
       if (!YT) { el.innerHTML = '<div class="yt-fail">YouTube를 불러오지 못했어요.<br>네트워크를 확인해주세요.</div>'; return res(false); }
@@ -94,14 +95,17 @@ export class Player {
     else { this.p.seekTo(start, true); this.p.playVideo(); }
     // 브라우저가 자동 재생을 막았으면(오래 시작 안 됨) → 화면을 한 번 탭하면 소리와 함께 재생
     clearTimeout(this._kickT);
+    // CHAT: 소리 있는 자동 재생이 막히면 바로 음소거로 재생 → 화면 아무 데나 터치하면 소리 켜짐
+    // CALL: 음소거로 바꾸지 않고 ‘탭해서 재생’
     this._kickT = setTimeout(() => {
       if (!this.seg || this.state === 'playing' || this.state === 'buffering') return;
-      this.needTap = true; this.onState?.('blocked');
-    }, 3000);
+      if (this.mutedFallback) { this.mute(); try { this.p.playVideo(); } catch { } this.mutedAuto = true; this.onState?.('muted'); }
+      else { this.needTap = true; this.onState?.('blocked'); }
+    }, this.mutedFallback ? 1200 : 3000);
     return done;
   }
   // 사용자 탭 안에서 호출 → 소리와 함께 재생 시작
-  kick() { if (!this.needTap || !this.p) return; this.needTap = false; this.sound(); try { this.p.playVideo(); } catch { } this.onState?.('unblocked'); }
+  kick() { if (this.mutedAuto) { this.mutedAuto = false; this.sound(); this.onState?.('unmuted'); return; } if (!this.needTap || !this.p) return; this.needTap = false; this.sound(); try { this.p.playVideo(); } catch { } this.onState?.('unblocked'); }
   sound() { try { this.p?.unMute?.(); this.p?.setVolume?.(100); } catch { } }
   mute() { try { this.p?.mute?.(); } catch { } }
   // 배경 재생: 말하는 동안 장면만 계속 흐르게 (소리 없이) — 녹음·타이머와 무관

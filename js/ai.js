@@ -73,7 +73,7 @@ The learner practices by watching K-pop idol Baekhyun's video clips and speaking
 const FB_SYS = `${COACH}
 Return ONLY JSON:
 {
- "correct": true/false — true if the meaning/answer is right. Different words, word order, synonyms, contractions or a more casual/formal tone with the same meaning ARE correct. Grammatical, natural English that conveys the meaning is ALWAYS correct even if it differs from the reference.
+ "correct": true/false — judge by MEANING, not wording. True if the meaning/answer is right, even if it is phrased very differently from the reference; if the meaning roughly matches, it is correct. Different words, word order, synonyms, contractions or a more casual/formal tone with the same meaning ARE correct. Grammatical, natural English that conveys the meaning is ALWAYS correct even if it differs from the reference.
  "awkward": true ONLY if a native speaker would find the sentence clearly unnatural or confusing; false if it sounds fine (even if other phrasings exist).
  "feedback": Korean, 1–2 short friendly sentences (max 80 chars), each sentence on its own line ("\n"). If correct, acknowledge it first (e.g. "뜻이 정확하게 전달돼요."), then at most one nuance tip. If not, say kindly what is missing. Do NOT repeat what "fixes" already explain. No scores, no headings, never just "자연스러워요".
  "fixes": ONLY clear errors a native teacher would mark wrong (wrong tense/agreement, wrong preposition, wrong word that changes the meaning, missing key meaning). NOT fixes: synonyms, optional words (really, lately, so), contractions, article choices that are both fine, US/UK variants, word order that is fine, style or "sounds more natural" preferences — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. Empty if none. Never list style preferences or speech-recognition errors as mistakes.
@@ -83,7 +83,7 @@ If the learner's sentence is correct and fine: correct=true, awkward=false, fixe
  "rec": the RECOMMENDED sentence — in translate mode the reference exactly as given; in reply/long modes the same as "natural"; in review mode "natural".
  "why": Korean, 1–2 short friendly lines (each ≤ 45 chars, separated by "\n") explaining why the recommended sentence is said this way and why it is good (nuance, natural structure, what a key word adds). Concrete, not generic.
  "rec_ko": natural Korean meaning of the recommended sentence (casual, short).
- "expressions": 2–3 key reusable expressions taken from the recommended sentence (2–6 words, complete chunks, correctly spaced) — [{"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 40 chars — when/in what situation to use it (e.g. "오래 계속해온 일을 말할 때")}]. No whole sentences, no made-up phrases.
+ "expressions": 2–3 key reusable expressions taken from the recommended sentence (2–6 words, complete chunks, correctly spaced; a pattern like "have been ~ing" is fine) — [{"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 60 chars — why this expression is used here and when to use it (e.g. "요즘까지 계속해온 일을 말할 때 · 지금도 하고 있다는 느낌")}]. ALWAYS give at least 2. No whole sentences, no made-up phrases.
 }
 Modes:
  translate — the learner tried to say Baekhyun's Korean line in English. The reference translation was written by the app owner and is shown to the learner as-is; never rewrite or replace it. Any wording with the same meaning and natural grammar is correct.
@@ -108,6 +108,7 @@ export function usedIn(said, expr) {
 const cleanX = x => String(x || '').replace(/\s+/g, ' ').trim();
 const expand = t => t.replace(/\b(i|you|we|they|he|she|it|that|there|what)'(m|re|s|ve|ll|d)\b/g, (m, a, b) => a + ' ' + ({ m: 'am', re: 'are', s: 'is', ve: 'have', ll: 'will', d: 'would' })[b]).replace(/\b(do|does|did|is|are|was|were|have|has|can|could|would|should|won)n't\b/g, (m, a) => (a === 'won' ? 'will' : a === 'can' ? 'can' : a) + ' not').replace(/\bcan not\b/g, 'cannot');
 const cleanF = x => String(x || '').split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
+const goodX = t => /^[A-Za-z~(][A-Za-z' ,.!?~…/()-]*$/.test(t) && t.split(' ').length <= 8; // 표현 (패턴 ~ 허용)
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // 반환 {correct, feedback, fixes:[{wrong,right,why}], natural, xs:[{text,ko}], ai}
 export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [], use = [] }) {
@@ -127,7 +128,7 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
     return {
       correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes, used: use.filter(u => usedAI.has(u.toLowerCase()) || usedIn(said, u)),
       natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== sl.replace(/[^a-z ]/g, '') ? nat : '',
-      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko), use: cleanX(x?.use).slice(0, 60) })).filter(x => goodChunk(x.text)).slice(0, 3),
+      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko), use: cleanX(x?.use).slice(0, 80) })).filter(x => goodX(x.text)).slice(0, 3),
       why: cleanF(a.why).slice(0, 140), recKo: cleanX(a.rec_ko).slice(0, 120),
       ai: true
     };
@@ -138,7 +139,7 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
   const fixes = (imp.changes || []).filter(c => c.from && said.toLowerCase().includes(c.from.toLowerCase())).slice(0, 3).map(c => ({ wrong: c.from, right: c.to, why: c.why || '' }));
   // 규칙 피드백: 질문하기·대화하기는 내 문장을 고친 것만 (다른 사람 예시 답변은 추천하지 않음)
   const nat = !imp.same ? imp.after : '';
-  const msg = ev.ok ? '뜻이 잘 통해요.' : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '뜻이 조금 달라요. 추천 문장을 참고해봐요.') : '조금 빠진 부분이 있어요. 추천 문장을 참고해봐요.';
+  const msg = ev.ok ? '뜻이 잘 통해요.' : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '추천 문장이랑 비교해봐요.') : '추천 문장이랑 비교해봐요.'; // 규칙 판정은 표현이 다르면 틀리게 볼 수 있어서 단정하지 않음
   return { correct: ev.ok, feedback: msg, fixes, asr: [], used: use.filter(u => usedIn(said, u)), natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
 }
 

@@ -67,7 +67,7 @@ export function study(root, uttId) {
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
       <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
       <span class="icon-sp"></span></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div><button class="snd-pill hide" id="snd">${ic('play')} 탭해서 재생</button></div>
+    <div class="cv-player"><div class="player clean" id="pl"></div><button class="snd-pill hide" id="snd">${ic('volume')} 소리 켜기</button></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
@@ -79,7 +79,7 @@ export function study(root, uttId) {
   </div>`;
   const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root), sendB = $('#cps', root);
   const snd = () => $('#snd', root);
-  const pl = new Player($('#pl', root), { controls: 0, onState: st => { if (st === 'blocked') snd()?.classList.remove('hide'); if (st === 'unblocked' || st === 'playing') snd()?.classList.add('hide'); } });
+  const pl = new Player($('#pl', root), { controls: 0, mutedFallback: true, onState: st => { if (st === 'blocked' || st === 'muted') snd()?.classList.remove('hide'); if (st === 'unblocked' || st === 'unmuted' || (st === 'playing' && !pl?.mutedAuto)) snd()?.classList.add('hide'); } });
   // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기
   const unmute = () => pl.unmute();
   root.addEventListener('pointerdown', unmute, { capture: true });
@@ -187,7 +187,7 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko }), 'wide');
+    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern }), 'wide');
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     // 보면서 따라 말하기 — 정답 영어 문장
     let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
@@ -210,7 +210,7 @@ export function study(root, uttId) {
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
       const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
-      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko }), 'wide');
+      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko, pattern: x.pattern }), 'wide');
       bindCompare(fl, saveItem(x, t2));
       if (t2 && f2.correct) { // 정답 → 완료 처리 · 다시 말하기 없이 다음만
         D.markStep(x.id, 'recall');

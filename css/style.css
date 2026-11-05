@@ -1381,3 +1381,10 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .kx-add svg+svg{display:none}
 .kx-i.on .kx-add svg{display:none;transform:none}
 .kx-i.on .kx-add svg+svg{display:block}
+/* CALL: 버튼만 있을 땐 흰 박스 없이 */
+.fbc.bare{background:none;box-shadow:none;padding:0;overflow:visible}
+.fbc.bare .fbc-btns{margin-top:0}
+.fbc.bare .nx-btn{color:#fff}
+/* 표현 목록: 추천 문장 바로 밑 */
+.coach .kx{border-top:0;padding-top:0}
+.coach .why{padding-top:10px;border-top:1px solid var(--line)}
