@@ -15,10 +15,10 @@ const tabbar = document.getElementById('tabbar');
 let cleanup = null, curTab = 'video';
 
 function renderTabs(tab) {
-  const due = D.dueList().length;
+  const due = D.dueList().length + D.dueWords().length;
   tabbar.innerHTML = `<nav>
-    ${[['video', 'WATCH'], ['speak', 'SPEAK'], ['saved', 'SAVED'], ['settings', 'SETTINGS']].map(([k, l]) =>
-    `<a href="#/${k}" class="${tab === k ? 'on' : ''}" ${tab === k ? 'aria-current="page"' : ''}>${ic(k)}<span>${l}</span>${k === 'saved' && due ? `<span class="badge">${due > 99 ? '99+' : due}</span>` : ''}</a>`).join('')}
+    ${[['video', 'video', 'WATCH'], ['talk', 'phone', 'TALK'], ['saved', 'saved', 'SAVED'], ['settings', 'settings', 'SETTINGS']].map(([k, icon, l]) => { const on = tab === k || (k === 'talk' && tab === 'speak');
+    return `<a href="#/${k}" class="${on ? 'on' : ''}" ${on ? 'aria-current="page"' : ''}>${ic(icon)}<span>${l}</span>${k === 'saved' && due ? `<span class="badge">${due > 99 ? '99+' : due}</span>` : ''}</a>`; }).join('')}
   </nav>`;
 }
 
@@ -33,7 +33,7 @@ function route(keepScroll) {
   view.replaceChildren(root);
   let tab = p[0] || 'video';
   switch (p[0]) {
-    case 'talk': case 'speak': tab = 'speak'; cleanup = speak(root); break;
+    case 'talk': case 'speak': tab = 'talk'; cleanup = speak(root); break;
     case 'saved': saved(root); break;
     case 'settings':
       if (p[1] === 'video' && p[2]) cleanup = videoEditor(root, p[2]);

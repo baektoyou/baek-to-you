@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, micBlock, ytLink, flashcard, compareRows, natOf } from './ui.js';
+import { esc, $, $$, ic, toast, micBlock, ytLink, flashcard, natOf, beforeAfter, sayCard, phrasePicker } from './ui.js';
 import { patternSpeak } from './apply.js';
 
 // 영상 듣기 → 영어로 말하기 → 추천 문장 확인 → 보고 말하기 → 안 보고 말하기 → 패턴으로 새 문장
@@ -119,9 +119,17 @@ export function study(root, uttId, startStep) {
     cardEl.classList.remove('hide'); zone.innerHTML = '';
     if (s === 'listen') { card(false); if (fromNext) play(); }
     if (s === 'speak') { card(false); mic('speak'); }
-    if (s === 'check') { cardEl.innerHTML = ''; cardEl.classList.add('hide'); zone.innerHTML = compareRows({ ko: u.ko, mine: ans.speak, rec: en, pattern: u.pattern }); }
-    if (s === 'read') { card(true); mic('read'); }
-    if (s === 'recall') { card(false); mic('recall'); }
+    if (s === 'check') {
+      cardEl.innerHTML = ''; cardEl.classList.add('hide');
+      zone.innerHTML = beforeAfter({ ko: u.ko, before: ans.speak, after: en, pattern: u.pattern }) + `<div class="pick-zone"><button class="link-sm" id="pk">${ic('marker')} 외우고 싶은 표현 고르기</button></div>`;
+      $('#pk', zone).onclick = () => phrasePicker($('.pick-zone', zone), en, {
+        marks: (D.get().saved.find(x => x.uttId === u.id)?.marks) || [],
+        onSave: (p, { asWord }) => { const r = D.saveExpr({ kind: 'utt', level: 'natural', uttId: u.id, ko: u.ko, en: { ...u.en }, text: en, pattern: u.pattern }); D.toggleMark(r.item.id, p, true); D.saveWord({ text: p, srcId: r.item.id, kind: asWord ? 'word' : 'expr' }); paintSave(); toast(`‘${p}’ 저장했어요`); },
+        onUnmark: p => { const it = D.get().saved.find(x => x.uttId === u.id); it && D.toggleMark(it.id, p, false); }
+      });
+    }
+    if (s === 'read') { cardEl.innerHTML = ''; sayCard(cardEl, { ko: u.ko, en, pattern: u.pattern, mode: 'read' }); mic('read'); }
+    if (s === 'recall') { cardEl.innerHTML = ''; sayCard(cardEl, { ko: u.ko, en, pattern: u.pattern, keywords: u.keywords, mode: 'recall' }); mic('recall'); }
     if (s === 'apply') {
       cardEl.innerHTML = ''; cardEl.classList.add('hide');
       const p = patternSpeak(zone, { ...u, text: en, ytId: v.ytId, videoId: v.id, videoTitle: v.title, uttId: u.id }, { onStart: autoPause, onSaved: () => D.markStep(u.id, 'apply') });

@@ -66,8 +66,12 @@ export class Player {
       if (!this.seg || !this.p?.getCurrentTime) return;
       const t = this.p.getCurrentTime();
       this.onTime?.(t);
-      if (t >= this.seg.end - 0.05) this._segEnd();
-    }, 80);
+      const seg = this.seg;
+      // 이동(seek) 직후엔 예전 위치 시간이 잠깐 보고돼요 → 구간 안의 시간을 한 번 확인한 뒤부터만 끝을 판단
+      if (!seg.armed) { if (t >= seg.start - 1.5 && t < seg.end) seg.armed = true; else return; }
+      if (this.state !== 'playing') return;
+      if (t >= seg.end) this._segEnd();
+    }, 60);
   }
   _segEnd() {
     const seg = this.seg; if (!seg) return;
@@ -76,11 +80,12 @@ export class Player {
     seg.resolve?.('ended');
   }
   // 구간 재생 → Promise('ended'|'blocked'|'stopped')
-  async playSegment(ytId, start, end) {
+  // tail: 자막 끝 시간이 실제 말보다 조금 빠른 경우가 많아서 끝에 여유를 둠 (문장 중간 끊김 방지)
+  async playSegment(ytId, start, end, { tail = 0.35 } = {}) {
     await this.readyP; if (!this.p) return 'error';
     if (this.seg) { this.seg.resolve?.('stopped'); }
     let resolve; const done = new Promise(r => (resolve = r));
-    this.seg = { start, end, resolve };
+    this.seg = { start, end: end + tail, resolve, armed: false };
     if (this.vid !== ytId) { this.vid = ytId; this.p.loadVideoById({ videoId: ytId, startSeconds: start }); }
     else { this.p.seekTo(start, true); this.p.playVideo(); }
     // iOS가 자동 재생을 막으면 사용자 탭이 필요

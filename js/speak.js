@@ -1,22 +1,24 @@
-// SPEAK — 백현이와 영상통화하며 말하기
-// 1 통역 챌린지 · 2 백현이의 질문에 답하기 · 3 같은 질문 3번 말하기
-// 백현이 화면은 실제 영상 클립만 사용 (백현이가 하지 않은 말을 만들지 않음)
+// TALK — 백현이랑 전화하기 · 백현이랑 대화하기 · 백현이랑 오래 이야기하기
+// 백현이 화면·목소리는 실제 영상 클립만 사용 (백현이가 하지 않은 말을 만들지 않음)
 import * as D from './store.js';
 import * as S from './speech.js';
-import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, copyText, natOf } from './ui.js';
-import { checkSentence, patternInfo, usesPattern } from './feedback.js';
-import { markPattern } from './compare.js';
+import { Player, thumb } from './yt.js';
+import { esc, $, $$, ic, toast, h, copyText, natOf, sheet, beforeAfter, hintBox, sayCard, phrasePicker } from './ui.js';
+import { improve, talkHint, talkFeatures, claudePrompt } from './feedback.js';
+import { pickVideo, pickPhoto, conceptOf, sceneOf, mountPhoto, rememberPhoto, timeBucket, TIME_KO, callable, isLive } from './scene.js';
+import { startRing, stopRing, blip, unlock } from './ringtone.js';
 
-const PHOTO = 'icons/baekhyun.jpg';
 const NAME = '백현이';
-let active = null; // 진행 중인 통화 정리 함수
+let active = null;   // 진행 중인 통화 정리 함수
+let chosenId = null; // 이번 세션에 직접 고른 영상
 
 // ---------- 데이터 ----------
 const allClips = () => D.get().utts.filter(u => u.ko && D.video(u.videoId)).sort((a, b) => a.videoId < b.videoId ? -1 : a.videoId > b.videoId ? 1 : a.start - b.start);
 const isQ = u => u.type === 'question' || /\?\s*$/.test(u.ko || '');
 const shuffle = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
-// 질문 클립: 백현이가 실제로 질문한 클립 → 없으면 문장에 등록된 패턴 질문(앱 질문)으로 대체
+const words = t => (t || '').trim().split(/\s+/).filter(Boolean).length;
+const wait = ms => new Promise(r => setTimeout(r, ms));
+// 질문: 백현이가 실제로 질문한 클립 → 없으면 문장에 등록된 패턴 질문(앱 질문)
 function questionPool() {
   const clips = allClips(); const real = clips.filter(isQ).map(u => ({ u, real: true, ko: u.ko }));
   if (real.length) return real;
@@ -24,115 +26,173 @@ function questionPool() {
 }
 // 같은 영상에서 질문 바로 뒤에 백현이가 직접 한 말
 function answerClip(q) {
-  const list = D.uttsOf(q.videoId);
-  return list.find(u => u.id !== q.id && u.start >= q.start + 0.5 && u.start - q.end < 120 && !isQ(u)) || null;
+  return D.uttsOf(q.videoId).find(u => u.id !== q.id && u.start >= q.start + 0.5 && u.start - q.end < 120 && !isQ(u)) || null;
 }
-// 미션 패턴: 저장한 문장·백현이 문장에서 나온 패턴
-function missionPattern() {
-  const pats = [...new Set([...D.get().saved.map(s => s.pattern), ...allClips().map(u => u.pattern)].filter(Boolean))];
-  return pats.length ? pats[Math.floor(Math.random() * pats.length)] : '';
-}
-const dayStart = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-export function todayStats() {
-  const db = D.get(), t0 = dayStart();
-  const at = db.attempts.filter(a => a.at >= t0 && a.text);
-  const sec = Math.round(at.reduce((n, a) => n + (a.sec || 0), 0));
-  let streak = 0; for (let i = 0; i < 400; i++) { const d = new Date(); d.setDate(d.getDate() - i); if (db.days[D.today(d)]) streak++; else if (i > 0) break; }
-  return { sec, sentences: at.length, streak };
-}
-// 오늘의 백현이: 저장한 영상 문장 중 날짜로 하나 고정 (없으면 전체 클립에서)
 function todayClip() {
   const saved = D.get().saved.map(s => s.uttId && D.utt(s.uttId)).filter(Boolean);
   const pool = saved.length ? saved : allClips(); if (!pool.length) return null;
-  const k = D.today().split('-').join('') % pool.length; return pool[k];
+  return pool[D.today().split('-').join('') % pool.length];
 }
-const fmtSec = s => s >= 60 ? `${Math.floor(s / 60)}분 ${s % 60}초` : `${s}초`;
-const words = t => (t || '').trim().split(/\s+/).filter(Boolean).length;
+
+// ---------- 통화용 문장 만들기 ----------
+// · 문장이 쉼표·연결어미로 끝나고 다음 발화가 바로 이어지면 하나로 합쳐요 (말이 중간에 끊기지 않게)
+// · 끝 시간은 다음 발화 시작 직전까지 (최대 +1초) 늘려서 재생 → 마지막 단어가 잘리지 않음
+// · 너무 단순한 발화(영어 3단어 미만, 감탄사만)는 빼요
+const FRAG = /([,，…~]|고|서|는데|은데|니까|으면|면|지만|랑|하고|그리고|근데|그래서|아니면|든지|거든|해가지고|가지고)$/;
+const SIMPLE_KO = /^(네|넵|응|어|아|오|와|헐|대박|진짜|정말|맞아|그치|ㅋ+|ㅎ+|하하+|감사합니다|고마워|안녕|안녕하세요|여보세요|음+|자|좋아)[\s!?.~ㅋㅎ]*$/;
+export function callTurns(v) {
+  const us = D.uttsOf(v.id).filter(u => u.ko);
+  const out = [];
+  for (let i = 0; i < us.length; i++) {
+    const u = { ...us[i], en: { ...us[i].en }, keywords: [...(us[i].keywords || [])], ids: [us[i].id] };
+    while (i + 1 < us.length && FRAG.test(u.ko.trim()) && us[i + 1].start - u.end < 0.9 && (u.ko + us[i + 1].ko).length < 110) {
+      const n = us[++i];
+      u.ko = `${u.ko} ${n.ko}`; const nx = natOf(n); u.en.natural = `${natOf(u)} ${/,\s*$/.test(natOf(u)) && !/^I\b/.test(nx) ? nx.charAt(0).toLowerCase() + nx.slice(1) : nx}`.trim(); u.end = n.end; u.ids.push(n.id);
+      u.pattern = [u.pattern, n.pattern].filter(Boolean).join(', '); u.keywords.push(...(n.keywords || []));
+    }
+    out.push(u);
+  }
+  out.forEach((u, i) => { const nx = out[i + 1]; u.playEnd = nx ? Math.min(u.end + 1, Math.max(u.end + 0.3, nx.start - 0.05)) : u.end + 0.8; });
+  return out.filter(u => natOf(u) && words(natOf(u)) >= 3 && !SIMPLE_KO.test(u.ko.trim()));
+}
+
+// ---------- 시간 표시 ----------
+export const fmtDur = s => { s = Math.round(s || 0); if (s < 60) return `${s}초`; const m = Math.floor(s / 60); if (m < 60) return `${m}분${s % 60 ? ` ${s % 60}초` : ''}`; return `${Math.floor(m / 60)}시간 ${m % 60}분`; };
+const clock = s => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+function bigDur(s) { s = Math.round(s || 0); const hh = Math.floor(s / 3600), mm = Math.floor(s % 3600 / 60); return hh ? `<b>${hh}</b><i>시간</i><b>${mm}</b><i>분</i>` : `<b>${mm}</b><i>분</i><b>${s % 60}</b><i>초</i>`; }
+function when(t) {
+  const d = new Date(t), n = new Date(); const hm = d.toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit' });
+  const days = Math.round((new Date(n.toDateString()) - new Date(d.toDateString())) / 864e5);
+  return days === 0 ? `오늘 ${hm}` : days === 1 ? `어제 ${hm}` : days < 7 ? `${days}일 전` : d.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+}
+const MODE_KO = { call: '전화', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
 
 // ---------- 첫 화면 ----------
 export function speak(root) {
   active?.(); active = null;
-  const st = todayStats(); const clips = allClips(); const qs = questionPool();
-  const tc = todayClip(); const seen = localStorage.getItem('b2u:todayClip') === D.today();
-  root.innerHTML = `<div class="screen">
-    <header class="top"><h1 class="page-title">Speak</h1></header>
-    <div class="stats-strip"><div><b>${fmtSec(st.sec)}</b><span>오늘 말한 시간</span></div><div><b>${st.sentences}</b><span>오늘 말한 문장</span></div><div><b>${st.streak}일</b><span>연속 학습</span></div></div>
+  const vids = D.get().videos.filter(callable);
+  const chosen = chosenId && D.video(chosenId) && callable(D.video(chosenId)) ? D.video(chosenId) : null;
+  const v = chosen || pickVideo();
+  const qs = questionPool(); const st = D.callStats();
+  const tb = timeBucket();
+  const turns = v ? callTurns(v) : [];
+  root.innerHTML = `<div class="screen talk">
+    <header class="top"><h1 class="page-title">Talk</h1><span class="now-chip">${ic('moon')}${TIME_KO[tb]}</span></header>
+    ${v ? `<section class="call-hero">
+      <div class="ch-glow"></div>
+      <span class="ch-kicker"><i></i>${chosen ? '직접 고른 영상' : `지금 ${TIME_KO[tb]}에 어울리는 ${isLive(v) ? '라이브' : '영상'}`}</span>
+      <p class="ch-concept">${esc(conceptOf(v))}</p>
+      <p class="ch-title">${esc(v.title)}</p>
+      <span class="ch-meta">${turns.length}문장 · 처음부터</span>
+      <button class="call-btn" id="call"><span class="cb-ic">${ic('phone')}</span><span>${NAME}에게 전화하기</span></button>
+      <button class="ch-pick" id="pickv">${chosen ? '자동 선택으로 돌아가기' : '다른 영상 고르기'}</button>
+    </section>` : `<section class="call-hero empty"><div class="ch-glow"></div><p class="ch-concept">아직 통화할 영상이 없어요</p><p class="ch-title">SETTINGS에서 백현이 영상과 문장(JSON)을 추가하면 바로 전화할 수 있어요.</p><a class="call-btn ghost" href="#/settings">${ic('plus')} 영상 추가하기</a></section>`}
     <div class="modes">
-      ${modeCard('interp', '통역 챌린지', '백현이 말을 듣고 바로 영어로', `${Math.min(10, clips.length)}문장`, clips.length)}
-      ${modeCard('answer', `${NAME}의 질문에 답하기`, '영상통화로 백현이 질문에 영어로 대답', `질문 ${qs.length}개`, qs.length)}
-      ${modeCard('challenge', '3번 말하기 도전', '같은 질문을 1분 → 40초 → 20초', '유창성', qs.length)}
+      <button class="mode" data-mode="chat" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><span class="grow"><b>${NAME}랑 대화하기</b><small>백현이 질문에 자유롭게 대답하기</small></span><em>${qs.length}</em></button>
+      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><span class="grow"><b>${NAME}랑 오래 이야기하기</b><small>60초씩, 힌트 받고 더 길게</small></span><em>60s</em></button>
     </div>
-    ${tc && seen ? `<button class="today-clip" id="tc"><img src="${PHOTO}" alt=""><div><span class="fc-tag en-tag">오늘의 ${NAME}</span><p>${esc(tc.ko)}</p></div>${ic('play')}</button>` : ''}
-    ${!clips.length ? `<div class="empty"><b>아직 영상 클립이 없어요</b><p>SETTINGS에서 영상과 문장(JSON)을 추가하면 영상통화로 연습할 수 있어요.</p><a class="btn" href="#/settings">영상 추가</a></div>` : ''}
-    ${clips.length && !clips.some(isQ) ? `<p class="tiny muted">백현이가 질문하는 클립(type: question)이 아직 없어서, 질문 모드는 문장에 등록된 패턴 질문으로 진행돼요.</p>` : ''}
+    <section class="call-log">
+      <div class="cl-total"><span class="label">총 통화 시간</span><div class="cl-big">${bigDur(st.total)}</div>
+        <div class="cl-sub"><span>통화 <b>${st.count}</b>번</span><span>가장 긴 통화 <b>${fmtDur(st.longest)}</b></span><span>연속 <b>${st.streak}</b>일</span></div></div>
+      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 6).map(l => `<div class="cl-row"><span class="cl-ic ${l.mode || 'call'}">${ic(l.mode === 'chat' ? 'chat' : l.mode === 'long' ? 'timer' : 'phone')}</span><div class="grow"><b>${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}${l.title ? ` · ${esc(l.title)}` : ''}</small></div><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
+    </section>
+    ${!qs.length && vids.length ? `<p class="tiny muted center-t">백현이가 질문하는 문장(type: question)이나 패턴 질문이 생기면 대화 모드가 열려요.</p>` : ''}
   </div>`;
-  $$('[data-mode]', root).forEach(b => b.onclick = () => ring(root, b.dataset.mode));
-  $('#tc', root) && ($('#tc', root).onclick = () => ring(root, 'today'));
+  $('#call', root) && ($('#call', root).onclick = () => { unlock(); call(root, 'call', v); });
+  $('#pickv', root) && ($('#pickv', root).onclick = () => { if (chosen) { chosenId = null; speak(root); } else pickSheet(root); });
+  $$('[data-mode]', root).forEach(b => b.onclick = () => { unlock(); call(root, b.dataset.mode); });
   return () => { active?.(); active = null; };
 }
-const modeCard = (k, t, d, meta, ok) => `<button class="mode" data-mode="${k}" ${ok ? '' : 'disabled'}><img src="${PHOTO}" alt=""><div class="grow"><b>${t}</b><span>${d}</span></div><em>${meta}</em></button>`;
-
-// ---------- 수신 화면 ----------
-function ring(root, mode) {
-  document.body.classList.add('in-call');
-  root.innerHTML = `<div class="ring"><div class="ring-bg" style="background-image:url('${PHOTO}')"></div>
-    <div class="ring-in"><img class="ava" src="${PHOTO}" alt=""><h2>${NAME}</h2><p>영상통화</p></div>
-    <div class="acts"><div><button class="no" id="dec" aria-label="거절">${ic('phoneoff')}</button><span>거절</span></div><div><button class="ok" id="acc" aria-label="받기">${ic('cam')}</button><span>받기</span></div></div></div>`;
-  $('#dec', root).onclick = () => { document.body.classList.remove('in-call'); speak(root); };
-  $('#acc', root).onclick = () => call(root, mode);
+function pickSheet(root) {
+  const vids = D.get().videos.filter(callable);
+  const s = sheet(`<h3>어떤 영상으로 통화할까요?</h3><div class="vpick">${vids.map(v => `<button class="vp-row" data-v="${v.id}"><span class="vp-th" style="background-image:url('${thumb(v.ytId)}')"></span><span class="grow"><b class="clamp2">${esc(v.title)}</b><small>${esc(conceptOf(v))} · ${callTurns(v).length}문장</small></span></button>`).join('')}</div>`);
+  $$('[data-v]', s).forEach(b => b.onclick = () => { chosenId = b.dataset.v; s.close(); speak(root); });
 }
 
-// ---------- 영상통화 ----------
-function call(root, mode) {
-  root.innerHTML = `<div class="vcall">
-    <div class="vc-stage"><div class="vc-photo" style="background-image:url('${PHOTO}')"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div></div>
-    <header class="vc-head"><img class="vc-av" src="${PHOTO}" alt=""><div class="grow"><b>${NAME}</b><span id="vst">연결 중</span></div><span class="vc-time" id="vtm">00:00</span><button class="vc-ic" id="vcam" aria-label="내 화면">${ic('cam')}</button></header>
-    <div class="vc-chips"><span class="vc-chip" id="vprog"></span><button class="vc-chip mission hide" id="vmis"></button></div>
-    <div class="vc-tap hide" id="vtap">화면을 한 번 탭하면 영상이 재생돼요</div>
+// ---------- 통화 ----------
+// 화면 구성: 통화 화면 위에 수신 화면(사진)을 덮어서 시작 → 받으면 사진은 사라지고 다시 나오지 않음
+function call(root, mode, v = null) {
+  active?.(); active = null;
+  // 대화 모드: 질문 순서를 먼저 정하고, 첫 질문이 나온 영상의 분위기로 사진·콘셉트를 맞춰요
+  const qs = mode === 'call' ? [] : shuffle(questionPool());
+  if (mode !== 'call') v = (qs[0] && D.video(qs[0].u.videoId)) || v;
+  document.body.classList.add('in-call');
+  const concept = v ? conceptOf(v) : '';
+  const scene = v ? sceneOf(v) : {};
+  const ph = pickPhoto(v);
+  const st = D.get().settings;
+  root.innerHTML = `<div class="vcall ${st.callFill !== false ? 'fill' : 'fit'}">
+    <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
+      <div class="vc-wait" id="vwait"><span class="vw-name">${NAME}</span><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
+    <header class="vc-head"><div class="grow"><b>${NAME}</b><span id="vst">연결 중</span></div><span class="vc-time" id="vtm">00:00</span>
+      <button class="vc-ic" id="vfill" aria-label="화면 맞춤">${ic('video')}</button><button class="vc-ic" id="vcam" aria-label="내 화면">${ic('cam')}</button></header>
+    <div class="vc-chips"><span class="vc-chip" id="vprog"></span>${concept ? `<span class="vc-chip soft">${esc(concept)}</span>` : ''}</div>
+    <div class="vc-tap hide" id="vtap">화면을 한 번 탭하면 재생돼요</div>
     <div class="vc-target hide" id="vtg"></div>
     <div class="vc-low"><div class="vc-cap" id="vcap"></div>
-    <div class="vc-chat" id="vchat"></div>
-    <div class="vc-ctrl">
-      <button class="vc-btn" id="vskip" aria-label="건너뛰기">${ic('next')}<span>넘기기</span></button>
-      <button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg>${ic('mic')}<em id="vsec"></em></button>
-      <button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}<span>종료</span></button>
-    </div></div>
+      <div class="vc-chat" id="vchat"></div>
+      <div class="vc-hint hide" id="vhint"></div>
+      <div class="vc-ctrl">
+        <button class="vc-btn" id="vskip" aria-label="넘기기">${ic('next')}<span>넘기기</span></button>
+        <button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg>${ic('mic')}<em id="vsec"></em></button>
+        <button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}<span>종료</span></button>
+      </div></div>
     <div class="vc-panel" id="vpanel"></div>
+    <div class="ring2" id="ring">
+      <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
+      <div class="ring-top"><span class="ring-kind">${ic('cam')} 영상통화</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
+      <div class="ring-acts"><div><button class="r-no" id="dec" aria-label="거절">${ic('phoneoff')}</button><span>거절</span></div><div><button class="r-ok" id="acc" aria-label="받기">${ic('phone')}</button><span>받기</span></div></div>
+    </div>
   </div>`;
   const $v = s => $(s, root);
-  const t0 = Date.now(); let stopped = false, dead = false, cam = null, endTurn = null;
-  const timer = setInterval(() => { const s = Math.floor((Date.now() - t0) / 1000); $v('#vtm').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }, 1000);
+  let unPhoto = mountPhoto($v('#rphoto'), ph.p, { focusY: 0.42 });
+  rememberPhoto(ph.p.id);
+  startRing();
+  let stopped = false, dead = false, cam = null, endTurn = null, t0 = 0, timer = null, accepted = false;
   const vv = $v('#vv');
-  const pl = new Player($v('#vp'), { onState: s => { if (s === 'blocked') { $v('#vtap').classList.remove('hide'); vv.classList.add('on'); } if (s === 'playing') { $v('#vtap').classList.add('hide'); vv.classList.add('on'); } } });
+  const pl = new Player($v('#vp'), { onState: s => { if (s === 'blocked') $v('#vtap').classList.remove('hide'); if (s === 'playing') { $v('#vtap').classList.add('hide'); vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
   const status = t => ($v('#vst').textContent = t);
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
 
-  // 채팅 (라이브 방송처럼 아래에서 올라옴)
+  // ----- 수신 화면 -----
+  const ring = $v('#ring');
+  const killRing = () => { stopRing(); ring.classList.add('leave'); setTimeout(() => { unPhoto?.(); unPhoto = null; ring.remove(); }, 520); };
+  $v('#dec').onclick = () => { stopRing(); blip('end'); cleanup(); document.body.classList.remove('in-call'); speak(root); };
+  $v('#acc').onclick = () => {
+    if (accepted) return; accepted = true; blip('connect'); killRing();
+    t0 = Date.now(); timer = setInterval(() => ($v('#vtm').textContent = clock((Date.now() - t0) / 1000)), 1000);
+    run();
+  };
+
+  // ----- 채팅 (라이브 방송처럼 아래에서 올라옴) -----
   const chat = $v('#vchat');
   function msg(who, text, extra = '') {
-    const m = h(`<div class="vm ${who}">${who === 'baek' ? `<img src="${PHOTO}" alt="">` : '<i>나</i>'}<div><b>${who === 'baek' ? NAME : '나'}</b><p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>${extra}</div></div>`);
+    const m = h(`<div class="vm ${who}"><i>${who === 'baek' ? 'B' : '나'}</i><div><b>${who === 'baek' ? NAME : '나'}</b><p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>${extra}</div></div>`);
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
-  // 백현이 클립 재생
+  // 백현이 클립 재생 (끝 시간 여유 포함)
   async function play(u, { cap = u.ko, label = '' } = {}) {
     if (dead) return;
-    const v = D.video(u.videoId); status(`${NAME}가 말하는 중`);
+    const vid = D.video(u.videoId); if (!vid) return;
+    status(`${NAME}가 말하는 중`);
     $v('#vcap').innerHTML = cap ? `${label ? `<span>${esc(label)}</span>` : ''}${esc(cap)}` : '';
-    await pl.playSegment(v.ytId, u.start, u.end);
-    vv.classList.remove('on'); $v('#vcap').innerHTML = '';
+    const end = u.playEnd || u.end + 0.6;
+    await pl.playSegment(vid.ytId, u.start, end, { tail: 0 });
+    $v('#vcap').innerHTML = '';
   }
   // 내 차례: 마이크로 말하기 → {text, sec}
-  function turn({ limit = 0, auto = false, label = '내 차례 · 영어로 말해보세요' } = {}) {
+  function turn({ limit = 0, auto = false, label = '내 차례 · 영어로 말해요', hint = null } = {}) {
     return new Promise(resolve => {
       status(label);
-      const mic = $v('#vmic'), ring = $('.ring-svg circle', mic), secEl = $v('#vsec');
+      const mic = $v('#vmic'), rg = $('.ring-svg circle', mic), secEl = $v('#vsec'), hb = $v('#vhint');
       mic.classList.add('ready'); secEl.textContent = limit ? `${limit}초` : '';
-      ring.style.strokeDashoffset = 0;
+      rg.style.strokeDashoffset = 0;
+      if (hint) { hb.classList.remove('hide'); hintBox(hb, hint.en, hint); } else { hb.classList.add('hide'); hb.innerHTML = ''; }
       let cap = null, live = null, tick = null, st = 0, done = false;
-      const finish = (text, sec) => { if (done) return; done = true; endTurn = null; clearInterval(tick); mic.classList.remove('ready', 'live'); secEl.textContent = ''; $v('#vskip').onclick = null; mic.onclick = null; resolve({ text, sec }); };
+      const finish = (text, sec) => { if (done) return; done = true; endTurn = null; clearInterval(tick); mic.classList.remove('ready', 'live', 'over'); secEl.textContent = ''; hb.classList.add('hide'); $v('#vskip').onclick = null; mic.onclick = null; resolve({ text, sec }); };
       endTurn = () => { cap?.stop(); finish('', 0); };
-      $v('#vskip').onclick = () => { cap?.stop(); finish('', 0); };
+      $v('#vskip').onclick = () => { cap?.stop(); live?.remove(); finish('', 0); };
       mic.onclick = async () => {
         if (cap) { cap.stop(); status('정리하는 중…'); return; }
         if (!S.support.stt) { const t = await typeBox(); if (t) { msg('me', t); finish(t, 0); } return; }
@@ -140,10 +200,10 @@ function call(root, mode) {
         live = msg('me', '…'); live.classList.add('typing');
         tick = setInterval(() => {
           const e = (Date.now() - st) / 1000;
-          if (limit) { const left = Math.max(0, limit - e); $('#vsec', root).textContent = `${Math.ceil(left)}초`; ring.style.strokeDashoffset = 232 * Math.min(1, e / limit); if (auto && left <= 0) cap?.stop(); else if (!auto && left <= 0) mic.classList.add('over'); }
-          else $('#vsec', root).textContent = `${Math.floor(e)}초`;
+          if (limit) { const left = Math.max(0, limit - e); secEl.textContent = `${Math.ceil(left)}초`; rg.style.strokeDashoffset = 232 * Math.min(1, e / limit); if (left <= 0) { if (auto) cap?.stop(); else mic.classList.add('over'); } }
+          else secEl.textContent = `${Math.floor(e)}초`;
         }, 200);
-        cap = S.capture({ stt: true, onInterim: t => { $('p', live).textContent = t || '…'; chat.scrollTop = chat.scrollHeight; } });
+        cap = S.capture({ stt: true, targets: hint?.en ? [hint.en] : [], onInterim: t => { $('p', live).textContent = t || '…'; chat.scrollTop = chat.scrollHeight; } });
         const r = await cap.result; cap = null; if (done) return;
         const sec = Math.round((Date.now() - st) / 1000);
         live.classList.remove('typing');
@@ -156,186 +216,211 @@ function call(root, mode) {
   }
   function typeBox() {
     return new Promise(res => {
-      panel(`<div class="vp-h">영어로 입력</div><p class="vp-s">이 브라우저는 음성 인식이 안 돼서 입력으로 해요 (키보드 받아쓰기 가능)</p>
-        <textarea class="textarea en" id="tb" rows="2"></textarea><button class="btn block mt8" id="tbs">보내기</button>`);
+      panel(`<div class="vp-h">영어로 입력</div><p class="vp-s">이 브라우저는 음성 인식이 안 돼요 · 키보드 받아쓰기로 입력해도 돼요</p>
+        <textarea class="textarea en" id="tb" rows="2"></textarea><button class="btn block mt12" id="tbs">보내기</button>`);
       $v('#tbs').onclick = () => { const t = $v('#tb').value.trim(); closePanel(); res(t); };
     });
   }
   // 아래에서 올라오는 패널
   const pnl = $v('#vpanel');
   function panel(html, { end = true } = {}) {
-    pnl.innerHTML = `<div class="grab"></div>${end ? `<button class="vp-x" aria-label="통화 종료">${ic('phoneoff')}</button>` : ''}${html}`;
+    pnl.innerHTML = `<div class="grab"></div>${end ? `<button class="vp-x" aria-label="통화 종료">${ic('phoneoff')}</button>` : ''}<div class="vp-body">${html}</div>`;
     pnl.classList.add('on'); pnl.scrollTop = 0;
     $('.vp-x', pnl) && ($('.vp-x', pnl).onclick = () => finaleOnce());
   }
   function closePanel() { pnl.classList.remove('on'); }
-  const save = (text, ko, uttId) => {
-    const r = D.saveExpr({ kind: 'mine', level: 'mine', uttId: uttId || null, ko: ko || '', text, en: { easy: '', natural: text, advanced: '' }, pattern: '' });
-    toast(r.dup ? '이미 SAVED에 있어요' : 'SAVED에 저장했어요');
-  };
   const log = (step, r, uttId) => r.text && D.addAttempt({ uttId: uttId || null, step, text: r.text, sec: r.sec });
 
-  // 더 좋게 말하기 → 연습할 문장 고르기
-  function coach(text, { question = '', mission = '', models = [] } = {}) {
-    return new Promise(res => {
-      let mine = text, picked = null, extra = [];
-      const render = () => {
-        const fb = mine ? checkSentence(mine, mission) : null;
-        const opts = [];
-        if (fb?.changed) opts.push({ k: 'fix', label: '다듬은 문장', text: fb.fixed, why: fb.issues.filter(i => i.type !== 'style').map(i => i.why).slice(0, 2).join(' · ') });
-        extra.forEach(t => opts.push({ k: 'cl', label: 'Claude가 다듬은 문장', text: t }));
-        models.filter(Boolean).forEach(t => opts.push({ k: 'model', label: '원어민은 이렇게도 말해요', text: t }));
-        if (mine) opts.push({ k: 'mine', label: '내 문장 그대로', text: mine });
-        if (!picked || !opts.some(o => o.text === picked)) picked = opts[0]?.text || null;
-        const missionOk = mission && mine ? usesPattern(mine, mission) : null;
-        panel(`<div class="vp-h">더 자연스럽게 말해보기</div>
-          ${question ? `<p class="vp-s">${esc(NAME)}: ${esc(question)}</p>` : ''}
-          <label class="field"><span>내 답변 (고쳐도 돼요)</span><textarea class="textarea en" id="cm" rows="2">${esc(mine)}</textarea></label>
-          ${mission ? `<div class="vp-mis ${missionOk ? 'ok' : ''}">${ic(missionOk ? 'check' : 'bulb')} 미션 <b class="en">${esc(mission)}</b> ${missionOk ? '성공!' : `· 예: <span class="en">${esc(patternInfo({ pattern: mission }).frame)}</span>`}</div>` : ''}
-          <div class="vp-opts">${opts.map(o => `<button class="vp-opt ${o.text === picked ? 'on' : ''}" data-t="${esc(o.text)}"><span class="fc-tag ${o.k === 'mine' ? '' : 'en-tag'}">${o.label}</span><p class="en">${esc(o.text)}</p>${o.why ? `<small>${esc(o.why)}</small>` : ''}</button>`).join('')}</div>
-          <details class="adv"><summary>Claude로 원어민처럼 다듬기 (무료 · 복사해서 붙여넣기)</summary>
-            <button class="btn sm soft" id="clc">${ic('copy')} 요청문 복사</button>
-            <input class="input en mt8" id="clp" placeholder="Claude가 준 문장 붙여넣기"><button class="btn sm block mt8" id="cla">목록에 추가</button></details>
-          <div class="row mt8"><button class="btn soft" id="csk">건너뛰기</button><button class="btn grow" id="cgo" ${picked ? '' : 'disabled'}>이 문장으로 연습하기 →</button></div>`);
-        $v('#cm').onchange = e => { mine = e.target.value.trim(); render(); };
-        $$('.vp-opt', pnl).forEach(b => b.onclick = () => { picked = b.dataset.t; $$('.vp-opt', pnl).forEach(x => x.classList.toggle('on', x === b)); });
-        $v('#clc').onclick = async () => toast(await copyText(`${question ? `상대(백현이)가 한 말: ${question}\n` : ''}내 영어 대답: ${mine}\n\n내가 하려던 의미는 그대로 두고, 원어민이 일상 대화에서 실제로 말하는 자연스러운 영어 한 문장으로 다듬어줘.${mission ? ` 가능하면 "${mission}" 패턴을 넣어줘.` : ''}\n형식: 1) 다듬은 문장 2) 바꾼 이유 한 줄(한국어)`) ? '복사했어요 · Claude 채팅에 붙여넣어 주세요' : '복사가 막혔어요');
-        $v('#cla').onclick = () => { const t = $v('#clp').value.trim(); if (!t) return; extra.unshift(t.replace(/^1\)\s*/, '')); picked = extra[0]; render(); };
-        $v('#csk').onclick = () => { closePanel(); res(null); };
-        $v('#cgo').onclick = () => { closePanel(); res(picked); };
-      };
-      render();
-    });
+  // 저장: 영상 문장이면 원본 연결, 내 문장이면 개선된 문장
+  function saveSentence({ text, ko = '', uttId = null, pattern = '', before = '', kind = 'mine' }) {
+    const it = kind === 'utt' && uttId && D.utt(uttId)
+      ? { kind: 'utt', level: 'natural', uttId, ko, en: { ...D.utt(uttId).en, natural: text }, text, pattern }
+      : { kind: 'mine', level: 'mine', uttId: uttId || null, ko, text, en: { easy: '', natural: text, advanced: '' }, pattern, before };
+    const r = D.saveExpr(it); toast(r.dup ? '이미 SAVED에 있어요' : 'SAVED에 저장했어요'); return r.item;
   }
-  // 보고 말하기 → 안 보고 말하기 → 저장
-  async function practice(target, { ko = '', uttId = null } = {}) {
+  // 저장 + 외우고 싶은 표현 고르기
+  function saveBlock(el, info) {
+    let item = null;
+    el.innerHTML = `<div class="save-row"><button class="btn soft grow" data-s="save">${ic('bookmark')} 문장 저장</button><button class="btn soft grow" data-s="pick">${ic('marker')} 표현 고르기</button></div><div class="pick-wrap"></div>`;
+    const ensure = () => item || (item = saveSentence(info));
+    $('[data-s=save]', el).onclick = e => { ensure(); e.currentTarget.disabled = true; e.currentTarget.innerHTML = `${ic('check')} 저장됨`; };
+    $('[data-s=pick]', el).onclick = e => {
+      e.currentTarget.disabled = true;
+      phrasePicker($('.pick-wrap', el), info.text, {
+        marks: [], onSave: (p, { asWord }) => { const it = ensure(); D.toggleMark(it.id, p, true); D.saveWord({ text: p, srcId: it.id, kind: asWord ? 'word' : 'expr' }); toast(`‘${p}’ 저장했어요`); },
+        onUnmark: p => item && D.toggleMark(item.id, p, false)
+      });
+    };
+  }
+  // 보고 말하기 → 안 보고 말하기
+  async function practice(target, { ko = '', uttId = null, pattern = '', keywords = [], prompt = '', kind = 'mine', before = '' } = {}) {
     const tg = $v('#vtg');
-    tg.innerHTML = `<span class="fc-tag en-tag">보고 말하기</span><p class="en">${esc(target)}</p>`; tg.classList.remove('hide');
+    tg.classList.remove('hide'); sayCard(tg, { ko, en: target, pattern, mode: 'read' });
     const a = await turn({ label: '보고 말하기 · 문장을 보며 말해요' }); log('sp-practice', a, uttId); if (stopped) return;
-    tg.innerHTML = `<span class="fc-tag en-tag">안 보고 말하기</span><p class="en blur">${esc(target)}</p><small>탭하면 잠깐 보여요</small>`;
-    tg.onclick = () => { const p = $('p', tg); p.classList.remove('blur'); setTimeout(() => p.classList.add('blur'), 1500); };
+    sayCard(tg, { ko: ko || prompt, en: target, pattern, keywords, mode: 'recall' });
     const b = await turn({ label: '안 보고 말하기 · 기억해서 말해요' }); log('sp-practice', b, uttId); if (stopped) return;
-    tg.classList.add('hide'); tg.onclick = null;
+    tg.classList.add('hide'); tg.innerHTML = '';
     await new Promise(res => {
-      panel(`<div class="vp-h">잘했어요</div><div class="vp-opt on"><span class="fc-tag en-tag">연습한 문장</span><p class="en">${esc(target)}</p></div>
-        <div class="row mt8"><button class="btn soft grow" id="ps">${ic('bookmark')} SAVED에 저장</button><button class="btn grow" id="pn">계속 →</button></div>`);
-      $v('#ps').onclick = () => { save(target, ko, uttId); $v('#ps').disabled = true; };
+      panel(`<div class="vp-h">잘했어요</div>${beforeAfter({ before: b.text, after: target, pattern, afterLabel: '연습한 문장' })}<div id="psb"></div><button class="btn block mt12" id="pn">계속 →</button>`);
+      saveBlock($v('#psb'), { text: target, ko, uttId, pattern, before, kind });
       $v('#pn').onclick = () => { closePanel(); res(); };
     });
   }
-  const ask = (title, btns) => new Promise(res => {
-    panel(`<div class="vp-h">${title}</div><div class="stack">${btns.map(([k, l, cls]) => `<button class="btn block ${cls || ''}" data-k="${k}">${l}</button>`).join('')}</div>`);
+  const ask = (title, btns, sub = '') => new Promise(res => {
+    panel(`<div class="vp-h">${title}</div>${sub ? `<p class="vp-s">${sub}</p>` : ''}<div class="stack">${btns.map(([k, l, cls]) => `<button class="btn block ${cls || ''}" data-k="${k}">${l}</button>`).join('')}</div>`);
     $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(b.dataset.k); });
   });
+  // 내 영어 → 더 자연스럽게 (규칙 + LanguageTool) → 비교 → 연습할지
+  function coach(text, { question = '', pattern = '' } = {}) {
+    return new Promise(async res => {
+      let mine = text, extra = null, r = null;
+      const render = async (reload = true) => {
+        if (reload) {
+          panel(`<div class="vp-h">더 자연스럽게</div><div class="ba-loading"><i></i><i></i><i></i><span>문장 다듬는 중</span></div>`);
+          r = await improve(mine, { pattern, useLT: D.get().settings.autoLT !== false });
+          if (stopped) return res(null);
+        }
+        const after = extra || r.after;
+        const src = extra ? 'Claude가 다듬은 문장' : r.source === 'rules+lt' ? '앱 규칙 + LanguageTool' : '앱 규칙';
+        panel(`<div class="vp-h">더 자연스럽게</div>${question ? `<p class="vp-s">${NAME}: ${esc(question)}</p>` : ''}
+          ${beforeAfter({ before: mine, after, changes: extra ? [] : r.changes, afterLabel: '추천' })}
+          <p class="ba-src">${ic('sparkle')} ${esc(src)}${!extra && r.same ? ' · 규칙으로 찾은 문제는 없어요' : ''}</p>
+          <details class="adv"><summary>내 답변 고치기 · Claude로 원어민처럼 다듬기</summary>
+            <textarea class="textarea en" id="cm" rows="2">${esc(mine)}</textarea><button class="btn sm soft mt8" id="cre">${ic('refresh')} 다시 다듬기</button>
+            <p class="tiny muted mt12">앱 안의 규칙은 문법·한국식 표현 위주예요. 원어민다운 표현까지 원하면 요청문을 복사해 Claude 채팅에 붙여넣고, 받은 문장을 아래에 넣어주세요 (무료).</p>
+            <button class="btn sm soft" id="clc">${ic('copy')} 요청문 복사</button>
+            <input class="input en mt8" id="clp" placeholder="Claude가 다듬은 문장 붙여넣기"><button class="btn sm block mt8" id="cla">After로 쓰기</button></details>
+          <div id="csb"></div>
+          <div class="row mt12"><button class="btn soft" id="csk">다음</button><button class="btn grow" id="cgo">${ic('mic')} 이 문장 연습하기</button></div>`);
+        saveBlock($v('#csb'), { text: after, ko: question ? `${NAME}: ${question}` : '', pattern, before: mine });
+        $v('#cre').onclick = () => { mine = $v('#cm').value.trim() || mine; extra = null; render(true); };
+        $v('#clc').onclick = async () => toast(await copyText(`${question ? `상대(백현이)가 한 말: ${question}\n` : ''}${claudePrompt({ text: mine, pattern })}`) ? '복사했어요 · Claude 채팅에 붙여넣어 주세요' : '복사가 막혔어요');
+        $v('#cla').onclick = () => { const t = $v('#clp').value.trim().replace(/^\d\)\s*/, ''); if (!t) return; extra = t; render(false); };
+        $v('#csk').onclick = () => { closePanel(); res(null); };
+        $v('#cgo').onclick = () => { closePanel(); res({ target: after, before: mine }); };
+      };
+      render(true);
+    });
+  }
 
-  // ----- 모드 -----
-  async function runInterp() {
-    const list = shuffle(allClips().filter(u => natOf(u))).slice(0, 10);
+  // ----- 1. 백현이랑 전화하기: 영상 처음부터 순서대로 -----
+  async function runCall() {
+    const list = callTurns(v);
     for (let i = 0; i < list.length && !stopped; i++) {
-      const u = list[i]; progress(`통역 ${i + 1}/${list.length}`);
+      const u = list[i]; progress(`${i + 1} / ${list.length}`);
       await play(u); if (stopped) return; msg('baek', u.ko);
-      const r = await turn({ label: '영어로 바로 말해보세요' }); log('sp-interp', r, u.id); if (stopped) return;
-      const rec = natOf(u); const fb = r.text ? checkSentence(r.text, u.pattern) : null;
+      const rec = natOf(u);
+      const r = await turn({ label: '영어로 말해볼까?', hint: { en: rec, pattern: u.pattern, keywords: u.keywords } }); log('sp-call', r, u.id); if (stopped) return;
       const k = await new Promise(res => {
-        panel(`<div class="vp-h">추천 문장</div>
-          <div class="cmp3"><div class="r"><span class="fc-tag">${NAME}</span><p>${esc(u.ko)}</p></div><div class="r mine"><span class="fc-tag">내 답변</span><p class="en ${r.text ? '' : 'muted'}">${r.text ? esc(r.text) : '건너뜀'}</p></div>
-          <div class="r rec"><span class="fc-tag en-tag">원어민 추천</span><p class="en">${markPattern(rec, u.pattern, esc)}</p></div></div>
-          ${fb?.changed && fb.issues.some(x => x.type === 'grammar') ? `<p class="vp-s">${esc(fb.issues.find(x => x.type === 'grammar').why)}</p>` : ''}
-          <div class="row"><button class="btn soft grow" data-k="p">추천 문장 연습</button><button class="btn grow" data-k="n">${i < list.length - 1 ? '다음 →' : '마치기'}</button></div>`);
+        panel(`<div class="vp-h">${r.text ? '이렇게 바꿔 말해봐' : '이렇게 말해요'}</div>${beforeAfter({ ko: u.ko, before: r.text, after: rec, pattern: u.pattern })}
+          <div id="isb"></div>
+          <div class="row mt12"><button class="btn soft grow" data-k="p">${ic('mic')} 이 문장 연습하기</button><button class="btn grow" data-k="n">${i < list.length - 1 ? '다음 →' : '마치기'}</button></div>`);
+        saveBlock($v('#isb'), { text: rec, ko: u.ko, uttId: u.ids[0], pattern: u.pattern, kind: u.ids.length === 1 ? 'utt' : 'mine' });
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(b.dataset.k); });
       });
-      if (k === 'p') await practice(rec, { ko: u.ko, uttId: u.id });
+      if (k === 'p') await practice(rec, { ko: u.ko, uttId: u.ids[0], pattern: u.pattern, keywords: u.keywords, kind: u.ids.length === 1 ? 'utt' : 'mine' });
     }
   }
-  async function runAnswer() {
-    const qs = shuffle(questionPool());
-    const mission = missionPattern();
-    if (mission) { const m = $v('#vmis'); m.innerHTML = `${ic('star')} 미션 · <span class="en">${esc(mission)}</span> 넣어 말하기`; m.classList.remove('hide'); m.onclick = () => toast(`예: ${patternInfo({ pattern: mission }).frame}`); }
+  // ----- 2. 백현이랑 대화하기: 추천 없이 자유롭게 → 다듬기 → 다듬은 문장 연습 -----
+  async function runChat() {
     for (let i = 0; i < qs.length && !stopped; i++) {
       const q = qs[i]; progress(`질문 ${i + 1}`);
       if (q.real) await play(q.u); else { $v('#vcap').innerHTML = `<span>앱 질문</span>${esc(q.ko)}`; await wait(1600); $v('#vcap').innerHTML = ''; }
       if (stopped) return; msg('baek', q.ko, q.real ? '' : '<small class="appq">앱 질문</small>');
-      const r = await turn({ limit: 60, label: '내 차례 · 30초~1분 영어로 대답해요' }); log('sp-answer', r, q.u.id); if (stopped) return;
+      const r = await turn({ label: '자유롭게 영어로 대답해요' }); log('sp-chat', r, q.u.id); if (stopped) return;
       const ans = q.real ? answerClip(q.u) : null;
-      if (ans) {
-        $v('#vcap').innerHTML = ''; status(`${NAME}는 이렇게 말했어`);
-        await play(ans, { label: `${NAME}는 이렇게 말했어` }); if (stopped) return;
-        msg('baek', ans.ko, natOf(ans) ? `<small class="en">${esc(natOf(ans))}</small>` : '');
+      if (ans) { await play(ans, { label: `${NAME}는 이렇게 말했어` }); if (stopped) return; msg('baek', ans.ko); }
+      if (r.text) {
+        const c = await coach(r.text, { question: q.ko }); if (stopped) return;
+        if (c) await practice(c.target, { prompt: `${NAME}: ${q.ko}`, uttId: q.u.id, before: c.before });
       }
-      const target = await coach(r.text, { question: q.ko, mission, models: q.u.replies || [] });
-      if (stopped) return;
-      if (target) await practice(target, { ko: `${NAME}: ${q.ko}`, uttId: q.u.id });
       if (stopped) return;
       const k = await ask('다음은?', [['n', '다음 질문 →'], ['e', '통화 마치기', 'soft']]);
       if (k === 'e') return;
     }
   }
-  async function runChallenge() {
-    const pool = shuffle(questionPool()); let qi = 0;
-    let q = pool[qi];
-    // 질문 고르기
+  // ----- 3. 오래 이야기하기: 60초 → 확인 → 작은 힌트 → 다시 60초 … -----
+  async function runLong() {
+    const pool = qs; let qi = 0, q = pool[0];
     for (;;) {
       if (q.real) await play(q.u); else { $v('#vcap').innerHTML = `<span>앱 질문</span>${esc(q.ko)}`; await wait(1400); $v('#vcap').innerHTML = ''; }
       if (stopped) return;
-      const k = await ask(`이 질문으로 도전할까요?<p class="vp-s">${esc(q.ko)}</p>`, [['y', '1분 → 40초 → 20초 시작'], ['o', '다른 질문', 'soft']]);
+      const k = await ask('이 질문으로 오래 이야기해볼까?', [['y', '60초 시작'], ['o', '다른 질문', 'soft']], esc(q.ko));
       if (k === 'y') break; qi = (qi + 1) % pool.length; q = pool[qi];
     }
     msg('baek', q.ko);
-    const rounds = [];
-    for (const [i, lim] of [[1, 60], [2, 40], [3, 20]]) {
-      progress(`도전 ${i}/3 · ${lim}초`);
-      const r = await turn({ limit: lim, auto: true, label: `${i}번째 · ${lim}초 안에 같은 내용을 말해요` }); log('sp-challenge', r, q.u.id); if (stopped) return;
-      rounds.push({ lim, ...r });
+    const rounds = [], used = [];
+    const tg = $v('#vtg');
+    for (let i = 1; !stopped; i++) {
+      progress(`${i}라운드 · 60초`);
+      const r = await turn({ limit: 60, auto: true, label: i === 1 ? '60초 동안 자유롭게 이야기해요' : '힌트를 넣어서 더 길게 이야기해요' }); log('sp-long', r, q.u.id); if (stopped) return;
+      tg.classList.add('hide');
+      rounds.push(r);
+      const all = rounds.map(x => x.text).join(' ');
+      const hint = talkHint(all, used); used.push(hint.k);
+      const feats = talkFeatures(all);
+      const prev = rounds[rounds.length - 2];
+      const w = words(r.text), wpm = r.sec >= 10 ? Math.round(w / r.sec * 60) : '—';
+      const k = await new Promise(res => {
+        panel(`<div class="vp-h">${i}라운드 · 내 이야기</div>
+          <div class="long-stats"><div><b>${w}</b><span>단어</span></div><div><b>${wpm}</b><span>단어/분</span></div><div><b class="${prev && w > words(prev.text) ? 'up' : ''}">${prev ? `${w - words(prev.text) >= 0 ? '+' : ''}${w - words(prev.text)}` : '—'}</b><span>지난 라운드 대비</span></div></div>
+          <div class="long-bars">${rounds.map((x, j) => `<i style="--h:${Math.min(100, words(x.text) * 1.4 + 6)}%" class="${j === rounds.length - 1 ? 'on' : ''}"><em>${words(x.text)}</em></i>`).join('')}</div>
+          <p class="long-text en">${r.text ? esc(r.text) : '<span class="muted">말한 내용이 없어요</span>'}</p>
+          ${feats.length ? `<div class="feat-row">${feats.map(f => `<span class="hchip on">${FEAT[f]}</span>`).join('')}</div>` : ''}
+          <div class="long-hint"><span class="lh-tag">${ic('bulb')} 작은 힌트</span><b>${esc(hint.t)}</b><p><span class="en">${esc(hint.ex)}</span> · ${esc(hint.ko)}</p></div>
+          <div class="row mt12"><button class="btn soft" data-k="e">마치기</button><button class="btn grow" data-k="a">${ic('mic')} 다시 60초 말하기</button></div>`);
+        $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(b.dataset.k); });
+      });
+      if (k === 'e') break;
+      tg.innerHTML = `<div class="say tip"><span class="say-tag">${ic('bulb')} 이번 라운드</span><p class="say-ko">${esc(hint.t)}</p><p class="say-en en small-en">${esc(hint.ex)}</p></div>`; tg.classList.remove('hide');
     }
-    await new Promise(res => {
-      panel(`<div class="vp-h">3번 말하기 결과</div><div class="rounds">${rounds.map((r, i) => `<div><b>${i + 1}회 · ${r.lim}초</b><span>${words(r.text)}단어 · ${r.sec ? Math.round(words(r.text) / r.sec * 60) : 0}단어/분</span></div>`).join('')}</div>
-        <p class="vp-s">시간이 줄어도 같은 내용을 말할수록 말이 빨라지고 매끄러워져요.</p><button class="btn block" id="rn">${NAME} 답 보고 마무리 →</button>`);
-      $v('#rn').onclick = () => { closePanel(); res(); };
-    });
-    const fin = (q.real && answerClip(q.u)) || (q.real ? q.u : null);
-    if (fin) { await play(fin, { label: fin === q.u ? NAME : `${NAME}는 이렇게 말했어` }); if (stopped) return; msg('baek', fin.ko); }
+    tg.classList.add('hide');
+    if (stopped) return;
     const best = rounds.map(r => r.text).sort((a, b) => words(b) - words(a))[0] || '';
-    const target = await coach(best, { question: q.ko, models: q.u.replies || [] });
-    if (target && !stopped) await practice(target, { ko: `${NAME}: ${q.ko}`, uttId: q.u.id });
+    if (best) { const c = await coach(best, { question: q.ko }); if (c && !stopped) await practice(c.target, { prompt: `${NAME}: ${q.ko}`, uttId: q.u.id, before: c.before }); }
   }
-  const wait = ms => new Promise(r => setTimeout(r, ms));
 
-  // 오늘의 백현이 + 마무리
+  // ----- 마무리 -----
   async function finale() {
     if (dead) return;
     stopped = true; endTurn?.(); pl.stop(); closePanel();
-    $v('#vtg').classList.add('hide'); $v('#vmis').classList.add('hide'); progress('');
+    $v('#vtg').classList.add('hide'); $v('#vhint').classList.add('hide'); progress('');
+    const sec = t0 ? Math.round((Date.now() - t0) / 1000) : 0;
+    clearInterval(timer);
     const tc = todayClip();
-    if (tc && localStorage.getItem('b2u:todayClip') !== D.today()) {
+    if (accepted && tc && localStorage.getItem('b2u:todayClip') !== D.today()) {
       await play(tc, { label: `오늘의 ${NAME}` }); localStorage.setItem('b2u:todayClip', D.today());
       if (dead) return;
     }
-    status('통화 종료'); D.bump(); D.save();
-    const st = todayStats();
-    panel(`<div class="vp-h">통화 종료</div><div class="sum"><div><b>${fmtSec(stats.sec)}</b><span>이번 통화</span></div><div><b>${st.sentences}</b><span>오늘 말한 문장</span></div><div><b>${st.streak}일</b><span>연속 학습</span></div></div>
-      <div class="row"><button class="btn soft grow" id="fa">다시 통화</button><button class="btn grow" id="fx">나가기</button></div>`, { end: false });
-    $v('#fa').onclick = () => { cleanup(); ring(root, mode === 'today' ? 'answer' : mode); };
+    status('통화 종료'); blip('end');
+    if (accepted && sec > 0) D.addTalkLog({ kind: 'call', mode, videoId: v?.id || null, title: v?.title || '', concept, sec, spoke: stats.sec, n: stats.n });
+    const st = D.callStats();
+    panel(`<div class="vp-h center-t">통화 종료</div><div class="end-time">${clock(sec)}</div>
+      <div class="sum"><div><b>${stats.n}</b><span>말한 문장</span></div><div><b>${fmtDur(stats.sec)}</b><span>내가 말한 시간</span></div><div><b>${fmtDur(st.total)}</b><span>총 통화 시간</span></div></div>
+      <div class="row"><button class="btn soft grow" id="fa">다시 걸기</button><button class="btn grow" id="fx">나가기</button></div>`, { end: false });
+    $v('#fa').onclick = () => { cleanup(); unlock(); call(root, mode, mode === 'call' ? v : null); };
     $v('#fx').onclick = () => { cleanup(); document.body.classList.remove('in-call'); speak(root); };
   }
-  function cleanup() { if (dead) return; dead = stopped = true; endTurn?.(); clearInterval(timer); pl.destroy(); cam?.getTracks().forEach(t => t.stop()); active = null; }
+  function cleanup() { if (dead) return; dead = stopped = true; stopRing(); endTurn?.(); clearInterval(timer); pl.destroy(); unPhoto?.(); cam?.getTracks().forEach(t => t.stop()); active = null; }
   active = cleanup;
   let finDone = false; const finaleOnce = () => { if (finDone) return; finDone = true; finale(); };
   $v('#vend').onclick = () => { if (finDone) { cleanup(); document.body.classList.remove('in-call'); speak(root); } else finaleOnce(); };
+  $v('#vfill').onclick = () => { const vc = $('.vcall', root); const fill = !vc.classList.contains('fill'); vc.classList.toggle('fill', fill); vc.classList.toggle('fit', !fill); D.setSetting('callFill', fill); toast(fill ? '화면 꽉 채우기' : '영상 전체 보기'); };
   $v('#vcam').onclick = async e => {
     const b = e.currentTarget;
     if (cam) { cam.getTracks().forEach(t => t.stop()); cam = null; $('.vc-pip', root)?.remove(); b.classList.remove('on'); return; }
-    try { cam = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false }); const p = h('<div class="vc-pip"><video autoplay playsinline muted></video></div>'); root.querySelector('.vcall').appendChild(p); $('video', p).srcObject = cam; b.classList.add('on'); }
+    try { cam = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }, audio: false }); const p = h('<div class="vc-pip"><video autoplay playsinline muted></video></div>'); $('.vcall', root).appendChild(p); $('video', p).srcObject = cam; b.classList.add('on'); }
     catch { toast('카메라를 켤 수 없어요 (권한 확인)'); }
   };
 
-  (async () => {
-    await wait(300); status('연결됨');
+  async function run() {
+    await wait(700); if (dead) return; status('연결됨');
     try {
-      if (mode === 'interp') await runInterp();
-      else if (mode === 'answer') await runAnswer();
-      else if (mode === 'challenge') await runChallenge();
-      else if (mode === 'today') { const tc = todayClip(); if (tc) { await play(tc, { label: `오늘의 ${NAME}` }); msg('baek', tc.ko); } }
+      if (mode === 'call' && v) await runCall();
+      else if (mode === 'chat') await runChat();
+      else if (mode === 'long') await runLong();
     } catch (e) { console.warn(e); }
     finaleOnce();
-  })();
+  }
 }
+const FEAT = { reason: '이유', example: '예시', feeling: '감정', past: '경험', detail: '디테일', sequence: '순서', plan: '계획', contrast: '반전', ask: '질문 돌려주기' };

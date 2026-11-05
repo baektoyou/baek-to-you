@@ -10,9 +10,10 @@ const defaults = () => ({
   saved: [],       // 저장 표현 (복습)
   attempts: [],    // 말하기 기록
   progress: {},    // uttId -> {steps:{}, lastAt}
-  talkLogs: [],    // TALK 세션 요약
+  talkLogs: [],    // 통화 기록 {id, at, kind, videoId, sec, spoke, n}
+  words: [],       // 따로 저장한 단어·표현 {id, text, ko, note, srcId, status, srs}
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true }
+  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true }
 });
 
 let db = load();
@@ -32,7 +33,8 @@ function migrate(d) {
   out.videos = arrOf(out.videos);
   out.utts = arrOf(out.utts).map(normUtt);
   out.saved = arrOf(out.saved).map(s => normSaved(s, out));
-  out.attempts = arrOf(out.attempts); out.talkLogs = arrOf(out.talkLogs);
+  out.attempts = arrOf(out.attempts); out.talkLogs = arrOf(out.talkLogs).map(l => ({ id: l.id || uid(), ...l }));
+  out.words = arrOf(out.words).map(normWord);
   out.progress = out.progress || {}; out.days = out.days || {};
   return out;
 }
@@ -61,7 +63,8 @@ function normSaved(s, d = db) {
   if (!status) status = s.hard ? 'again' : srs.reps >= 4 ? 'mastered' : srs.reps >= 1 ? 'okay' : 'new';
   const out = { id: s.id || uid(), kind, level, uttId: s.uttId || null, ko: s.ko || '', en, text, pattern: s.pattern || '', note: s.note || '',
     videoId: s.videoId || null, ytId: s.ytId || '', start: s.start ?? null, videoTitle: s.videoTitle || '',
-    createdAt: s.createdAt || Date.now(), hard: status === 'again', status, audioId: s.audioId || null, srs, history: arrOf(s.history), editedAt: s.editedAt || 0 };
+    createdAt: s.createdAt || Date.now(), hard: status === 'again', status, audioId: s.audioId || null, srs, history: arrOf(s.history), editedAt: s.editedAt || 0,
+    marks: arr(s.marks), before: s.before || '' };
   // 원본 영상 정보 보강 (예전 항목)
   if (out.uttId && !out.ytId) {
     const u = d.utts?.find(x => x.id === out.uttId); const v = u && d.videos?.find(x => x.id === u.videoId);
@@ -169,6 +172,36 @@ export function saveExpr(item) {
 export function updateSaved(id, patch) { const s = db.saved.find(x => x.id === id); if (!s) return; Object.assign(s, patch, { editedAt: Date.now() }); save(); }
 export function deleteSaved(id) { const s = db.saved.find(x => x.id === id); if (s?.audioId) AudioStore.del(s.audioId); db.saved = db.saved.filter(x => x.id !== id); save(); }
 export function toggleHard(id) { const s = db.saved.find(x => x.id === id); if (s) { s.status = s.status === 'again' ? 'okay' : 'again'; s.hard = s.status === 'again'; save(); } }
+// ---------- 단어·표현 ----------
+function normWord(w) {
+  const srs = { interval: 0, reps: 0, lapses: 0, due: Date.now(), ...(w.srs || {}) };
+  return { id: w.id || uid(), text: String(w.text || '').trim(), ko: w.ko || '', note: w.note || '', srcId: w.srcId || null, kind: w.kind || 'expr',
+    status: w.status || 'new', srs, history: arrOf(w.history), made: arrOf(w.made), createdAt: w.createdAt || Date.now(), updatedAt: w.updatedAt || 0 };
+}
+export function saveWord(item) {
+  const t = normText(item.text); if (!t) return { item: null, dup: false };
+  const dup = db.words.find(w => normText(w.text) === t);
+  if (dup) { if (item.ko && !dup.ko) { dup.ko = item.ko; dup.updatedAt = Date.now(); save(); } return { item: dup, dup: true }; }
+  const w = normWord({ ...item, id: uid(), createdAt: Date.now(), updatedAt: Date.now() });
+  db.words.unshift(w); save(); return { item: w, dup: false };
+}
+export function updateWord(id, patch) { const w = db.words.find(x => x.id === id); if (w) { Object.assign(w, patch, { updatedAt: Date.now() }); save(); } }
+export function deleteWord(id) { db.words = db.words.filter(w => w.id !== id); save(); }
+export function rateWord(id, status) {
+  const w = db.words.find(x => x.id === id); if (!w) return;
+  const r = w.srs; const iv = nextInterval(w, status);
+  if (status === 'again') { r.reps = 0; r.lapses++; r.interval = 0; r.due = Date.now() + 10 * 60e3; }
+  else { r.reps++; r.interval = iv; r.due = startOfDay(Date.now() + iv * DAY) + 4 * 36e5; }
+  w.status = status; w.history.push({ at: Date.now(), status }); w.updatedAt = Date.now(); bump(); save();
+}
+export const dueWords = () => db.words.filter(w => w.srs.due <= Date.now());
+// 저장 문장 안에서 표시한 표현
+export function toggleMark(savedId, phrase, on) {
+  const s = db.saved.find(x => x.id === savedId); if (!s) return;
+  const k = normText(phrase); s.marks = (s.marks || []).filter(m => normText(m) !== k);
+  if (on) s.marks.push(phrase.trim());
+  s.editedAt = Date.now(); save();
+}
 export const isSavedUtt = (uttId, level) => db.saved.some(s => s.uttId === uttId && s.kind === 'utt' && (!level || s.level === level));
 
 // ---------- 복습 주기 ----------
@@ -196,7 +229,14 @@ export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort(
 export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
 export function setSetting(k, v) { db.settings[k] = v; save(); }
-export function addTalkLog(log) { db.talkLogs.unshift(log); db.talkLogs = db.talkLogs.slice(0, 30); bump(); save(); }
+export function addTalkLog(log) { db.talkLogs.unshift({ id: uid(), at: Date.now(), ...log }); db.talkLogs = db.talkLogs.slice(0, 400); bump(); save(); }
+// 통화 기록 요약 (총 통화 시간 중심)
+export function callStats() {
+  const logs = db.talkLogs.filter(l => l.kind === 'call' || l.sec);
+  const total = logs.reduce((n, l) => n + (l.sec || 0), 0);
+  let streak = 0; for (let i = 0; i < 400; i++) { const d = new Date(); d.setDate(d.getDate() - i); if (db.days[today(d)]) streak++; else if (i > 0) break; }
+  return { total, count: logs.length, longest: Math.max(0, ...logs.map(l => l.sec || 0)), streak, logs };
+}
 
 // ---------- 백업 / 복원 ----------
 export function exportJSON() { return JSON.stringify({ app: 'BAEK TO YOU', exportedAt: new Date().toISOString(), ...db }, null, 2); }
@@ -217,6 +257,8 @@ export function importJSON(text, mode = 'replace') {
     db.attempts = db.attempts.concat(inc.attempts.filter(a => !aids.has(a.id)));
     for (const [k, v] of Object.entries(inc.progress)) if (!db.progress[k]) db.progress[k] = v;
     for (const [k, v] of Object.entries(inc.days)) db.days[k] = Math.max(db.days[k] || 0, v);
+    const wids = new Set(db.words.map(w => w.id)); db.words = db.words.concat(inc.words.filter(w => !wids.has(w.id)));
+    const lids = new Set(db.talkLogs.map(l => l.id)); db.talkLogs = db.talkLogs.concat(inc.talkLogs.filter(l => !lids.has(l.id))).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 400);
   }
   save();
 }
@@ -227,7 +269,7 @@ export function resetAll() { snapshot('전체 초기화'); db = defaults(); save
 export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera'];
 export function getShared() {
   const settings = { ...db.settings }; LOCAL_ONLY_SETTINGS.forEach(k => delete settings[k]);
-  return { version: db.version, videos: db.videos, utts: db.utts, saved: db.saved, attempts: db.attempts, progress: db.progress, talkLogs: db.talkLogs, days: db.days, settings };
+  return { version: db.version, videos: db.videos, utts: db.utts, saved: db.saved, words: db.words, attempts: db.attempts, progress: db.progress, talkLogs: db.talkLogs, days: db.days, settings };
 }
 export const normalize = d => migrate(JSON.parse(JSON.stringify(d || {})));
 export function applyShared(data) {

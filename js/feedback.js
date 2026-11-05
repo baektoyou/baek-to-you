@@ -1,7 +1,7 @@
 // APPLY 피드백 & 패턴 사전 — 무료·오프라인 규칙 기반 (AI 아님)
 // · 규칙으로 확실히 잡을 수 있는 문법/자연스러움만 알려줘요.
 // · 선택: LanguageTool 공개 API(무료, 외부 전송) — 사용자가 버튼을 눌렀을 때만 호출
-import { tokens } from './compare.js';
+import { tokens, splitPatterns, STOP, diffWords } from './compare.js';
 
 // ---------- 패턴 사전 ----------
 const P = (re, ko, ex, q, frame) => ({ re, ko, ex, q, frame });
@@ -33,7 +33,7 @@ const LIB = [
   P(/\bi love\b/i, '~하는 게 정말 좋아', ['I love walking at night.', 'I love this song so much.', 'I love it when it snows.'], '정말 좋아하는 순간이 있나요?', 'I love ______.')
 ];
 export function patternInfo(u) {
-  const pat = (u.pattern || '').trim();
+  const pat = (splitPatterns(u.pattern)[0] || '').trim();
   const hit = pat ? LIB.find(p => p.re.test(pat)) : null;
   const ownEx = (u.examples || []).filter(Boolean);
   const src = [u.en?.easy, u.en?.natural, u.en?.advanced].filter(Boolean);
@@ -59,9 +59,9 @@ export function patternParts(pattern) {
 }
 const canon = t => tokens(t).join(' ');
 export function usesPattern(text, pattern) {
-  const parts = patternParts(pattern); if (!parts.length) return null;
+  const pats = splitPatterns(pattern); if (!pats.length) return null;
   const c = ' ' + canon(text) + ' ';
-  return parts.every(p => c.includes(' ' + canon(p) + ' ') || c.includes(canon(p)));
+  return pats.some(pt => { const parts = patternParts(pt); return parts.length ? parts.every(p => c.includes(' ' + canon(p) + ' ') || c.includes(canon(p))) : false; });
 }
 
 // ---------- 규칙 기반 점검 ----------
@@ -73,6 +73,8 @@ const ADJ_AFTER_BEEN = /^(so|really|very|too|busy|tired|sick|good|great|fine|oka
 const RULES = [
   // [정규식, 바꿀말(문자열|함수), 설명, 종류]
   [/\bi\b/g, 'I', '“I(나)”는 항상 대문자', 'style'],
+  [/\b(I|i)m\b/g, "I'm", 'I\'m은 아포스트로피(\')가 필요해요', 'style'],
+  [/\b(dont|doesnt|didnt|cant|wont|isnt|arent|wasnt|havent)\b/gi, w => w.replace(/nt$/i, "n't").replace(/^wo/i, 'wo').replace(/^ca/i, 'ca'), '축약형엔 아포스트로피(\')가 필요해요', 'style'],
   [/\b(I|i) (am|'m) agree\b/gi, 'I agree', 'agree는 동사라서 am이 필요 없어요', 'grammar'],
   [/\b(I|i)'?m agree\b/gi, 'I agree', 'agree는 동사라서 am이 필요 없어요', 'grammar'],
   [/\b(I|we|you|they) (is)\b/gi, (m, s) => `${s} ${s.toLowerCase() === 'i' ? 'am' : 'are'}`, '주어에 맞는 be동사', 'grammar'],
@@ -97,6 +99,26 @@ const RULES = [
   [/\b(can|could|will|would|should|must|might) (went|ate|saw|came|took|got|made|bought|slept)\b/gi, (m, a, b) => `${a} ${BASE[b.toLowerCase()]}`, '조동사 뒤엔 동사원형', 'grammar'],
   [/\b(english|korean|japanese|chinese|korea|japan|china|seoul|busan|jeju|baekhyun|exo|christmas|monday|tuesday|wednesday|thursday|friday|saturday|sunday|january|february|april|june|july|august|september|october|november|december)\b/g, w => w === 'exo' ? 'EXO' : w[0].toUpperCase() + w.slice(1), '고유명사·언어·요일은 대문자로 시작해요', 'style'],
   [/\ba (?!one\b|once\b|uni|use|euro|u\b)([aeio]\w*)/gi, (m, w) => `an ${w}`, '모음 소리 앞엔 an', 'grammar'],
+  // ----- 한국어식 영어 → 원어민이 실제로 쓰는 표현 -----
+  [/\b(I|i)('m| am) (feel|think|like|love|want|need|know|agree)\b/g, (m, s, be, v) => `I ${v.toLowerCase()}`, `${'feel/think/like 같은 동사 앞엔 am이 필요 없어요'}`, 'grammar'],
+  [new RegExp(`\\b(I'm|I am|you're|we're|they're|he's|she's) (${VERBS})\\b(?! to)`, 'g'), (m, s, v) => /^(be|have|know|like|love|want|need|feel)$/i.test(v) ? m : `${s} ${ING(v)}`, '지금 하고 있는 일은 be + ~ing', 'grammar'],
+  [/\b(I|i)('m| am| was) (so |very |really )?(exciting|boring|interesting|tiring|confusing|surprising)\b/g, (m, s, be, adv, w) => `I${be} ${adv || ''}${w.replace(/ing$/, 'ed')}`, '내 감정은 -ed (exciting은 “신나게 만드는”)', 'grammar'],
+  [/\bgo(es|ing)? to home\b/gi, (m, e) => `go${e || ''} home`, 'home 앞엔 to를 안 써요', 'grammar'],
+  [/\bcome(s)? to home\b/gi, (m, e) => `come${e || ''} home`, 'home 앞엔 to를 안 써요', 'grammar'],
+  [/\bhow do you think\b/gi, 'what do you think', '“어떻게 생각해?”는 What do you think?', 'natural'],
+  [/\blet'?s go to (eat|drink|play|shop|walk)\b/gi, (m, v) => `let's go ${v === 'shop' ? 'shopping' : v === 'walk' ? 'for a walk' : v}`, 'Let\'s go eat / go shopping처럼 말해요', 'natural'],
+  [/\beat (medicine|pills?)\b/gi, (m, w) => `take ${w}`, '약은 take medicine', 'natural'],
+  [/\b(play|played|playing) with (my )?friends\b/gi, (m, v, my) => `${v === 'play' ? 'hang out' : v === 'played' ? 'hung out' : 'hanging out'} with ${my || ''}friends`, '어른끼리 “친구랑 놀다”는 hang out', 'natural'],
+  [/\b(I'm|I am) (a )?(big )?fan of you\b/gi, "I'm a big fan of yours", '“네 팬이야”는 I\'m a big fan of yours', 'natural'],
+  [/\b(you|we|i) fighting\b|\bfighting!?$/gi, 'You got this!', '응원할 땐 fighting 대신 You got this!', 'natural'],
+  [/\beye shopping\b/gi, 'window shopping', '아이쇼핑 = window shopping', 'natural'],
+  [/\bhand ?phone\b/gi, 'phone', '핸드폰 = phone', 'natural'],
+  [/\b(I|i) have (a )?promise\b/g, 'I have plans', '약속 있어 = I have plans', 'natural'],
+  [/\bdid you eat rice\b/gi, 'have you eaten', '“밥 먹었어?”는 Have you eaten?', 'natural'],
+  [/\bsame (with|to) me\b/gi, 'same here', '나도 그래 = Same here', 'natural'],
+  [/\b(I|i) don'?t know (very )?well\b/g, "I'm not really sure", '“잘 모르겠어”는 I\'m not really sure', 'natural'],
+  [/\bit'?s my first time to (\w+)/gi, (m, w) => `it's my first time ${ING(w)}`, 'first time 뒤엔 ~ing', 'grammar'],
+  [/\bI'?m fine,? thank you,? and you\??/gi, "I'm good! How about you?", '교과서 표현보다 I\'m good! How about you?가 자연스러워요', 'natural'],
   [/\bvery very\b/gi, 'really', 'very very보다 really가 자연스러워요', 'natural'],
   [/\b(I) am\b(?! (not )?sure\b)/g, "I'm", '말할 땐 축약형(I\'m)이 더 자연스러워요', 'natural'],
   [/\b(I) have been\b/g, "I've been", '말할 땐 I\'ve been이 더 자연스러워요', 'natural'],
@@ -167,3 +189,60 @@ ${intent ? `하려던 말(한국어): ${intent}\n` : ''}${pattern ? `연습 중�
 3) 원어민이 일상 대화에서 더 자연스럽게 말하는 버전 1~2개
 4) 개선 포인트 한 줄 (한국어)`;
 }
+
+// ---------- 더 자연스러운 문장으로 (규칙 + 선택: LanguageTool) ----------
+// 반환: {before, after, changes:[{from,to,why}], source}
+// · rules: 앱에 내장된 규칙만 · rules+lt: 공개 LanguageTool 서버로 문법 점검까지 (설정에서 끌 수 있음)
+export async function improve(text, { pattern = '', useLT = true } = {}) {
+  const before = String(text || '').trim();
+  if (!before) return null;
+  const r = checkSentence(before, pattern);
+  let after = r.fixed; const changes = r.issues.filter(i => i.type !== 'style' || r.issues.length === 1).map(i => ({ from: i.from, to: i.to, why: i.why, type: i.type }));
+  let source = 'rules';
+  if (useLT && navigator.onLine !== false) {
+    const lt = await languageTool(after);
+    if (lt.ok) {
+      source = 'rules+lt';
+      const real = lt.issues.filter(x => x.to && x.from && x.to !== x.from && !/^[A-Z]/.test(x.to) === !/^[A-Z]/.test(x.from) || /grammar|agreement|tense|article|verb/i.test(x.why || ''));
+      if (real.length) { after = lt.fixed; real.slice(0, 3).forEach(x => changes.push({ from: x.from, to: x.to, why: shortLT(x.why), type: 'grammar' })); }
+    }
+  }
+  after = after.charAt(0).toUpperCase() + after.slice(1);
+  return { before, after, changes: dedupe(changes), source, same: canonLoose(before) === canonLoose(after) };
+}
+const shortLT = w => String(w || '').replace(/\s+/g, ' ').slice(0, 70);
+const dedupe = list => { const seen = new Set(); return list.filter(c => { const k = (c.from + '>' + c.to).toLowerCase(); if (seen.has(k)) return false; seen.add(k); return true; }); };
+
+// ---------- 힌트: 정답 전체가 아닌 핵심 단어·표현만 ----------
+// 1) 패턴(고정 표현) 2) 핵심 단어 2~3개 (긴 내용어 우선) — 차례대로 하나씩 공개
+export function hintsFor(en, { pattern = '', keywords = [] } = {}) {
+  const out = []; const used = new Set();
+  splitPatterns(pattern).forEach(p => { const fixed = patternParts(p).join(' … '); if (fixed && fixed.split(' ').length <= 5) { out.push(fixed); fixed.toLowerCase().replace(/[’]/g, "'").split(/[\s…]+/).forEach(w => used.add(w)); } });
+  const words = String(en || '').replace(/[^A-Za-z' -]/g, ' ').split(/\s+/).filter(Boolean);
+  const kws = (keywords || []).filter(k => words.some(w => w.toLowerCase().startsWith(k.toLowerCase().slice(0, 4))));
+  const content = words.filter(w => w.length > 3 && !STOP.has(w.toLowerCase()) && !used.has(w.toLowerCase().replace(/[’]/g, "'")) && !/^(that|this|have|been|with|what|when|there|they|them|then|just|really|very|about|because|would|could|should|going|gonna)$/i.test(w));
+  const pick = [...new Set([...kws, ...content.sort((a, b) => b.length - a.length)].map(w => w.replace(/^'+|'+$/g, '')))].slice(0, Math.max(1, 4 - out.length));
+  // 원래 문장 순서대로
+  const order = w => String(en).toLowerCase().indexOf(w.toLowerCase());
+  return out.concat(pick.sort((a, b) => order(a) - order(b))).slice(0, 4);
+}
+
+// ---------- 오래 이야기하기: 더 길게 말하도록 유도하는 작은 힌트 ----------
+// 정답을 알려주지 않고, 아직 안 한 종류의 이야기를 하나 제안해요.
+const TALK_HINTS = [
+  { k: 'reason', test: /\b(because|since|so|that's why|the reason)\b/i, t: '이유를 하나 더해볼까?', ex: 'because …', ko: '왜 그런지 말해봐' },
+  { k: 'example', test: /\b(for example|for instance|like when|such as|one time)\b/i, t: '구체적인 예를 들어볼까?', ex: 'For example, …', ko: '실제 있었던 일 하나' },
+  { k: 'feeling', test: /\b(feel|felt|feeling|happy|sad|excited|nervous|tired|glad|upset|love|hate)\b/i, t: '그때 기분은 어땠어?', ex: 'It made me feel …', ko: '감정 한 단어 + 이유' },
+  { k: 'past', test: /\b(was|were|did|went|had|used to|yesterday|last (week|night|year)|ago)\b/i, t: '예전 이야기를 붙여볼까?', ex: 'Last week, I …', ko: '최근에 있었던 일' },
+  { k: 'detail', test: /\b(with|at|in the|on the|when|where)\b.*\b(with|at|in the|on the|when|where)\b/i, t: '누구랑·어디서·언제를 더해봐', ex: 'with my friend / at home', ko: '장면이 그려지게' },
+  { k: 'sequence', test: /\b(first|then|after that|and then|finally|later)\b/i, t: '순서대로 이어서 말해볼까?', ex: 'First … Then …', ko: '처음 → 그다음' },
+  { k: 'plan', test: /\b(going to|gonna|will|want to|wanna|plan to|hope to|next)\b/i, t: '앞으로의 계획을 붙여볼까?', ex: 'Next time, I want to …', ko: '다음엔 뭘 하고 싶어?' },
+  { k: 'contrast', test: /\b(but|however|although|actually|on the other hand)\b/i, t: '반대 생각도 하나 말해볼까?', ex: 'But actually, …', ko: '의외였던 점' },
+  { k: 'ask', test: /\?\s*$|\b(what about you|how about you|do you)\b/i, t: '백현이에게 질문을 돌려줘', ex: 'What about you?', ko: '대화를 이어가게' }
+];
+export function talkHint(text, used = []) {
+  const t = String(text || '');
+  const fresh = TALK_HINTS.filter(h => !used.includes(h.k));
+  return fresh.find(h => !h.test.test(t)) || fresh[0] || TALK_HINTS[Math.floor(Math.random() * TALK_HINTS.length)];
+}
+export function talkFeatures(text) { return TALK_HINTS.filter(h => h.test.test(String(text || ''))).map(h => h.k); }

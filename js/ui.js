@@ -1,6 +1,7 @@
 // 공통 UI 헬퍼 + 재사용 컴포넌트 (마이크 · 힌트 · 레벨 비교 · 쉐도잉)
 import * as S from './speech.js';
-import { markPattern } from './compare.js';
+import { markPattern, diffWords } from './compare.js';
+import { hintsFor } from './feedback.js';
 
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const $ = (sel, el = document) => el.querySelector(sel);
@@ -48,7 +49,15 @@ const P = {
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
   apply: '<path d="M4 20l4-1 11-11-3-3L5 16z"/><path d="M14 6l3 3"/>',
-  refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>'
+  refresh: '<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8M4 4v4h4M4 13a8 8 0 0 0 14.3 4.9L20 16M20 20v-4h-4"/>',
+  marker: '<path d="M14.5 4.5l5 5L10 19H5v-5z"/><path d="M4 21h8"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  word: '<path d="M4 6h16M4 12h10M4 18h7"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/>',
+  heart: '<path d="M12 20s-7.5-4.6-7.5-10A4.3 4.3 0 0 1 12 7.4 4.3 4.3 0 0 1 19.5 10c0 5.4-7.5 10-7.5 10z"/>',
+  chat: '<path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v7A2.5 2.5 0 0 1 17 16h-6l-4 3.5V16a2.5 2.5 0 0 1-2.5-2.5z"/>',
+  timer: '<circle cx="12" cy="13" r="8"/><path d="M12 9v4l2.5 2M9.5 2.5h5"/>',
+  moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z"/>'
 };
 export const ic = n => `<svg viewBox="0 0 24 24" aria-hidden="true">${P[n] || ''}</svg>`;
 
@@ -153,3 +162,85 @@ export function compareRows({ ko, mine, rec, pattern = '' }) {
 }
 // 추천 문장은 Natural 하나만 사용 (예전 데이터에 natural이 비어 있으면 있는 것으로 대체)
 export const natOf = u => u?.en?.natural || u?.en?.easy || u?.en?.advanced || u?.text || '';
+
+
+// ---------- Before → After ----------
+// before: 내가 말한 영어 · after: 추천(개선) 문장 · changes: [{from,to,why}] (규칙이 알려준 이유)
+export function beforeAfter({ before = '', after = '', ko = '', changes = [], pattern = '', marks = [], afterLabel = '추천 문장', note = '' } = {}) {
+  const b = String(before || '').trim(), a = String(after || '').trim();
+  const head = ko ? `<div class="ba-ko"><span class="ba-tag">한국어</span><p>${esc(ko)}</p></div>` : '';
+  if (!b) return `<div class="ba">${head}<div class="ba-row before empty"><span class="ba-tag">Before</span><p>말한 문장이 없어요</p></div><div class="ba-arrow">${ic('down')}</div>
+    <div class="ba-row after"><span class="ba-tag pink">After · ${esc(afterLabel)}</span><p class="en">${markPattern(a, pattern, esc, marks)}</p></div></div>`;
+  const d = diffWords(b, a);
+  const loose = d.sim < 0.34; // 거의 다른 문장 → 줄 단위로만 비교
+  let bHTML = '', aHTML = '';
+  if (loose) { bHTML = esc(b); aHTML = markPattern(a, pattern, esc, marks); }
+  else {
+    const grp = (list, cls) => { let out = '', run = []; const flush = () => { if (run.length) { out += `<${cls}>${run.map(esc).join(' ')}</${cls}> `; run = []; } }; list.forEach(([t, w]) => { if (t) run.push(w); else { flush(); out += esc(w) + ' '; } }); flush(); return out.trim(); };
+    bHTML = grp(d.ops.filter(o => o.op !== 'add').map(o => [o.op === 'del', o.a]), 'del');
+    aHTML = grp(d.ops.filter(o => o.op !== 'del').map(o => [o.op === 'add', o.b]), 'ins');
+  }
+  const same = !loose && !d.hunks.length;
+  const why = h => { const c = changes.find(c => c.to && h.to.toLowerCase().includes(String(c.to).toLowerCase().split(' ')[0])) || changes.find(c => c.from && h.from.toLowerCase().includes(String(c.from).toLowerCase().split(' ')[0])); return c?.why || ''; };
+  const list = loose ? [] : d.hunks.slice(0, 4);
+  return `<div class="ba">${head}
+    <div class="ba-row before"><span class="ba-tag">Before · 내가 말한 영어</span><p class="en">${bHTML}</p></div>
+    <div class="ba-arrow">${ic('down')}</div>
+    <div class="ba-row after ${same ? 'same' : ''}"><span class="ba-tag pink">${same ? '완벽해요 · 고칠 곳이 없어요' : `After · ${esc(afterLabel)}`}</span><p class="en">${aHTML}</p></div>
+    ${list.length ? `<ul class="ba-changes">${list.map(h => `<li><span class="from">${h.from ? esc(h.from) : '<i>추가</i>'}</span>${ic('next')}<span class="to">${h.to ? esc(h.to) : '<i>빼기</i>'}</span>${why(h) ? `<small>${esc(why(h))}</small>` : ''}</li>`).join('')}</ul>` : ''}
+    ${loose ? `<p class="ba-note">다른 표현으로 말했어요. 뜻이 같다면 그것도 좋은 답이에요.</p>` : ''}
+    ${note ? `<p class="ba-note">${note}</p>` : ''}
+  </div>`;
+}
+
+// ---------- 힌트 보기: 핵심 단어·표현만 하나씩 ----------
+export function hintBox(el, en, opt = {}) {
+  const hints = hintsFor(en, opt); let n = 0;
+  if (!hints.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="hintbox"><button class="hint-btn" type="button">${ic('bulb')}<span>힌트 보기</span><em>${hints.length}</em></button><div class="hint-chips"></div></div>`;
+  const btn = $('.hint-btn', el), box = $('.hint-chips', el);
+  btn.onclick = () => {
+    if (n >= hints.length) return;
+    box.insertAdjacentHTML('beforeend', `<span class="hchip en">${esc(hints[n])}</span>`); n++;
+    $('span', btn).textContent = n >= hints.length ? '힌트 끝' : '힌트 하나 더'; $('em', btn).textContent = hints.length - n || '';
+    btn.disabled = n >= hints.length;
+  };
+}
+
+// ---------- 말하기 카드 ----------
+// read: 영어를 크게 보고 말하기 · recall: 한국어를 위에 두고 영어로 바꿔 말하기 (+ 힌트)
+export function sayCard(el, { ko = '', en = '', pattern = '', keywords = [], mode = 'read', marks = [] } = {}) {
+  if (mode === 'read') {
+    el.innerHTML = `<div class="say read"><span class="say-tag">${ic('eye')} 보고 말하기</span><p class="say-en en">${markPattern(en, pattern, esc, marks)}</p>${ko ? `<p class="say-ko">${esc(ko)}</p>` : ''}</div>`;
+  } else {
+    el.innerHTML = `<div class="say recall"><span class="say-tag">안 보고 말하기 · 영어로 바꿔 말해요</span>${ko ? `<p class="say-ko-big">${esc(ko)}</p>` : `<p class="say-ko-big muted">한국어 문장이 없어요 · 기억나는 대로 말해요</p>`}
+      <div class="say-hint"></div><button class="say-peek" type="button">${ic('eye')} 정답 잠깐 보기</button><p class="say-en en peek hide">${esc(en)}</p></div>`;
+    hintBox($('.say-hint', el), en, { pattern, keywords });
+    const pk = $('.say-peek', el), ans = $('.say-en', el); let t;
+    pk.onclick = () => { ans.classList.remove('hide'); clearTimeout(t); t = setTimeout(() => ans.classList.add('hide'), 1800); };
+  }
+}
+
+// ---------- 외우고 싶은 표현 고르기 (단어를 눌러 범위 선택) ----------
+// onSave(phrase, {asWord}) · marks: 이미 표시한 표현
+export function phrasePicker(el, sentence, { marks = [], onSave, onUnmark } = {}) {
+  const words = String(sentence || '').split(/\s+/).filter(Boolean);
+  let a = -1, b = -1;
+  const isMarked = i => marks.some(m => { const mw = m.toLowerCase().split(/\s+/); for (let k = 0; k <= words.length - mw.length; k++) if (mw.every((x, j) => clean(words[k + j]) === clean(x)) && i >= k && i < k + mw.length) return true; return false; });
+  const render = () => {
+    const lo = Math.min(a, b), hi = Math.max(a, b);
+    el.innerHTML = `<div class="picker"><p class="pick-words en">${words.map((w, i) => `<button type="button" data-i="${i}" class="${a >= 0 && i >= lo && i <= hi ? 'sel' : ''} ${isMarked(i) ? 'mk' : ''}">${esc(w)}</button>`).join(' ')}</p>
+      <div class="pick-bar ${a >= 0 ? 'on' : ''}">${a >= 0 ? `<span class="pick-cur en">${esc(phrase())}</span><button class="btn sm soft" data-x="word">${ic('word')} 단어로</button><button class="btn sm" data-x="expr">${ic('marker')} 표현 저장</button>` : `<span class="pick-tip">외우고 싶은 단어를 눌러요 · 두 번째로 누른 곳까지 이어서 선택돼요</span>`}</div>
+      ${marks.length ? `<div class="pick-marks">${marks.map(m => `<span class="hchip on en">${esc(m)}<button type="button" data-un="${esc(m)}" aria-label="표시 지우기">${ic('x')}</button></span>`).join('')}</div>` : ''}</div>`;
+    $$('[data-i]', el).forEach(btn => btn.onclick = () => {
+      const i = +btn.dataset.i;
+      if (a < 0 || (a >= 0 && b !== a)) { a = b = i; } else if (i === a) { a = b = -1; } else { b = i; }
+      render();
+    });
+    $$('[data-x]', el).forEach(btn => btn.onclick = () => { const p = phrase(); if (!p) return; onSave?.(p, { asWord: btn.dataset.x === 'word' }); marks = [...new Set([...marks, p])]; a = b = -1; render(); });
+    $$('[data-un]', el).forEach(btn => btn.onclick = () => { const m = btn.dataset.un; marks = marks.filter(x => x !== m); onUnmark?.(m); render(); });
+  };
+  const clean = w => String(w).toLowerCase().replace(/[^a-z0-9']/g, '');
+  const phrase = () => { if (a < 0) return ''; const lo = Math.min(a, b), hi = Math.max(a, b); return words.slice(lo, hi + 1).join(' ').replace(/^[^\w']+|[^\w']+$/g, ''); };
+  render();
+}

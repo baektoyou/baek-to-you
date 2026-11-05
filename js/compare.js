@@ -143,16 +143,54 @@ export function mistakes(text) {
 }
 
 // 패턴 하이라이트: "I've been ~ing" → 고정 단어 부분을 <mark>
-export function markPattern(sentence, pattern, esc) {
+// 패턴은 쉼표로 여러 개 등록할 수 있어요: "I've been ~ing, can't wait to ~"
+export const splitPatterns = p => String(p || '').split(/\s*[,，]\s*/).map(x => x.trim()).filter(Boolean);
+export function markPattern(sentence, pattern, esc, extra = []) {
   const safe = esc(sentence);
-  if (!pattern) return safe;
-  const parts = pattern.split(/~|\.\.\.|…|\(.*?\)|\[.*?\]|\bsomething\b|\bsomeone\b|\bA\b|\bB\b/).map(s => s.trim()).filter(s => s.length > 1);
+  const pats = Array.isArray(pattern) ? pattern : splitPatterns(pattern);
+  if (!pats.length && !extra.length) return safe;
+  const parts = pats.flatMap(p => p.split(/~|\.\.\.|…|_{2,}|\(.*?\)|\[.*?\]|\bsomething\b|\bsomeone\b|\bA\b|\bB\b/)).map(s => s.replace(/[.?!]+$/, '').trim()).filter(s => s.length > 1)
+    .concat(extra.filter(Boolean)).sort((a, b) => b.length - a.length);
   let out = safe;
   parts.forEach(p => {
-    const re = new RegExp('(' + esc(p).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "['’]") + ')', 'i');
-    out = out.replace(re, '<mark>$1</mark>');
+    const body = esc(p).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/&#39;|'/g, "(?:'|’|&#39;)");
+    const re = new RegExp('(^|[^\\w>])(' + body + ')(?![^<]*</mark>)', 'i');
+    out = out.replace(re, (m, a, b) => `${a}<mark>${b}</mark>`);
   });
   return out;
+}
+
+// ---------- Before → After 비교 (표시용 단어 단위 diff) ----------
+// 원래 문장 표기(대소문자·문장부호)를 그대로 두고, 비교만 정규화해서 해요.
+const wkey = w => { const n = normalize(w); return n.replace(/\s+/g, ' '); };
+export function splitWords(t) { return String(t || '').trim().split(/\s+/).filter(Boolean); }
+export function diffWords(before, after) {
+  const A = splitWords(before), B = splitWords(after);
+  const a = A.map(wkey), b = B.map(wkey);
+  const n = a.length, m = b.length;
+  const L = Array.from({ length: n + 1 }, () => new Array(m + 1).fill(0));
+  for (let i = n - 1; i >= 0; i--) for (let j = m - 1; j >= 0; j--) L[i][j] = a[i] && a[i] === b[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+  const ops = []; let i = 0, j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[i] && a[i] === b[j]) { ops.push({ op: 'same', a: A[i], b: B[j] }); i++; j++; }
+    else if (j < m && (i >= n || L[i][j + 1] >= L[i + 1][j])) { ops.push({ op: 'add', b: B[j] }); j++; }
+    else { ops.push({ op: 'del', a: A[i] }); i++; }
+  }
+  // 바뀐 부분 묶음: [빠진 말, 들어간 말]
+  const hunks = []; let cur = null;
+  ops.forEach(o => {
+    if (o.op === 'same') { if (cur) { hunks.push(cur); cur = null; } return; }
+    cur = cur || { from: [], to: [] };
+    if (o.op === 'del') cur.from.push(o.a); else cur.to.push(o.b);
+  });
+  if (cur) hunks.push(cur);
+  const same = ops.filter(o => o.op === 'same').length;
+  const sim = n + m ? (2 * same) / (n + m) : 1;
+  return {
+    ops, sim,
+    hunks: hunks.map(h => ({ from: h.from.join(' '), to: h.to.join(' ') })).filter(h => wkey(h.from) !== wkey(h.to) && (h.from || h.to).replace(/[^\w]/g, '')),
+    before: A.map((w, k) => ({ w, changed: false })), after: B
+  };
 }
 
 export const isQuestion = t => /\?\s*$/.test(t || '') || /^(what|how|why|when|where|who|which|do|does|did|are|is|can|could|would|will|have|have you|any)\b/i.test((t || '').trim());

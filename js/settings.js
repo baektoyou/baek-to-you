@@ -6,6 +6,7 @@ import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
 import * as Y from './sync.js';
+import { PHOTOS, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO } from './scene.js';
 
 const STT_LANGS = [['en-US', '영어 (미국) · 추천'], ['en-GB', '영어 (영국)'], ['en-AU', '영어 (호주)'], ['en-CA', '영어 (캐나다)'], ['en-IN', '영어 (인도)']];
 
@@ -34,6 +35,12 @@ export function settings(root) {
       <p class="tiny muted">녹음은 직접 끝내기를 눌러야만 끝나요. 브라우저가 인식을 끊으면 자동으로 다시 이어서 들어요. 비교할 때 축약형·대소문자·문장부호 차이는 무시해요.</p>
     </div>
 
+    <div class="sec-title label">TALK</div>
+    <div class="card stack">
+      <label class="switch"><span><b>문장 다듬기에 LanguageTool 함께 쓰기</b><small>무료 공개 문법 검사 서버 · 내가 말한 영어 문장이 그 서버로 전송돼요. 끄면 앱 안의 규칙만 사용해요</small></span><input type="checkbox" id="lt" ${st.autoLT !== false ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>통화 화면 꽉 채우기</b><small>끄면 가로 영상이 잘리지 않게 전체로 보여요 (통화 중에도 바꿀 수 있어요)</small></span><input type="checkbox" id="cf" ${st.callFill !== false ? 'checked' : ''}><i></i></label>
+    </div>
+
     <div class="sec-title label">DATA</div>
     <div class="list">
       <button class="li" id="exp"><div class="ic">${ic('download')}</div><div class="grow"><b>JSON 백업</b><small>영상·문장·SAVED·학습 기록·설정 (녹음 파일 제외)</small></div></button>
@@ -60,8 +67,10 @@ export function settings(root) {
       </div>
       <div class="row ver-row"><span class="tiny muted grow">버전 <span class="en">${esc(APP_VERSION)}</span></span><button class="btn xs soft" id="upd">${ic('refresh')} 업데이트 확인</button></div>
       <div class="note">
-        • 발음·억양 점수는 전용 음성 평가 엔진(유료)이 필요해서 제공하지 않아요. 대신 단어 비교·길이·끊김·번갈아 듣기를 써요.<br>
-        • 데이터는 이 기기 브라우저에만 저장돼요. 주기적으로 백업하세요.
+        • 발음·억양 점수는 전용 음성 평가 엔진(유료)이 필요해서 제공하지 않아요.<br>
+        • ‘더 자연스럽게’는 AI가 아니라 앱에 내장된 규칙(문법·한국식 영어 표현) + 선택 시 LanguageTool이에요. 원어민다운 의역은 Claude 붙여넣기 기능을 써주세요.<br>
+        • 통화 영상 자동 선택·사진 매칭은 영상 제목·메모·대본의 키워드로 장면을 추정해요. 정확하지 않으면 영상 관리에서 장면 태그나 사진을 직접 골라주세요.<br>
+        • 데이터는 이 기기 브라우저에만 저장돼요 (기기 연동을 켜지 않았다면). 주기적으로 백업하세요.
       </div>
     </details>
     <p class="tiny muted foot-note">BAEK TO YOU · personal fan-made study app · 영상 저작권은 원저작자에게 있어요</p>
@@ -91,6 +100,8 @@ export function settings(root) {
   // 인식
   $('#sttlang', root).onchange = e => { D.setSetting('sttLang', e.target.value); toast('인식 언어를 바꿨어요'); };
   $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
+  $('#lt', root).onchange = e => D.setSetting('autoLT', e.target.checked);
+  $('#cf', root).onchange = e => D.setSetting('callFill', e.target.checked);
   $('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); };
   let testCap = null;
   $('#mt', root).onclick = async () => {
@@ -193,6 +204,7 @@ export function videoEditor(root, vid) {
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>영상 관리</h2><a class="icon-btn" href="#/video/${v.id}" aria-label="학습하기">${ic('play')}</a></header>
     <div class="player" id="pl"></div>
     <div class="row title-row"><input class="input grow" id="ttl" value="${esc(v.title)}" aria-label="영상 제목"><button class="btn sm soft" id="ttl-auto">제목 자동</button></div>
+    <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
       <button class="btn sm" id="add-j">${ic('plus')} JSON 추가</button>
@@ -207,6 +219,21 @@ export function videoEditor(root, vid) {
   </div>`;
   const pl = new Player($('#pl', root)); pl.cue(v.ytId);
   const reload = () => { pl.destroy(); videoEditor(root, vid); };
+  // ----- TALK 통화 설정: 장면 분석 · 메모 · 사진 -----
+  const scn = $('#scn', root);
+  const drawScene = () => {
+    const cur = D.video(vid); const sc = sceneOf(cur); const tags = topTags(sc, 6); const auto = pickPhoto({ ...cur, photo: '' });
+    scn.innerHTML = `<div class="row between"><span class="label">TALK 통화 설정</span><span class="tiny muted">${esc(conceptOf(cur, sc))}</span></div>
+      <div class="scene-tags">${tags.length ? tags.map(t => `<span class="hchip">${esc(TAG_KO[t] || t)}</span>`).join('') : '<span class="tiny muted">대본에서 장면 단서를 찾지 못했어요 · 아래에 메모나 태그를 적어주세요</span>'}</div>
+      <label class="field"><span>영상 설명·메모 (YouTube 설명란을 붙여넣어도 돼요)</span><textarea class="textarea" id="vdesc" rows="2" placeholder="예: 자기 전에 침대에서 켠 라이브, 후드티">${esc(cur.desc || '')}</textarea></label>
+      <label class="field"><span>장면 태그 · 쉼표로 (선택)</span><input class="input" id="vscene" value="${esc(cur.scene || '')}" placeholder="밤, 침대, 후드, 안경"></label>
+      <div class="field"><span>전화 연결 사진 ${cur.photo ? '· 직접 고름' : `· 자동: 장면과 가장 비슷한 사진`}</span>
+        <div class="photo-grid"><button class="pg-auto ${cur.photo ? '' : 'on'}" data-ph="">자동</button>${PHOTOS.map(p => `<button class="pg ${cur.photo === p.id ? 'on' : ''} ${!cur.photo && auto.p.id === p.id ? 'auto' : ''}" data-ph="${p.id}" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%" aria-label="사진 ${p.id}"></button>`).join('')}</div></div>`;
+    $('#vdesc', scn).onchange = e => { D.updateVideo(vid, { desc: e.target.value.trim() }); drawScene(); };
+    $('#vscene', scn).onchange = e => { D.updateVideo(vid, { scene: e.target.value.trim() }); drawScene(); };
+    $$('[data-ph]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { photo: b.dataset.ph }); drawScene(); toast(b.dataset.ph ? '이 사진으로 전화가 와요' : '자동으로 골라요'); });
+  };
+  drawScene();
   $('#ttl', root).onchange = e => D.updateVideo(v.id, { title: e.target.value.trim() || v.title });
   $('#ttl-auto', root).onclick = async () => { const t = pl.title() || await fetchTitle(v.ytId); if (t) { $('#ttl', root).value = t; D.updateVideo(v.id, { title: t }); toast('제목을 불러왔어요'); } else toast('영상을 한 번 재생한 뒤 다시 눌러주세요'); };
   $$('[data-del]', root).forEach(b => b.onclick = async () => { if (await confirmSheet('이 문장을 삭제할까요?')) { D.deleteUtt(b.dataset.del); reload(); toast('삭제했어요'); } });
@@ -306,7 +333,7 @@ export function uttEditor(root, vid, uttId) {
     <div class="row nudge-row"><button class="btn sm soft grow" id="prev">${ic('play')} 구간 미리 듣기</button><button class="btn sm soft" data-nudge="-0.5">−0.5s</button><button class="btn sm soft" data-nudge="0.5">+0.5s</button></div>
     <label class="field"><span>백현이 한국어 발화 (실제로 말한 그대로) *</span><textarea class="textarea" id="ko">${esc(u.ko)}</textarea></label>
     <label class="field"><span>영어 추천 문장 (Natural) *</span><textarea class="textarea en" id="nat">${esc(u.en.natural || u.en.easy || u.en.advanced)}</textarea></label>
-    <label class="field"><span>핵심 패턴 (예: I've been ~ing)</span><input class="input en" id="pat" value="${esc(u.pattern)}"></label>
+    <label class="field"><span>핵심 패턴 · 쉼표(,)로 여러 개 (예: I've been ~ing, can't wait to ~)</span><input class="input en" id="pat" value="${esc(u.pattern)}"></label>
     <details class="adv" ${u.patternKo || u.examples.length || u.question ? 'open' : ''}><summary>패턴 연습 설정 (없으면 앱 기본값)</summary>
       <label class="field"><span>패턴 의미</span><input class="input" id="pko" value="${esc(u.patternKo)}" placeholder="최근부터 지금까지 계속 ~하고 있어"></label>
       <label class="field"><span>내 문장 만들기 질문</span><input class="input" id="q" value="${esc(u.question)}" placeholder="요즘 계속하고 있는 일이 있나요?"></label>

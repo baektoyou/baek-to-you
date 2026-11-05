@@ -3,7 +3,7 @@
 // · 첫 동기화(base 없음): 양쪽을 모두 합침 → 어떤 데이터도 지워지지 않음
 // · 이후: 한쪽에서만 바뀐 항목은 그 변경을 따르고, 양쪽 다 바뀌면 더 최근 것을 사용
 // · 삭제: 한쪽에서 지웠고 다른 쪽은 그대로일 때만 삭제 (다른 쪽에서 고쳤다면 남김)
-const LISTS = ['videos', 'utts', 'saved', 'attempts', 'talkLogs'];
+const LISTS = ['videos', 'utts', 'saved', 'words', 'attempts', 'talkLogs'];
 const j = v => JSON.stringify(v);
 
 function stamp(x) {
@@ -89,7 +89,8 @@ export function mergeData(local, remote, base) {
   out.videos.sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
   out.saved.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   out.attempts.sort((a, b) => (a.at || 0) - (b.at || 0)); if (out.attempts.length > 1500) out.attempts = out.attempts.slice(-1200);
-  out.talkLogs.sort((a, b) => (b.at || 0) - (a.at || 0)); out.talkLogs = out.talkLogs.slice(0, 30);
+  out.talkLogs.sort((a, b) => (b.at || 0) - (a.at || 0)); out.talkLogs = out.talkLogs.slice(0, 400);
+  out.words.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
   return out;
 }
 export const sameData = (a, b) => j(a) === j(b);
