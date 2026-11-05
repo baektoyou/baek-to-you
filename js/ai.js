@@ -3,6 +3,7 @@
 // · 쓰는 곳: 영어 교정·의미 평가·표현 추천(CHAT·CALL·SAVED) / 영어 질문 답변 / 대화하기 질문·표현 / 다음 질문 고르기
 // · 안 되면(꺼짐 · 키 없음 · 한도 초과 · 오프라인) 앱 안의 규칙 피드백으로 자동 전환
 import * as D from './store.js';
+import { parseFixes } from './speech.js';
 import { improve } from './feedback.js';
 import { judgeTranslation, judgeReply, bestReply } from './judge.js';
 
@@ -14,7 +15,9 @@ export const aiKeys = () => { try { return JSON.parse(localStorage.getItem(KEYS(
 export const setAiKeys = p => { try { localStorage.setItem(KEYS(), JSON.stringify({ ...aiKeys(), ...p })); } catch { } };
 export const clearAiKeys = (acct = D.accountKey()) => { try { localStorage.removeItem('baek-to-you:aikeys:' + acct); } catch { } };
 export const PROVIDERS = [['gemini', 'Gemini'], ['openai', 'ChatGPT']];
-export const DEFAULT_MODEL = { gemini: 'gemini-flash-latest', openai: 'gpt-4o-mini' };
+export const DEFAULT_MODEL = { gemini: 'gemini-3.5-flash-lite', openai: 'gpt-4o-mini' };
+const GEMINI_FALLBACK = 'gemini-3.1-flash-lite'; // 기본 모델이 이 키에서 안 될 때 한 번 더 시도
+let geminiOk = null;
 export const provider = () => { const p = D.get().settings.aiProvider; return p === 'openai' ? 'openai' : 'gemini'; };
 export const aiOn = () => D.get().settings.aiOn !== false && !!aiKeys()[provider()];
 
@@ -36,11 +39,17 @@ async function callAI0(sys, user, { ms = 15000, temp = 0.35 } = {}) {
   const p = provider(), k = aiKeys(), ctl = new AbortController(), t = setTimeout(() => ctl.abort(), ms);
   try {
     if (p === 'gemini') {
-      const model = (k.geminiModel || '').trim() || DEFAULT_MODEL.gemini;
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-        method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-goog-api-key': k.gemini },
-        body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: temp, responseMimeType: 'application/json' } })
-      });
+      const own = (k.geminiModel || '').trim();
+      const models = own ? [own] : [geminiOk || DEFAULT_MODEL.gemini, GEMINI_FALLBACK].filter((x, i, l) => l.indexOf(x) === i);
+      let r;
+      for (const model of models) { // 기본 모델이 없다고(404) 하면 다른 Flash-Lite로 한 번 더
+        r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
+          method: 'POST', signal: ctl.signal, headers: { 'content-type': 'application/json', 'x-goog-api-key': k.gemini },
+          body: JSON.stringify({ systemInstruction: { parts: [{ text: sys }] }, contents: [{ role: 'user', parts: [{ text: user }] }], generationConfig: { temperature: temp, responseMimeType: 'application/json' } })
+        });
+        if (r.ok) { if (!own) geminiOk = model; break; }
+        if (r.status !== 404) break;
+      }
       if (!r.ok) return { error: errOf(r.status), status: r.status };
       const j = await r.json();
       return parse((j.candidates?.[0]?.content?.parts || []).map(x => x.text || '').join('')) || { error: 'parse' };
@@ -64,11 +73,13 @@ The learner practices by watching K-pop idol Baekhyun's video clips and speaking
 const FB_SYS = `${COACH}
 Return ONLY JSON:
 {
- "correct": true/false — true if the meaning/answer is right. Different words with the same meaning and context ARE correct.
+ "correct": true/false — true if the meaning/answer is right. Different words, word order, synonyms, contractions or a more casual/formal tone with the same meaning ARE correct. Grammatical, natural English that conveys the meaning is ALWAYS correct even if it differs from the reference.
+ "awkward": true ONLY if a native speaker would find the sentence clearly unnatural or confusing; false if it sounds fine (even if other phrasings exist).
  "feedback": Korean, 1–2 short friendly sentences (max 80 chars), each sentence on its own line ("\n"). If correct, acknowledge it first (e.g. "뜻이 정확하게 전달돼요."), then at most one nuance tip. If not, say kindly what is missing. Do NOT repeat what "fixes" already explain. No scores, no headings, never just "자연스러워요".
- "fixes": real English mistakes only (grammar / wrong word / missing meaning) — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. Empty if none. Never list style preferences or speech-recognition errors as mistakes.
+ "fixes": ONLY clear errors a native teacher would mark wrong (wrong tense/agreement, wrong preposition, wrong word that changes the meaning, missing key meaning). NOT fixes: synonyms, optional words (really, lately, so), contractions, article choices that are both fine, US/UK variants, word order that is fine, style or "sounds more natural" preferences — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. Empty if none. Never list style preferences or speech-recognition errors as mistakes.
  "asr": words that are most likely speech-recognition errors, not English mistakes (sound-alike words like eight/ate, their/there, for/four, a dropped "a/the/to" at a pause, a name heard wrongly) — [{"heard": EXACT substring from the learner's sentence, "meant": what they probably said}]. Judge "correct" as if they said the meant words. Empty if none.
- "natural": a more natural native-speaker version of the LEARNER'S OWN sentence — ONLY if it is meaningfully more natural; otherwise "". In translate mode never copy the reference.
+ "natural": a natural version of the LEARNER'S OWN sentence ONLY if "awkward" is true or "fixes" is not empty; otherwise "". Never rewrite a sentence that is already fine. In translate mode never copy the reference.
+If the learner's sentence is correct and fine: correct=true, awkward=false, fixes=[], natural="", and feedback just says it is right (no "but you could say…").
  "expressions": up to 3 useful, real, commonly used English expressions the learner did NOT use but could use here — [{"en": short chunk (2–6 words, complete and correctly spaced), "ko": Korean meaning}]. No whole sentences, no made-up phrases, nothing the learner already said.
 }
 Modes:
@@ -78,23 +89,28 @@ Modes:
 If the learner used Korean, correct=false and feedback "영어로 말해볼까?".`;
 function fbUser(b) {
   return [`Mode: ${b.mode}`, b.ko ? `Baekhyun's Korean line: ${clip(b.ko)}` : '', b.target ? `Reference / target English: ${clip(b.target)}` : '', b.expr ? `Target expression: ${clip(b.expr, 80)}` : '',
-    b.question ? `Question (English): ${clip(b.question)}` : '', b.qko ? `Question (Korean): ${clip(b.qko)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
+    b.question ? `Question (English): ${clip(b.question)}` : '', b.qko ? `Question (Korean): ${clip(b.qko)}` : '', b.words ? `Registered names/words (speech recognition may mishear these, e.g. "Back" for "Baekhyun"): ${clip(b.words, 200)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
 }
 const cleanX = x => String(x || '').replace(/\s+/g, ' ').trim();
+const expand = t => t.replace(/\b(i|you|we|they|he|she|it|that|there|what)'(m|re|s|ve|ll|d)\b/g, (m, a, b) => a + ' ' + ({ m: 'am', re: 'are', s: 'is', ve: 'have', ll: 'will', d: 'would' })[b]).replace(/\b(do|does|did|is|are|was|were|have|has|can|could|would|should|won)n't\b/g, (m, a) => (a === 'won' ? 'will' : a === 'can' ? 'can' : a) + ' not').replace(/\bcan not\b/g, 'cannot');
 const cleanF = x => String(x || '').split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // 반환 {correct, feedback, fixes:[{wrong,right,why}], natural, xs:[{text,ko}], ai}
 export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [] }) {
-  const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr }));
+  const words = parseFixes(D.get().settings.sttFix).terms.concat(['Baekhyun']).filter((x, i, a) => a.indexOf(x) === i).join(', ');
+  const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr, words }), { temp: 0.2 });
   const a = await aiP;
   if (ok(a) && typeof a.feedback === 'string') {
-    const nat = cleanX(a.natural), sl = said.toLowerCase();
+    const sl = said.toLowerCase();
+    const minor = f => { const n = x => String(x || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim(); const w = n(f.wrong), r = n(f.right); return !w || w === r || expand(w) === expand(r); };
     const asr = (Array.isArray(a.asr) ? a.asr : []).filter(x => x && x.heard && x.meant && sl.includes(String(x.heard).toLowerCase()) && cleanX(x.heard).toLowerCase() !== cleanX(x.meant).toLowerCase()).slice(0, 2).map(x => ({ heard: cleanX(x.heard), meant: cleanX(x.meant) }));
     const asrSet = new Set(asr.map(x => x.heard.toLowerCase()));
+    const fixes = (Array.isArray(a.fixes) ? a.fixes : []).filter(f => f && f.wrong && sl.includes(String(f.wrong).toLowerCase()) && !asrSet.has(String(f.wrong).toLowerCase()) && !minor(f)).slice(0, 3).map(f => ({ wrong: cleanX(f.wrong), right: cleanX(f.right), why: cleanX(f.why).slice(0, 50) }));
+    // 맞게 말했고 어색하지 않으면 ‘더 자연스럽게’를 억지로 보여주지 않음
+    const nat = (a.awkward === true || fixes.length || !a.correct) ? cleanX(a.natural) : '';
     return {
-      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr,
-      fixes: (Array.isArray(a.fixes) ? a.fixes : []).filter(f => f && f.wrong && sl.includes(String(f.wrong).toLowerCase()) && !asrSet.has(String(f.wrong).toLowerCase()) && cleanX(f.wrong).toLowerCase() !== cleanX(f.right).toLowerCase()).slice(0, 3).map(f => ({ wrong: cleanX(f.wrong), right: cleanX(f.right), why: cleanX(f.why).slice(0, 50) })),
-      natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== said.toLowerCase().replace(/[^a-z ]/g, '') ? nat : '',
+      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes,
+      natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== sl.replace(/[^a-z ]/g, '') ? nat : '',
       xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !said.toLowerCase().includes(x.text.toLowerCase())).slice(0, 3),
       ai: true
     };

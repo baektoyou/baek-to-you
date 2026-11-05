@@ -195,9 +195,10 @@ export function study(root, uttId) {
     const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
     D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
     accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
-    // 안 보고 말하기 (몇 번이든) — 앞의 영어·내 발화는 흐리게
+    // 안 보고 말하기 — 맞히면 이 문장 완료 + ‘다음’만 · 틀렸거나 인식 실패면 다시 시도
+    let retry = false;
     for (;;) {
-      k = await chips([['안 보고 말해볼게', 'recall', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
+      k = await chips([[retry ? '다시 안 보고 말해볼게' : '안 보고 말해볼게', 'recall', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
       if (k !== 'recall') return goOn(x, k);
       th.classList.add('veil');
       const nm = D.callName();
@@ -205,11 +206,17 @@ export function study(root, uttId) {
       hintBox($('.bub-hint', rl), target, { pattern: x.pattern, keywords: x.keywords });
       const t2 = await askInput('기억해서 말해봐요', [target]); if (dead) return;
       th.classList.remove('veil');
-      D.addAttempt({ uttId: x.id, step: 'recall', text: t2 }); D.markStep(x.id, 'recall');
+      D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
       const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
       const fl = add('bh', feedbackHTML(f2, t2, { rec: target }), 'wide');
       bindCompare(fl, saveItem(x, t2));
+      if (t2 && f2.correct) { // 정답 → 완료 처리 · 다시 말하기 없이 다음만
+        D.markStep(x.id, 'recall');
+        k = await chips([NEXT(x)]); if (dead) return;
+        return goOn(x, k);
+      }
+      retry = true;
     }
   }
   function goOn(x, k = 'next') {

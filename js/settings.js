@@ -42,11 +42,10 @@ export function settings(root) {
     <div class="card stack">
       <div class="row between"><b class="set-b">인식 언어</b><span class="small muted">영어 (미국)</span></div>
       <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>CHAT에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
-      <button class="btn soft block" id="mt">${ic('mic')} 인식 테스트 시작</button><div id="mres" class="small hide test-res"></div>
-      ${edit ? `<label class="field"><span>인식 보정 단어 · 한 줄에 하나 · 모든 사용자 공통</span>
-        <textarea class="textarea en" id="fix" rows="3" placeholder="Mongryong&#10;tteokbokki">${esc(st.sttFix || '')}</textarea></label>` : ''}
-      <p class="tiny muted">단어만 적어 두면, 발음이 비슷하게 잘못 인식된 말을 자동으로 고쳐요 (예: mong young → Mongryong). 인식 결과는 첫 글자 대문자·문장부호를 넣고 겹친 단어(to to)를 지워요.</p>
     </div>
+    ${edit ? `<div class="sec-title label">음성 인식 단어 · 관리자</div>
+    <div class="card stack"><div id="sttw"></div>
+      <p class="tiny muted">등록한 단어만 보정해요 · 모든 사용자 공통. 비슷하게 들린 말(예: Back)은 이름 자리일 때만 바꾸고, ‘come back’ 같은 일반 영어는 그대로 둬요.</p></div>` : ''}
 
     ${edit ? `<div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
     <div class="card"><div class="photo-grid manage" id="phg"></div>
@@ -70,15 +69,19 @@ export function settings(root) {
       <a class="li" href="#/privacy"><div class="ic">${ic('info')}</div><div class="grow"><b>개인정보 처리방침 · 저작권 안내</b></div>${ic('next')}</a>
     </div>
 
-    <details class="adv help"><summary>YouTube Premium 안내</summary><div class="stack yt-info">
-      <p class="small">앱 안의 영상은 YouTube 공식 임베드 플레이어예요. Premium 혜택(광고 없음)은 이 플레이어가 브라우저의 YouTube 로그인 쿠키를 읽을 수 있을 때만 적용돼요.</p>
-      <ul class="small muted bullets">
-        <li>iPhone Safari는 기본적으로 다른 사이트의 쿠키를 막아서, 앱 안 플레이어는 로그인되지 않은 상태로 재생될 가능성이 높아요 (광고가 나올 수 있음).</li>
-        <li>홈 화면 앱(PWA)은 Safari와 쿠키 저장소가 따로라 로그인이 공유되지 않아요.</li>
-        <li>광고 차단이나 로그인 우회는 하지 않아요.</li>
-        <li>시도해볼 설정: iPhone 설정 › 앱 › Safari › ‘크로스 사이트 추적 방지’ 끄기 + Safari에서 youtube.com 로그인 → 이 앱을 Safari 탭에서 열기</li>
+    <details class="adv help"><summary>YouTube 재생 · Premium · 소리</summary><div class="stack yt-info">
+      <ul class="small bullets">
+        <li><b>Premium(광고 없음)</b>은 앱에 로그인한다고 연동되지 않아요. 앱 안 플레이어가 브라우저의 YouTube 로그인을 쓸 수 있을 때만 적용돼요.</li>
+        <li>시도해볼 설정 (iPhone): 설정 › 앱 › Safari › <b>크로스 사이트 추적 방지 끄기</b> → Safari에서 youtube.com 로그인 → 이 앱을 <b>Safari 탭</b>에서 열기. 홈 화면 앱은 Safari 로그인을 같이 쓰지 못해요.</li>
+        <li><b>소리 크기</b>는 기기 볼륨 버튼으로 조절해요. iPhone·iPad는 웹에서 영상 음량을 바꿀 수 없어서 앱에 볼륨 슬라이더를 두지 않았어요.</li>
       </ul>
-      <p class="small"><b>대안:</b> 문장 화면의 영상 아래 ${ic('external')} 버튼으로 <b>YouTube 앱에서 그 구간</b>을 바로 열 수 있어요. 앱에서는 Premium이 그대로 적용돼요.</p>
+    </div></details>
+    <details class="adv help"><summary>홈 화면에 앱으로 추가</summary><div class="stack yt-info">
+      <ul class="small bullets">
+        <li><b>iPhone Safari</b>: 아래 공유 버튼 › <b>홈 화면에 추가</b> › 추가</li>
+        <li><b>Android Chrome</b>: 오른쪽 위 ⋮ › <b>홈 화면에 추가</b>(또는 앱 설치) › 설치</li>
+      </ul>
+      <p class="tiny muted">홈 화면 아이콘으로 열면 주소창 없이 앱처럼 열려요. 홈 화면 앱은 브라우저와 저장 공간이 따로라 처음 한 번 로그인해주세요.</p>
     </div></details>
     <details class="adv help"><summary>이 기기 · 앱 정보</summary>
       <div class="small dev-info">
@@ -130,9 +133,15 @@ export function settings(root) {
     const p = D.get().settings.aiProvider === 'openai' ? 'openai' : 'gemini', k = aiKeys();
     $('#aibox', root).innerHTML = `<label class="field"><span>${p === 'gemini' ? 'Gemini API 키 · aistudio.google.com (무료)' : 'OpenAI API 키 · platform.openai.com (유료 크레딧)'}</span><input class="input en" id="aikey" type="password" value="${esc(k[p] || '')}" placeholder="${p === 'gemini' ? 'AIza…' : 'sk-…'}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
       <label class="field"><span>모델 (비우면 ${DEFAULT_MODEL[p]})</span><input class="input en" id="aimodel" value="${esc(k[p + 'Model'] || '')}" placeholder="${DEFAULT_MODEL[p]}" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
-      <p class="tiny muted">키는 이 기기의 <b>지금 계정</b>에만 저장돼요 · 다른 계정·동기화·백업에 들어가지 않아요.</p>`;
+      <details class="adv key-guide"><summary>${p === 'gemini' ? 'Gemini' : 'ChatGPT'} API 키 받는 법</summary>${p === 'gemini'
+        ? `<ol class="small bullets num"><li><a href="https://aistudio.google.com/apikey" target="_blank" rel="noopener">aistudio.google.com/apikey</a> 에 Google 계정으로 로그인</li><li><b>Create API key</b> → 만들어진 키(AIza…) 복사</li><li>위 칸에 붙여넣고 <b>연결 테스트</b></li></ol>
+           <p class="tiny muted">무료 등급은 하루 사용 한도 안에서 무료예요. 결제(유료 등급)를 연결하면 쓴 만큼 요금이 나가요.</p>`
+        : `<ol class="small bullets num"><li><a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener">platform.openai.com/api-keys</a> 로그인</li><li>Billing에서 크레딧 충전 (필수)</li><li><b>Create new secret key</b> → 키(sk-…) 복사 → 위 칸에 붙여넣기</li></ol>
+           <p class="tiny muted">ChatGPT API는 쓴 만큼 요금이 나가요 (ChatGPT Plus 구독과 별개).</p>`}</details>
+      <div class="row"><p class="tiny muted grow">키는 이 기기의 <b>지금 계정</b>에만 저장돼요 · 서버·다른 계정·백업에 들어가지 않아요. 남과 같이 쓰는 기기라면 쓰고 나서 지워주세요.</p>${k[p] ? '<button class="btn xs line" id="aiclr">키 지우기</button>' : ''}</div>`;
     $('#aikey', root).onchange = e => setAiKeys({ [p]: e.target.value.trim() });
     $('#aimodel', root).onchange = e => setAiKeys({ [p + 'Model']: e.target.value.trim() });
+    $('#aiclr', root) && ($('#aiclr', root).onclick = () => { setAiKeys({ [p]: '' }); drawAI(); toast('키를 지웠어요'); });
     $('#aist', root).textContent = '';
   };
   drawAI();
@@ -160,19 +169,31 @@ export function settings(root) {
   drawPhotos();
   $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
   }
-  $('#fix', root) && ($('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); });
-  let testCap = null;
-  $('#mt', root).onclick = async () => {
-    const r = $('#mres', root), b = $('#mt', root);
-    if (testCap) { testCap.stop(); return; }
-    if (!S.support.stt) { r.classList.remove('hide'); r.textContent = S.sttErrorText('unsupported'); return; }
-    r.classList.remove('hide'); r.textContent = '예: “Nice to meet you, Baekhyun.” 말한 뒤 끝내기를 눌러주세요';
-    b.innerHTML = `${ic('stop')} 끝내기`; b.classList.add('live-btn');
-    testCap = S.capture({ stt: true, onState: s => { if (s === 'listening') r.textContent = '듣는 중… (멈춰도 계속 들어요)'; }, onInterim: t => (r.innerHTML = `<span class="en">${esc(t)}</span>`) });
-    const res = await testCap.result; testCap = null;
-    b.innerHTML = `${ic('mic')} 인식 테스트 시작`; b.classList.remove('live-btn');
-    r.innerHTML = res.text ? `인식됨: <b class="en">${esc(res.text)}</b>${res.confidence ? ` <span class="muted tiny">신뢰도 ${Math.round(res.confidence * 100)}%</span>` : ''}` : esc(S.sttErrorText(res.sttError) || '인식된 말이 없어요');
+  // 음성 인식 단어 (관리자) — 추가·수정·삭제
+  const drawWords = () => {
+    const box = $('#sttw', root); if (!box) return;
+    const list = S.fixEntries(D.get().settings.sttFix);
+    box.innerHTML = `${list.length ? `<div class="wlist">${list.map((e, i) => `<div class="wl-row"><div class="grow"><b class="en">${esc(e.word)}</b>${e.heard.length ? `<small class="en">${esc(e.heard.join(', '))}</small>` : ''}</div><button class="mini" data-we="${i}" aria-label="수정">${ic('edit')}</button><button class="mini" data-wd="${i}" aria-label="삭제">${ic('trash')}</button></div>`).join('')}</div>` : '<p class="small muted">등록한 단어가 없어요</p>'}
+      <button class="btn sm soft block" id="wadd">${ic('plus')} 단어 추가</button>`;
+    const save = l => { D.setSetting('sttFix', S.fixSerialize(l)); drawWords(); };
+    const edit1 = i => {
+      const e = i == null ? { word: '', heard: [] } : list[i];
+      const sh = sheet(`<h3>${i == null ? '단어 추가' : '단어 수정'}</h3>
+        <label class="field"><span>단어 (정확한 철자)</span><input class="input en" id="ww" value="${esc(e.word)}" placeholder="Baekhyun" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <label class="field mt8"><span>자주 잘못 들리는 말 (선택 · 쉼표로 구분)</span><input class="input en" id="wh" value="${esc(e.heard.join(', '))}" placeholder="back hyun, bag hyun" autocapitalize="off" autocomplete="off" spellcheck="false"></label>
+        <div class="stack mt12"><button class="btn block" id="wok">저장</button></div>`);
+      $('#wok', sh).onclick = () => {
+        const w = $('#ww', sh).value.trim(); if (!w) return toast('단어를 입력해주세요');
+        if (/[=\n]/.test(w)) return toast('단어에 = 는 쓸 수 없어요');
+        const n = { word: w, heard: $('#wh', sh).value.split(',').map(x => x.trim()).filter(x => x && !/[=]/.test(x)) };
+        const l = [...list]; if (i == null) l.push(n); else l[i] = n; save(l); sh.close(); toast('저장했어요 · 모든 사용자에게 적용돼요');
+      };
+    };
+    $('#wadd', box).onclick = () => edit1(null);
+    $$('[data-we]', box).forEach(b => b.onclick = () => edit1(+b.dataset.we));
+    $$('[data-wd]', box).forEach(b => b.onclick = async () => { const i = +b.dataset.wd; if (await confirmSheet(`‘${list[i].word}’를 지울까요?`, '삭제')) save(list.filter((_, k) => k !== i)); });
   };
+  drawWords();
 
   // 데이터
   $('#exp', root).onclick = async () => {

@@ -108,11 +108,11 @@ export function speak(root) {
   root.innerHTML = `<div class="screen talk">
     <header class="top"><h1 class="page-title">CALL</h1></header>
     <section class="call-card">
-      <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까요?` : '전화할 라이브 영상이 아직 없어요'}</p>
+      <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까?` : '전화할 라이브 영상이 아직 없어요'}</p>
       ${vids.length ? `<button class="call-orb" id="call" aria-label="${NAME}랑 전화하기"><span class="orb-waves"><i></i><i></i><i></i></span><span class="orb">${ic('phoneF')}</span></button>
       <b class="cc-label">${NAME}랑 전화하기</b>
       ${sits.length ? `<div class="sit-row center" id="sits"><button class="sit on" data-sit="${esc(sit)}">${esc(sit ? (sits.find(([k]) => k === sit)?.[1] || '랜덤') : '랜덤')}</button><button class="sit more" id="sitmore">더보기</button></div>` : ''}`
-        : `<a class="btn sm soft" href="#/settings">${ic('plus')} 영상 추가하기</a>`}
+        : D.canEdit() ? `<a class="btn sm soft" href="#/settings">${ic('plus')} 영상 추가하기</a>` : ''}
     </section>
     <div class="modes">
       <button class="mode" data-mode="ask" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><b class="grow">${NAME}랑 질문하기</b>${ic('next')}</button>
@@ -188,7 +188,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   const ph = pickPhoto(v);
   const st = D.get().settings, me = D.profile(), myName = me.name || '나';
   const list = mode === 'call' && v ? callTurns(v) : [];
-  root.innerHTML = `<div class="vcall fit">
+  root.innerHTML = `<div class="vcall fill">
     <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
       <div class="vc-wait" id="vwait"><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
     <header class="vc-head"><b>${NAME}</b><span class="vc-time" id="vtm">연결 중…</span></header>
@@ -348,7 +348,9 @@ function call(root, mode, v = null, { start = 0 } = {}) {
       if (stopped) return 'stop'; if (b.skipped) return 'next';
       status('확인하는 중…');
       const f = await smartFeedback({ mode: 'translate', said: b.text, target, ko }); if (stopped) return 'stop';
-      const k2 = await card(feedbackHTML(f, b.text, { rec: target }), [['recall', '안 보고 말하기', ''], NX(nextU)], save);
+      const right = !!(b.text && f.correct); // 맞히면 완료 · ‘다음’만
+      if (right && uttId) D.markStep(uttId, 'recall');
+      const k2 = await card(feedbackHTML(f, b.text, { rec: target }), right ? [NX(nextU)] : [['recall', '다시 안 보고 말하기', ''], NX(nextU)], save);
       if (stopped || k2 === 'next') return k2;
       a.text = '';
     }

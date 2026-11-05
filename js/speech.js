@@ -88,14 +88,22 @@ const BUILTIN_FIX = [
   [/\b(?:back|bag|bak|baek|bake|beck|pack|bike)[\s-]?(?:hyun|hyon|hyeon|hyan|hun|hin|young|yun|human|hum)\b/gi, 'Baekhyun'],
   [/\b(?:exo|x\s?o|echo)[\s-]?(?:l|el|elle)\b/gi, 'EXO-L']
 ];
+// 한 줄 = 단어 하나. ‘잘못 들린 말, 잘못 들린 말 = 단어’ 형식도 지원
 export function parseFixes(text) {
   const pairs = [], terms = [];
   String(text || '').split('\n').map(l => l.trim()).filter(Boolean).forEach(l => {
     const p = l.split('=').map(x => x.trim());
-    if (p.length === 2 && p[0] && p[1]) { pairs.push(p); terms.push(p[1]); } else if (p.length === 1) terms.push(p[0]);
+    if (p.length === 2 && p[1]) { terms.push(p[1]); p[0].split(',').map(x => x.trim()).filter(Boolean).forEach(h => pairs.push([h, p[1]])); }
+    else if (p.length === 1) terms.push(p[0]);
   });
   return { pairs, terms: [...new Set(terms)] };
 }
+export const fixEntries = text => {
+  const out = [];
+  String(text || '').split('\n').map(l => l.trim()).filter(Boolean).forEach(l => { const p = l.split('='); if (p.length === 2 && p[1].trim()) out.push({ word: p[1].trim(), heard: p[0].split(',').map(x => x.trim()).filter(Boolean) }); else if (p.length === 1) out.push({ word: l, heard: [] }); });
+  return out;
+};
+export const fixSerialize = list => list.filter(e => e.word).map(e => e.heard?.length ? `${e.heard.join(', ')} = ${e.word}` : e.word).join('\n');
 const letters = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');
 function soundsLike(a, b) {
   if (a === b) return true;
@@ -120,6 +128,8 @@ function fuzzyFix(t, terms) {
         if (i + n > w.length) continue;
         const win = w.slice(i, i + n), core = win.map(x => x.replace(/[^\w'-]/g, '').toLowerCase());
         if (core.every(x => STOP.has(x) || x.length < 2)) continue;
+        if (n > 1 && (STOP.has(core[0]) || STOP.has(core[n - 1]))) continue; // 앞뒤 일반 단어(is, on…)까지 먹지 않게
+        if (core.some(x => x === tl)) continue; // 이미 맞게 들린 단어
         if (n === 1 && core[0].length < 4) continue;
         if (letters(win.join('')) === tl) { if (win.join(' ').replace(/[^\w\s'-]/g, '') === term) continue; }
         if (soundsLike(letters(win.join('')), tl)) { hit = n; break; }
@@ -131,7 +141,8 @@ function fuzzyFix(t, terms) {
   }
   return w.join(' ');
 }
-export function fixText(t) {
+// targets: 이번에 말할 정답 문장 (있으면 문맥 판단에 사용)
+export function fixText(t, targets = []) {
   if (!t) return t;
   BUILTIN_FIX.forEach(([r, v]) => (t = t.replace(r, v)));
   const { pairs, terms } = parseFixes(get().settings.sttFix);
@@ -139,7 +150,31 @@ export function fixText(t) {
     const re = new RegExp('\\b' + from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\s+/g, '[\\s-]*') + '\\b', 'gi');
     t = t.replace(re, to);
   });
-  return fuzzyFix(t, terms);
+  return contextFix(fuzzyFix(t, terms), [...new Set([...terms, 'Baekhyun'])], targets);
+}
+// 짧게 잘못 들린 이름 (Back → Baekhyun): 일반 단어일 수도 있어서 문맥이 이름 자리일 때만 바꿈
+// · 이번 정답 문장에 그 단어가 있는데 내 말엔 없을 때, 또는 · 부르는 말 자리(hi/thanks/love you … 다음, 문장 끝 호칭)
+const CUE_BEFORE = /\b(hi|hey|hello|thanks|thank you|love you|miss you|bye|dear|oh|sorry|congrats|congratulations|i love|i miss|i like)\s*,?\s*$/i;
+const CUE_AFTER = /^\s*(,|!|\?|\.|$|oppa|hyung|ah|ya|is|was|has|said|told|sang|looks|you're|and)/i;
+function contextFix(t, terms, targets) {
+  const tgt = targets.join(' ').toLowerCase();
+  for (const term of terms) {
+    const tl = letters(term); if (tl.length < 5) continue;
+    if (t.toLowerCase().includes(term.toLowerCase())) continue;
+    const inTarget = tgt.includes(term.toLowerCase());
+    const cands = [];
+    t.replace(/\b([A-Za-z]{3,5})\b/g, (m, w, i) => {
+      const wl = w.toLowerCase();
+      if (wl[0] !== tl[0] || lev(wl, tl.slice(0, wl.length)) > 1) return m; // 이름 앞부분과 소리가 비슷한 짧은 말만
+      const cue = CUE_BEFORE.test(t.slice(0, i)) && CUE_AFTER.test(t.slice(i + w.length)), start = /^\s*$/.test(t.slice(0, i)) && /^\s*,/.test(t.slice(i + w.length));
+      cands.push({ i, w, cue: cue || start });
+      return m;
+    });
+    // 한 번만 바꿈: 이름 자리(호칭)인 것 우선, 정답 문장에 이름이 있으면 그런 자리가 없어도 첫 번째 것
+    const c = cands.find(x => x.cue) || (inTarget && cands.length === 1 ? cands[0] : null);
+    if (c) t = t.slice(0, c.i) + term + t.slice(c.i + c.w.length);
+  }
+  return t;
 }
 
 // ---------- 인식 결과 다듬기: 대문자 · 문장부호 · 겹친 단어 ----------
@@ -189,13 +224,13 @@ export function capture(opt = {}) {
   const finish = () => {
     if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT); clearTimeout(silT);
     setState('done');
-    resolve({ text: tidy(fixText(full())), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
+    resolve({ text: tidy(fixText(full(), targets)), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
   };
   const pickAlt = r => {
     if (!targets.length || r.length < 2) return r[0].transcript;
     let top = r[0].transcript, ts = -1;
     for (let k = 0; k < r.length; k++) {
-      const t = r[k].transcript; const sc = Math.max(...targets.map(x => diff(fixText(t), x).score)) - k * 2;
+      const t = r[k].transcript; const sc = Math.max(...targets.map(x => diff(fixText(t, targets), x).score)) - k * 2;
       if (sc > ts) { ts = sc; top = t; }
     }
     return top;
@@ -230,7 +265,7 @@ export function capture(opt = {}) {
         }
         session = acc;
         setState('hearing');
-        opt.onInterim?.(tidy(fixText(full()), { final: false }));
+        opt.onInterim?.(tidy(fixText(full(), targets), { final: false }));
         if (!manual) { clearTimeout(silT); if (full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 1600); }
       };
       rec.onerror = e => {
@@ -277,7 +312,7 @@ export function capture(opt = {}) {
     // 브라우저가 onend를 안 주는 경우 대비
     setTimeout(() => { sttDone = true; recDone = recDone || !mr || mr.state === 'inactive'; if (!recDone) { try { mr.stop(); } catch { } recDone = true; } finish(); }, 1600);
   }
-  return { stop, result, get text() { return fixText(full()); } };
+  return { stop, result, get text() { return fixText(full(), targets); } };
 }
 
 export function sttErrorText(e) {
