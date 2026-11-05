@@ -37,7 +37,53 @@ export const PHOTOS = [
   P('bh27', 720, 1280, [.32, .12, .77, .4], ['cafe', 'drink', 'tee', 'casual', 'evening']),
   P('bh28', 736, 981, [.23, .14, .63, .4], ['outdoor', 'walk', 'night', 'jacket'])
 ];
-export const photo = id => PHOTOS.find(p => p.id === id) || null;
+// ---------- 내가 추가한 사진 (이 기기 IndexedDB) · 숨긴 기본 사진 ----------
+const userUrl = new Map(); // id → objectURL
+export const PhotoStore = (() => {
+  let dbp;
+  const open = () => dbp || (dbp = new Promise((res, rej) => { const r = indexedDB.open('baek-to-you-photos', 1); r.onupgradeneeded = () => r.result.createObjectStore('p'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }));
+  const tx = async (mode, fn) => { const d = await open(); return new Promise((res, rej) => { const t = d.transaction('p', mode); const q = fn(t.objectStore('p')); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); };
+  return { put: (id, b) => tx('readwrite', s => s.put(b, id)), get: id => tx('readonly', s => s.get(id)), del: id => tx('readwrite', s => s.delete(id)) };
+})();
+export async function loadUserPhotos() {
+  for (const m of D.get().settings.userPhotos || []) {
+    if (userUrl.has(m.id)) continue;
+    try { const b = await PhotoStore.get(m.id); if (b) userUrl.set(m.id, URL.createObjectURL(b)); } catch { }
+  }
+}
+// 통화에 쓰는 사진 = 숨기지 않은 기본 사진 + 내가 추가한 사진
+export function allPhotos() {
+  const st = D.get().settings, hidden = new Set(st.hiddenPhotos || []);
+  const mine = (st.userPhotos || []).filter(m => userUrl.has(m.id)).map(m => ({ ...m, src: userUrl.get(m.id), mine: true }));
+  const list = PHOTOS.filter(p => !hidden.has(p.id)).concat(mine);
+  return list.length ? list : PHOTOS; // 전부 지웠으면 기본 사진으로
+}
+export const photo = id => allPhotos().find(p => p.id === id) || null;
+// 사진 추가: 크기를 줄여 저장 · 얼굴 위치(fx,fy)와 크기(size: 화면 짧은 변 대비)로 머리 영역 계산
+export async function addUserPhoto(file, { fx = 0.5, fy = 0.35, size = 0.32, tags = [] } = {}) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+  const k = Math.min(1, 1280 / Math.max(img.naturalWidth, img.naturalHeight));
+  const w = Math.round(img.naturalWidth * k), h = Math.round(img.naturalHeight * k);
+  const c = document.createElement('canvas'); c.width = w; c.height = h; c.getContext('2d').drawImage(img, 0, 0, w, h);
+  const blob = await new Promise(r => c.toBlob(r, 'image/jpeg', 0.85));
+  const id = 'my' + D.uid(); await PhotoStore.put(id, blob); userUrl.set(id, URL.createObjectURL(blob));
+  const d = size * Math.min(w, h); const hw = d / 2 / w, hh = d / 2 / h;
+  const box = [Math.max(0, fx - hw), Math.max(0, fy - hh * 1.2), Math.min(1, fx + hw), Math.min(1, fy + hh)].map(x => +x.toFixed(3));
+  const meta = { id, w, h, box, tags, addedAt: Date.now() };
+  D.setSetting('userPhotos', [...(D.get().settings.userPhotos || []), meta]);
+  return meta;
+}
+export async function removePhoto(id) {
+  const st = D.get().settings;
+  if ((st.userPhotos || []).some(m => m.id === id)) { D.setSetting('userPhotos', st.userPhotos.filter(m => m.id !== id)); try { await PhotoStore.del(id); } catch { } userUrl.delete(id); }
+  else D.setSetting('hiddenPhotos', [...new Set([...(st.hiddenPhotos || []), id])]);
+  D.get().videos.forEach(v => { if (v.photo === id) D.updateVideo(v.id, { photo: '' }); });
+}
+export function updatePhotoTags(id, tags) { const st = D.get().settings; D.setSetting('userPhotos', (st.userPhotos || []).map(m => m.id === id ? { ...m, tags } : m)); }
+
+// ---------- 상황 (TALK에서 고르기 · 영상마다 지정) ----------
+export const SITUATIONS = [['bed', '잠들기 전'], ['eat', '밥 먹을 때'], ['cafe', '카페에서'], ['car', '이동 중'], ['travel', '여행 중'], ['hotel', '숙소에서'], ['studio', '작업실에서'], ['practice', '연습 끝나고'], ['event', '스케줄 끝나고'], ['outdoor', '산책하면서'], ['home', '집에서']];
+export const TIMES_SEL = [['morning', '아침'], ['day', '낮'], ['evening', '저녁'], ['night', '밤']];
 
 // ---------- 장면 키워드 ----------
 const KW = {
@@ -86,6 +132,8 @@ export function sceneOf(v) {
     const n = count(head, words) * 3 + Math.min(6, count(body, words));
     if (n) s[tag] = n;
   }
+  // 내가 직접 고른 상황·시간대가 가장 우선
+  (v.sit || []).forEach(x => (s[x] = (s[x] || 0) + 12));
   // 직접 적은 장면 태그(영문 키)도 그대로 인정
   String(v.scene || '').split(/[,\s]+/).map(x => x.trim().toLowerCase()).filter(x => KW[x]).forEach(x => (s[x] = (s[x] || 0) + 6));
   utts.forEach(u => (u.topics || []).forEach(t => { if (t === 'food') s.eat = (s.eat || 0) + 1; if (t === 'sleep') s.bed = (s.bed || 0) + 1; if (t === 'music') s.music = (s.music || 0) + 1; if (t === 'travel') s.travel = (s.travel || 0) + 1; }));
@@ -103,7 +151,8 @@ const CONCEPT = [
   ['music', '노래 얘기하는 백현이랑'], ['event', '스케줄 끝난 백현이랑'], ['outdoor', '산책하는 백현이랑'], ['exercise', '운동 끝난 백현이랑'], ['home', '집에서 쉬는 백현이랑']
 ];
 const BY_TIME = { morning: '아침에 백현이랑', day: '낮에 백현이랑', evening: '저녁에 백현이랑', night: '늦은 밤 백현이랑' };
-export function conceptOf(v, scene = sceneOf(v)) {
+export function conceptOf(v, scene = sceneOf(v), sit = '') {
+  if (sit) { const c = CONCEPT.find(([k]) => k === sit); if (c) return c[1]; }
   const t = timeOfScene(scene);
   const hit = CONCEPT.filter(([k]) => scene[k]).sort((a, b) => scene[b[0]] - scene[a[0]])[0];
   if (hit) return hit[1];
@@ -113,8 +162,10 @@ export function conceptOf(v, scene = sceneOf(v)) {
 // ---------- 통화에 쓸 영상 자동 선택 ----------
 // 문장이 3개 이상 있는 영상 중: 지금 시간대와 맞는 장면 + 라이브 영상 + 최근에 통화 안 한 영상 우선
 export function callable(v) { return D.uttsOf(v.id).filter(u => u.ko && (u.en?.natural || u.en?.easy || u.en?.advanced)).length >= 3; }
-export function pickVideo(now = new Date()) {
-  const vids = D.get().videos.filter(callable); if (!vids.length) return null;
+export const matchesSit = (v, k) => (v.sit || []).includes(k) || (sceneOf(v)[k] || 0) >= 3;
+export function pickVideo(now = new Date(), sit = '') {
+  let vids = D.get().videos.filter(callable); if (!vids.length) return null;
+  if (sit) { const m = vids.filter(v => matchesSit(v, sit)); if (m.length) vids = m; }
   const tb = timeBucket(now); const logs = D.get().talkLogs || [];
   const last = id => Math.max(0, ...logs.filter(l => l.videoId === id).map(l => l.at || 0));
   const scored = vids.map(v => {
@@ -140,7 +191,7 @@ export function pickPhoto(v, now = new Date()) {
   if (v?.photo && photo(v.photo)) return { p: photo(v.photo), why: ['직접 고른 사진'] };
   const s = v ? sceneOf(v) : {}; const tb = timeOfScene(s) || timeBucket(now);
   const recent = (() => { try { return JSON.parse(localStorage.getItem('b2u:recentPhotos') || '[]'); } catch { return []; } })();
-  const ranked = PHOTOS.map(p => {
+  const ranked = allPhotos().map(p => {
     let sc = 0; const why = [];
     for (const t of p.tags) if (s[t] && !TIMES.includes(t)) { sc += (W[t] || 1) * Math.min(2, 1 + Math.log2(s[t]) / 3); why.push(t); }
     if (p.tags.includes(tb)) sc += W[tb] || 1; // 시간대는 보조 점수

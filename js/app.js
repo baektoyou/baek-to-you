@@ -7,6 +7,7 @@ import { saved } from './saved.js';
 import { settings, videoEditor, uttEditor } from './settings.js';
 import { stopSpeak } from './speech.js';
 import { registerSW } from './pwa.js';
+import { loadUserPhotos } from './scene.js';
 import * as Y from './sync.js';
 import { sheet, toast, $$ } from './ui.js';
 
@@ -50,6 +51,7 @@ function route(keepScroll) {
 window.addEventListener('hashchange', () => route());
 route();
 registerSW();
+loadUserPhotos().then(() => { if (/^#\/settings/.test(location.hash)) route(true); });
 
 // ---------- 기기 연동 ----------
 // 다른 기기의 변경이 들어오면: 목록 화면이면 조용히 다시 그림, 학습·입력 중이면 방해하지 않고 알림만

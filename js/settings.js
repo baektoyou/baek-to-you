@@ -6,7 +6,7 @@ import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
 import * as Y from './sync.js';
-import { PHOTOS, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO } from './scene.js';
+import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, SITUATIONS, TIMES_SEL, addUserPhoto, removePhoto, updatePhotoTags } from './scene.js';
 
 const STT_LANGS = [['en-US', '영어 (미국) · 추천'], ['en-GB', '영어 (영국)'], ['en-AU', '영어 (호주)'], ['en-CA', '영어 (캐나다)'], ['en-IN', '영어 (인도)']];
 
@@ -34,6 +34,12 @@ export function settings(root) {
         <textarea class="textarea en" id="fix" rows="3" placeholder="mongrel young = Mongryong&#10;tuck bokki = tteokbokki">${esc(st.sttFix || '')}</textarea></label>
       <p class="tiny muted">녹음은 직접 끝내기를 눌러야만 끝나요. 브라우저가 인식을 끊으면 자동으로 다시 이어서 들어요. 비교할 때 축약형·대소문자·문장부호 차이는 무시해요.</p>
     </div>
+
+    <div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
+    <div class="card"><div class="photo-grid manage" id="phg"></div>
+      <label class="btn sm soft block mt12">${ic('plus')} 사진 추가<input type="file" id="phadd" accept="image/*" class="hide"></label>
+      ${(st.hiddenPhotos || []).length ? `<button class="link-sm mt12" id="phrestore">숨긴 기본 사진 ${(st.hiddenPhotos || []).length}장 다시 보이기</button>` : ''}
+      <p class="tiny muted mt8">추가한 사진은 이 기기에만 저장돼요 (동기화·백업에 포함되지 않아요).</p></div>
 
     <div class="sec-title label">TALK</div>
     <div class="card stack">
@@ -101,6 +107,14 @@ export function settings(root) {
   $('#sttlang', root).onchange = e => { D.setSetting('sttLang', e.target.value); toast('인식 언어를 바꿨어요'); };
   $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
   $('#lt', root).onchange = e => D.setSetting('autoLT', e.target.checked);
+  // ----- 통화 사진 관리 -----
+  const drawPhotos = () => {
+    $('#phg', root).innerHTML = allPhotos().map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('');
+    $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제', '기본 사진은 숨겨지고, 아래에서 다시 보이게 할 수 있어요.')) { await removePhoto(b.dataset.del); settings(root); } });
+  };
+  drawPhotos();
+  $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
+  $('#phrestore', root) && ($('#phrestore', root).onclick = () => { D.setSetting('hiddenPhotos', []); settings(root); toast('기본 사진을 다시 보여줘요'); });
   $('#cf', root).onchange = e => D.setSetting('callFill', e.target.checked);
   $('#fix', root).onchange = e => { D.setSetting('sttFix', e.target.value); toast('보정 단어를 저장했어요'); };
   let testCap = null;
@@ -222,15 +236,17 @@ export function videoEditor(root, vid) {
   // ----- TALK 통화 설정: 장면 분석 · 메모 · 사진 -----
   const scn = $('#scn', root);
   const drawScene = () => {
-    const cur = D.video(vid); const sc = sceneOf(cur); const tags = topTags(sc, 6); const auto = pickPhoto({ ...cur, photo: '' });
-    scn.innerHTML = `<div class="row between"><span class="label">TALK 통화 설정</span><span class="tiny muted">${esc(conceptOf(cur, sc))}</span></div>
-      <div class="scene-tags">${tags.length ? tags.map(t => `<span class="hchip">${esc(TAG_KO[t] || t)}</span>`).join('') : '<span class="tiny muted">대본에서 장면 단서를 찾지 못했어요 · 아래에 메모나 태그를 적어주세요</span>'}</div>
-      <label class="field"><span>영상 설명·메모 (YouTube 설명란을 붙여넣어도 돼요)</span><textarea class="textarea" id="vdesc" rows="2" placeholder="예: 자기 전에 침대에서 켠 라이브, 후드티">${esc(cur.desc || '')}</textarea></label>
-      <label class="field"><span>장면 태그 · 쉼표로 (선택)</span><input class="input" id="vscene" value="${esc(cur.scene || '')}" placeholder="밤, 침대, 후드, 안경"></label>
-      <div class="field"><span>전화 연결 사진 ${cur.photo ? '· 직접 고름' : `· 자동: 장면과 가장 비슷한 사진`}</span>
-        <div class="photo-grid"><button class="pg-auto ${cur.photo ? '' : 'on'}" data-ph="">자동</button>${PHOTOS.map(p => `<button class="pg ${cur.photo === p.id ? 'on' : ''} ${!cur.photo && auto.p.id === p.id ? 'auto' : ''}" data-ph="${p.id}" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%" aria-label="사진 ${p.id}"></button>`).join('')}</div></div>`;
-    $('#vdesc', scn).onchange = e => { D.updateVideo(vid, { desc: e.target.value.trim() }); drawScene(); };
-    $('#vscene', scn).onchange = e => { D.updateVideo(vid, { scene: e.target.value.trim() }); drawScene(); };
+    const cur = D.video(vid); const mine = cur.sit || [];
+    const auto = topTags(sceneOf({ ...cur, sit: [] }), 8).filter(t => SITUATIONS.some(([k]) => k === t) || TIMES_SEL.some(([k]) => k === t));
+    const sel = mine.length ? mine : [];
+    const ap = pickPhoto({ ...cur, photo: '' });
+    const chip = ([k, l]) => `<button class="sit ${sel.includes(k) ? 'on' : ''} ${!sel.length && auto.includes(k) ? 'auto' : ''}" data-k="${k}">${l}</button>`;
+    scn.innerHTML = `<div class="row between"><span class="label">TALK 통화 설정</span><span class="tiny muted">${esc(conceptOf(cur))}</span></div>
+      <div class="field mt12"><span>상황 ${sel.length ? '' : '· 지금은 대본으로 자동 추정 중 (점선)'}</span><div class="sit-row wrap">${SITUATIONS.map(chip).join('')}</div></div>
+      <div class="field"><span>시간대</span><div class="sit-row wrap">${TIMES_SEL.map(chip).join('')}</div></div>
+      <div class="field"><span>전화 올 때 사진 ${cur.photo ? '· 직접 고름' : '· 자동 (상황과 가장 비슷한 사진)'}</span>
+        <div class="photo-grid"><button class="pg-auto ${cur.photo ? '' : 'on'}" data-ph="">자동</button>${allPhotos().map(p => `<button class="pg ${cur.photo === p.id ? 'on' : ''} ${!cur.photo && ap.p.id === p.id ? 'auto' : ''}" data-ph="${p.id}" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%" aria-label="사진"></button>`).join('')}</div></div>`;
+    $$('[data-k]', scn).forEach(b => b.onclick = () => { const k = b.dataset.k; const now = new Set(D.video(vid).sit || []); now.has(k) ? now.delete(k) : now.add(k); D.updateVideo(vid, { sit: [...now] }); drawScene(); });
     $$('[data-ph]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { photo: b.dataset.ph }); drawScene(); toast(b.dataset.ph ? '이 사진으로 전화가 와요' : '자동으로 골라요'); });
   };
   drawScene();
@@ -378,3 +394,25 @@ export function uttEditor(root, vid, uttId) {
   return () => pl.destroy();
 }
 function fmtD(t) { const m = Math.floor(t / 60), s = t - m * 60; return `${m}:${s < 10 ? '0' : ''}${(Math.round(s * 10) / 10)}`; }
+
+// 사진 추가: 얼굴을 탭해서 위치 지정 → 얼굴 크기 → 어울리는 상황 (선택)
+function photoSheet(file, done) {
+  const url = URL.createObjectURL(file);
+  let fx = 0.5, fy = 0.35, size = 0.32; const tags = new Set();
+  const sh = sheet(`<h3>사진 추가</h3><p class="sheet-p">백현이 얼굴을 한 번 탭해주세요. 통화 화면에서 이 부분은 절대 잘리지 않아요.</p>
+    <div class="ph-pick"><img src="${url}" alt=""><span class="ph-face"></span></div>
+    <div class="field mt12"><span>얼굴 크기</span><div class="seg" id="phs">${[['0.22', '작게'], ['0.32', '보통'], ['0.46', '크게']].map(([k, l]) => `<button data-s="${k}" class="${k === '0.32' ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="field"><span>어울리는 상황 (선택)</span><div class="sit-row wrap">${SITUATIONS.concat(TIMES_SEL).map(([k, l]) => `<button class="sit" data-t="${k}">${l}</button>`).join('')}</div></div>
+    <button class="btn block" id="phsv">저장</button>`, { onClose: () => URL.revokeObjectURL(url) });
+  const img = $('.ph-pick img', sh), face = $('.ph-face', sh);
+  const draw = () => { const r = img.getBoundingClientRect(); const d = size * Math.min(r.width, r.height); Object.assign(face.style, { left: fx * r.width - d / 2 + 'px', top: fy * r.height - d / 2 + 'px', width: d + 'px', height: d + 'px' }); };
+  img.onload = draw;
+  img.onclick = e => { const r = img.getBoundingClientRect(); fx = (e.clientX - r.left) / r.width; fy = (e.clientY - r.top) / r.height; draw(); };
+  $$('[data-s]', sh).forEach(b => b.onclick = () => { size = +b.dataset.s; $$('[data-s]', sh).forEach(x => x.classList.toggle('on', x === b)); draw(); });
+  $$('[data-t]', sh).forEach(b => b.onclick = () => { const k = b.dataset.t; tags.has(k) ? tags.delete(k) : tags.add(k); b.classList.toggle('on', tags.has(k)); });
+  $('#phsv', sh).onclick = async () => {
+    $('#phsv', sh).disabled = true;
+    try { await addUserPhoto(file, { fx, fy, size, tags: [...tags] }); toast('사진을 추가했어요'); sh.close(); done(); }
+    catch { toast('사진을 저장하지 못했어요'); $('#phsv', sh).disabled = false; }
+  };
+}

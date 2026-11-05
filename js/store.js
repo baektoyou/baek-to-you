@@ -13,7 +13,7 @@ const defaults = () => ({
   talkLogs: [],    // 통화 기록 {id, at, kind, videoId, sec, spoke, n}
   words: [],       // 따로 저장한 단어·표현 {id, text, ko, note, srcId, status, srs}
   days: {},        // 'YYYY-MM-DD' -> 활동 수
-  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true }
+  settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [] }
 });
 
 let db = load();
@@ -266,7 +266,7 @@ export function resetAll() { snapshot('전체 초기화'); db = defaults(); save
 
 // ---------- 동기화용 ----------
 // 기기마다 다른 설정(음성 목록 등)은 동기화하지 않음
-export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera'];
+export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera', 'userPhotos', 'hiddenPhotos']; // 사진 파일은 이 기기에만 있어서 함께 기기별로
 export function getShared() {
   const settings = { ...db.settings }; LOCAL_ONLY_SETTINGS.forEach(k => delete settings[k]);
   return { version: db.version, videos: db.videos, utts: db.utts, saved: db.saved, words: db.words, attempts: db.attempts, progress: db.progress, talkLogs: db.talkLogs, days: db.days, settings };
