@@ -8,6 +8,8 @@ import { APP_VERSION, checkUpdate } from './pwa.js';
 import * as Y from './sync.js';
 import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, situations, sitLabel, TIMES_SEL, addSituation, removeSituation, addUserPhoto, removePhoto, isLive, autoLive } from './scene.js';
 
+let photosOpen = false;
+const thumbStyle = p => `background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%`;
 const STT_LANGS = [['en-US', '영어 (미국) · 추천'], ['en-GB', '영어 (영국)'], ['en-AU', '영어 (호주)'], ['en-CA', '영어 (캐나다)'], ['en-IN', '영어 (인도)']];
 
 export function settings(root) {
@@ -22,13 +24,13 @@ export function settings(root) {
     </section>
 
     <div class="sec-title label">VIDEOS · ${db.videos.length}</div>
-    ${db.videos.length ? `<div class="list">${db.videos.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${isLive(v) ? '<i class="live-tag">LIVE</i> TALK 전화 · ' : 'WATCH · '}${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
+    ${db.videos.length ? `<div class="list">${db.videos.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${isLive(v) ? '<i class="live-tag">LIVE</i> CALL · ' : 'TALK · '}${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}
 
 
     <div class="sec-title label">SPEECH RECOGNITION</div>
     <div class="card stack">
       <label class="field"><span>인식 언어</span><select class="input" id="sttlang">${STT_LANGS.map(([k, l]) => `<option value="${k}" ${st.sttLang === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
-      <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>WATCH에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
+      <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>TALK에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
       <button class="btn soft block" id="mt">${ic('mic')} 인식 테스트 시작</button><div id="mres" class="small hide test-res"></div>
       <label class="field"><span>인식 보정 단어 · 한 줄에 하나 <span class="en">들린 말 = 원래 단어</span></span>
         <textarea class="textarea en" id="fix" rows="3" placeholder="mongrel young = Mongryong&#10;tuck bokki = tteokbokki">${esc(st.sttFix || '')}</textarea></label>
@@ -109,7 +111,10 @@ export function settings(root) {
   $('#lt', root).onchange = e => D.setSetting('autoLT', e.target.checked);
   // ----- 통화 사진 관리 -----
   const drawPhotos = () => {
-    $('#phg', root).innerHTML = allPhotos().map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('');
+    const all = allPhotos(); const more = all.length > 8 && !photosOpen;
+    $('#phg', root).innerHTML = (more ? all.slice(0, 7) : all).map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('')
+      + (more ? `<button class="pg-more" id="phmore">+${all.length - 7}<small>전체 보기</small></button>` : '');
+    $('#phmore', root) && ($('#phmore', root).onclick = () => { photosOpen = true; drawPhotos(); });
     $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제', '기본 사진은 숨겨지고, 아래에서 다시 보이게 할 수 있어요.')) { await removePhoto(b.dataset.del); settings(root); } });
   };
   drawPhotos();
@@ -241,15 +246,19 @@ export function videoEditor(root, vid) {
     const ap = pickPhoto({ ...cur, photo: '' });
     const shown = sel.length ? sel : auto;
     scn.innerHTML = `<span class="label">영상 종류</span>
-      <div class="seg kind-seg mt8">${[['', `자동 · ${autoLive(cur) ? '라이브' : '일반'}`], ['live', '라이브 · TALK 전화'], ['video', '일반 · WATCH']].map(([k, l]) => `<button data-kind="${k}" class="${(cur.kind || '') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
+      <div class="seg kind-seg mt8">${[['live', '라이브 · CALL'], ['video', '일반 영상 · TALK']].map(([k, l]) => `<button data-kind="${k}" class="${(live ? 'live' : 'video') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${live ? `<div class="scene-sec"><div class="row between"><span class="label">상황 · 시간대</span><button class="link-sm" id="sitedit">${ic('edit')} 고르기</button></div>
         <div class="sit-row wrap mt8">${shown.length ? shown.map(k => `<span class="sit ${sel.length ? 'on' : 'auto'}">${esc(sitLabel(k) || TAG_KO[k] || k)}</span>`).join('') : '<span class="tiny muted">아직 없어요 · 고르기를 눌러 정해주세요</span>'}</div>
         ${!sel.length && shown.length ? '<p class="tiny muted mt8">점선은 대본으로 추정한 상황이에요</p>' : ''}</div>
       <div class="scene-sec"><span class="label">전화 올 때 사진</span>
-        <div class="photo-grid mt8"><button class="pg-auto ${cur.photo ? '' : 'on'}" data-ph="">자동</button>${allPhotos().map(p => `<button class="pg ${cur.photo === p.id ? 'on' : ''} ${!cur.photo && ap.p.id === p.id ? 'auto' : ''}" data-ph="${p.id}" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%" aria-label="사진"></button>`).join('')}</div></div>` : '<p class="tiny muted mt12">일반 영상은 WATCH에만 보여요.</p>'}`;
+        ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 TALK에만 보여요.</p>'}`;
     $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); });
     $('#sitedit', scn) && ($('#sitedit', scn).onclick = () => sitSheet(vid, drawScene));
-    $$('[data-ph]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { photo: b.dataset.ph }); drawScene(); toast(b.dataset.ph ? '이 사진으로 전화가 와요' : '자동으로 골라요'); });
+    $('#phchg', scn) && ($('#phchg', scn).onclick = () => {
+      const cur2 = D.video(vid);
+      const sh = sheet(`<h3>전화 올 때 사진</h3><div class="photo-grid four"><button class="pg-auto ${cur2.photo ? '' : 'on'}" data-ph="">자동</button>${allPhotos().map(p => `<button class="pg ${cur2.photo === p.id ? 'on' : ''}" data-ph="${p.id}" style="${thumbStyle(p)}" aria-label="사진"></button>`).join('')}</div>`);
+      $$('[data-ph]', sh).forEach(b => b.onclick = () => { D.updateVideo(vid, { photo: b.dataset.ph }); sh.close(); drawScene(); });
+    });
   };
   drawScene();
   $('#ttl', root).onchange = e => D.updateVideo(v.id, { title: e.target.value.trim() || v.title });

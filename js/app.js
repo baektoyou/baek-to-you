@@ -18,7 +18,7 @@ let cleanup = null, curTab = 'video';
 function renderTabs(tab) {
   const due = D.dueList().length + D.dueWords().length;
   tabbar.innerHTML = `<nav>
-    ${[['video', 'video', 'WATCH'], ['talk', 'phone', 'TALK'], ['saved', 'saved', 'SAVED'], ['settings', 'settings', 'SETTINGS']].map(([k, icon, l]) => { const on = tab === k || (k === 'talk' && tab === 'speak');
+    ${[['video', 'chat', 'TALK'], ['talk', 'phone', 'CALL'], ['saved', 'saved', 'SAVED'], ['settings', 'settings', 'SETTINGS']].map(([k, icon, l]) => { const on = tab === k || (k === 'talk' && tab === 'speak');
     return `<a href="#/${k}" class="${on ? 'on' : ''}" ${on ? 'aria-current="page"' : ''}>${ic(icon)}<span>${l}</span>${k === 'saved' && due ? `<span class="badge">${due > 99 ? '99+' : due}</span>` : ''}</a>`; }).join('')}
   </nav>`;
 }

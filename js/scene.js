@@ -17,7 +17,7 @@ export const PHOTOS = [
   P('bh07', 768, 1024, [.15, .17, .47, .40], ['home', 'room', 'pajama', 'mirror', 'cozy', 'night']),
   P('bh08', 736, 1178, [.48, .15, .82, .36], ['hotel', 'suit', 'mirror', 'event', 'evening', 'chic']),
   P('bh09', 736, 981, [0, .02, .6, .55], ['suit', 'mirror', 'event', 'evening', 'smile', 'chic']),
-  P('bh10', 720, 1280, [0, 0, .95, .75], ['bed', 'night', 'sleepy', 'closeup', 'cozy', 'home']),
+  P('bh10', 720, 1280, [0, 0, .95, .75], ['bed', 'night', 'dawn', 'sleepy', 'closeup', 'cozy', 'home']),
   P('bh11', 736, 949, [.27, .03, .75, .5], ['car', 'night', 'jacket', 'commute']),
   P('bh12', 736, 968, [.2, 0, 1, .55], ['bed', 'sleepy', 'closeup', 'tee', 'morning', 'cozy', 'home']),
   P('bh13', 736, 981, [.13, 0, .68, .48], ['home', 'room', 'shirt', 'casual', 'day', 'playful']),
@@ -30,10 +30,10 @@ export const PHOTOS = [
   P('bh20', 905, 1132, [.42, .26, .7, .42], ['studio', 'music', 'practice', 'knit', 'mirror', 'work']),
   P('bh21', 736, 736, [.23, .02, .87, .83], ['eat', 'restaurant', 'night', 'evening', 'playful']),
   P('bh22', 1027, 1280, [.1, .34, .43, .6], ['plane', 'travel', 'knit', 'mirror', 'day']),
-  P('bh23', 720, 1280, [.46, .37, .68, .5], ['home', 'room', 'cozy', 'calm', 'night']),
+  P('bh23', 720, 1280, [.46, .37, .68, .5], ['home', 'room', 'cozy', 'calm', 'night', 'dawn']),
   P('bh24', 736, 871, [.3, 0, .83, .62], ['mask', 'jacket', 'outdoor', 'commute', 'day']),
   P('bh25', 680, 1280, [.05, .21, .4, .43], ['suit', 'cafe', 'mirror', 'evening', 'chic', 'event']),
-  P('bh26', 720, 1280, [.37, .21, .9, .6], ['bed', 'night', 'sleepy', 'calm', 'home']),
+  P('bh26', 720, 1280, [.37, .21, .9, .6], ['bed', 'night', 'dawn', 'sleepy', 'calm', 'home']),
   P('bh27', 720, 1280, [.32, .12, .77, .4], ['cafe', 'drink', 'tee', 'casual', 'evening']),
   P('bh28', 736, 981, [.23, .14, .63, .4], ['outdoor', 'walk', 'night', 'jacket'])
 ];
@@ -83,7 +83,7 @@ export function updatePhotoTags(id, tags) { const st = D.get().settings; D.setSe
 
 // ---------- 상황 (TALK에서 고르기 · 영상마다 지정) ----------
 export const SITUATIONS = [['bed', '잠들기 전'], ['eat', '밥 먹을 때'], ['cafe', '카페에서'], ['car', '이동 중'], ['travel', '여행 중'], ['hotel', '숙소에서'], ['studio', '작업실에서'], ['practice', '연습 끝나고'], ['event', '스케줄 끝나고'], ['outdoor', '산책하면서'], ['home', '집에서']];
-export const TIMES_SEL = [['morning', '아침'], ['day', '낮'], ['evening', '저녁'], ['night', '밤']];
+export const TIMES_SEL = [['dawn', '새벽'], ['morning', '아침'], ['day', '낮'], ['evening', '저녁'], ['night', '밤']];
 // 내가 추가·삭제한 상황까지 합친 목록 (기본 상황은 삭제하면 숨김)
 export function situations() {
   const st = D.get().settings, hidden = new Set(st.hiddenSits || []);
@@ -106,7 +106,8 @@ export function removeSituation(k) {
 // ---------- 장면 키워드 ----------
 const KW = {
   bed: ['침대', '누워', '누웠', '이불', '잘 자', '잘자', '자기 전', '졸려', '졸리', '잠이', '잠 안', '베개', 'bed', 'sleep'],
-  night: ['밤', '새벽', '자기 전', '늦은', '야식', '잘 자', '잘자', '굿나잇', '불 끄', 'night', 'midnight'],
+  dawn: ['새벽', '잠이 안', '잠 안 와', '못 자', 'dawn'],
+  night: ['밤', '자기 전', '늦은', '야식', '잘 자', '잘자', '굿나잇', '불 끄', 'night', 'midnight'],
   morning: ['아침', '모닝', '일어났', '기상', '출근', 'morning'],
   day: ['점심', '오후', '낮에', 'lunch', 'afternoon'],
   evening: ['저녁', '퇴근', '노을', 'evening', 'dinner'],
@@ -128,16 +129,16 @@ const KW = {
   cozy: ['편하', '포근', '따뜻', 'cozy'],
   glasses: ['안경', 'glasses'], mask: ['마스크', 'mask'], hoodie: ['후드', 'hoodie']
 };
-const TIMES = ['morning', 'day', 'evening', 'night'];
+const TIMES = ['dawn', 'morning', 'day', 'evening', 'night'];
 // 사진 매칭 가중치: 장소 > 옷차림 > 분위기 > 시간
-const W = { bed: 4, car: 4, plane: 4, eat: 4, studio: 3.5, practice: 3, hotel: 3.5, outdoor: 3.5, cafe: 3.5, drink: 2, event: 3, suit: 3, travel: 2.5, exercise: 2.5, music: 2, home: 2, glasses: 2, mask: 2, hoodie: 2, cozy: 1.2, morning: 1, day: 1, evening: 1, night: 1.2 };
+const W = { bed: 4, car: 4, plane: 4, eat: 4, studio: 3.5, practice: 3, hotel: 3.5, outdoor: 3.5, cafe: 3.5, drink: 2, event: 3, suit: 3, travel: 2.5, exercise: 2.5, music: 2, home: 2, glasses: 2, mask: 2, hoodie: 2, cozy: 1.2, morning: 1, day: 1, evening: 1, night: 1.2, dawn: 1.2 };
 const LIVE = /live|라이브|위버스|weverse|버블|bubble|브이앱|vlive|인스타|instagram|방송/i;
 
 export function timeBucket(d = new Date()) {
   const h = d.getHours();
-  return h >= 5 && h < 11 ? 'morning' : h < 17 ? 'day' : h < 21 ? 'evening' : 'night';
+  return h < 5 ? 'dawn' : h < 11 ? 'morning' : h < 17 ? 'day' : h < 21 ? 'evening' : 'night';
 }
-export const TIME_KO = { morning: '아침', day: '낮', evening: '저녁', night: '밤' };
+export const TIME_KO = { dawn: '새벽', morning: '아침', day: '낮', evening: '저녁', night: '밤' };
 
 function count(text, words) { let n = 0; const t = ' ' + text.toLowerCase() + ' '; for (const w of words) { let i = t.indexOf(w.toLowerCase()); while (i >= 0) { n++; i = t.indexOf(w.toLowerCase(), i + w.length); } } return n; }
 // 장면 태그: {tag: 점수} — 제목·메모·장면 태그는 3배 가중치
@@ -170,7 +171,7 @@ const CONCEPT = [
   ['plane', '여행 가는 백현이랑'], ['travel', '여행 중인 백현이랑'], ['hotel', '숙소에서 쉬는 백현이랑'], ['studio', '작업하다 쉬는 백현이랑'], ['practice', '연습 끝난 백현이랑'],
   ['music', '노래 얘기하는 백현이랑'], ['event', '스케줄 끝난 백현이랑'], ['outdoor', '산책하는 백현이랑'], ['exercise', '운동 끝난 백현이랑'], ['home', '집에서 쉬는 백현이랑']
 ];
-const BY_TIME = { morning: '아침에 백현이랑', day: '낮에 백현이랑', evening: '저녁에 백현이랑', night: '늦은 밤 백현이랑' };
+const BY_TIME = { dawn: '새벽에 백현이랑', morning: '아침에 백현이랑', day: '낮에 백현이랑', evening: '저녁에 백현이랑', night: '늦은 밤 백현이랑' };
 export function conceptOf(v, scene = sceneOf(v), sit = '') {
   if (sit) { const c = CONCEPT.find(([k]) => k === sit); if (c) return c[1]; const l = sitLabel(sit); if (l) return `${l} 백현이랑`; }
   const mine = (v?.sit || []).find(k => k.startsWith('c_')); if (mine && !CONCEPT.some(([k]) => scene[k] >= 12)) return `${sitLabel(mine)} 백현이랑`;
@@ -193,7 +194,8 @@ export function pickVideo(now = new Date(), sit = '') {
     const s = sceneOf(v); const t = timeOfScene(s);
     let sc = 0;
     if (t === tb) sc += 4; else if (t && (tb === 'night' && t === 'evening' || tb === 'evening' && t === 'night')) sc += 1.5;
-    if (tb === 'night' && s.bed) sc += 2;
+    if ((tb === 'night' || tb === 'dawn') && s.bed) sc += 2;
+    if (t && (tb === 'dawn' && t === 'night' || tb === 'night' && t === 'dawn')) sc += 2;
     if ((tb === 'day' || tb === 'evening') && s.eat) sc += 1;
     const ago = Date.now() - last(v.id);
     if (ago < 864e5) sc -= 3; else if (ago < 3 * 864e5) sc -= 1;
@@ -266,4 +268,4 @@ export function mountPhoto(el, p, opt = {}) {
   return () => { ro?.disconnect(); window.removeEventListener('orientationchange', lay); };
 }
 
-export const TAG_KO = { bed: '침대', night: '밤', morning: '아침', day: '낮', evening: '저녁', eat: '식사', cafe: '카페', drink: '음료', car: '차 안', plane: '비행기', travel: '여행', hotel: '숙소', outdoor: '야외', exercise: '운동', studio: '작업실', music: '음악', practice: '연습', event: '스케줄', suit: '정장', home: '집', cozy: '편안함', glasses: '안경', mask: '마스크', hoodie: '후드티' };
+export const TAG_KO = { bed: '침대', night: '밤', morning: '아침', day: '낮', evening: '저녁', eat: '식사', cafe: '카페', drink: '음료', car: '차 안', plane: '비행기', travel: '여행', hotel: '숙소', outdoor: '야외', exercise: '운동', studio: '작업실', music: '음악', practice: '연습', event: '스케줄', suit: '정장', home: '집', cozy: '편안함', dawn: '새벽', glasses: '안경', mask: '마스크', hoodie: '후드티' };

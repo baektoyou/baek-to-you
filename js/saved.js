@@ -7,7 +7,7 @@ import { markPattern, splitPatterns } from './compare.js';
 import { patternSpeak } from './apply.js';
 
 let filter = 'due';
-const KIND = { utt: '영상', talk: 'TALK', mine: '내 문장' };
+const KIND = { utt: '영상 문장', talk: '통화', mine: '내 문장' };
 const ST = { new: ['새로 저장', ''], again: ['연습 필요', 'warn'], okay: ['어느 정도', 'mid'], mastered: ['익숙해짐', 'ok'] };
 const enOf = s => s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s));
 const enHTML = s => markPattern(enOf(s), s.pattern, esc, s.marks || []);
@@ -27,10 +27,10 @@ export function saved(root) {
     <header class="top"><h1 class="page-title">Saved</h1></header>
     <div class="stats-strip"><div><b class="${due.length ? 'accent' : ''}">${due.length}</b><span>복습할 문장</span></div><div><b class="${dueW.length ? 'accent' : ''}">${dueW.length}</b><span>복습할 표현</span></div><div><b>${db.saved.filter(s => s.status === 'mastered').length}</b><span>익힌 문장</span></div></div>
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
-    <div class="tabs-scroll"><div class="seg">${[['due', `오늘 ${due.length}`], ['all', `문장 ${db.saved.length}`], ['words', `표현·단어 ${db.words.length}`], ['again', `연습 필요 ${lists.again.length}`], ['known', `익숙해진 ${lists.known.length}`], ['mine', `내 문장 ${lists.mine.length}`]].map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="tabs-scroll"><div class="seg">${[['due', '오늘'], ['all', '문장'], ['words', '표현·단어'], ['again', '연습 필요'], ['known', '익숙해진'], ['mine', '내 문장']].map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
     ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} 단어·표현 추가</button>${items.length > 1 ? `<button class="btn sm" id="pw">${ic('play')} 표현 ${items.length}개 복습</button>` : ''}</div>` : ''}
     ${items.length ? `${!isW && filter !== 'due' && items.length > 1 ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${items.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
-      : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${filter === 'due' ? '지금 복습할 게 없어요' : isW ? '아직 저장한 표현이 없어요' : '아직 문장이 없어요'}</b><p>${filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? '추천 문장에서 외우고 싶은 단어를 눌러 저장해요' : 'WATCH·TALK에서 추천 문장을 저장해요'}</p></div>`}
+      : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${filter === 'due' ? '지금 복습할 게 없어요' : isW ? '아직 저장한 표현이 없어요' : '아직 문장이 없어요'}</b><p>${filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? '추천 문장에서 외우고 싶은 단어를 눌러 저장해요' : 'TALK·CALL에서 추천 문장을 저장해요'}</p></div>`}
   </div>`;
   $$('[data-f]', root).forEach(b => b.onclick = () => { filter = b.dataset.f; saved(root); });
   $('#go', root).onclick = () => due.length ? practice(root, due.map(s => s.id), dueW.map(w => w.id)) : exprPractice(root, dueW.map(w => w.id));

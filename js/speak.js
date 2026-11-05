@@ -70,26 +70,38 @@ const MODE_KO = { call: '전화', chat: '대화', long: '오래 이야기', toda
 // ---------- 첫 화면 ----------
 // 백현이가 나한테 거는 전화 · 어떤 영상인지는 받기 전까지 몰라요
 // 지난 통화를 중간에 끊었으면 그 문장부터 이어서
-function resumeInfo() {
-  const l = (D.get().talkLogs || []).find(x => x.mode === 'call'); if (!l || l.pos == null) return null;
-  const v = D.video(l.videoId); if (!v || !callable(v)) return null;
-  const total = callTurns(v).length; if (l.pos >= total || l.pos < 1) return null;
-  return { v, pos: l.pos, total, concept: l.concept };
+// 통화 기록을 영상별로 한 줄씩: 영상마다 총 통화 시간 + 끊긴 곳이 있으면 ‘이어서’
+function callGroups() {
+  const out = new Map();
+  for (const l of D.get().talkLogs || []) {
+    const key = l.videoId || `mode:${l.mode || 'call'}`;
+    const g = out.get(key) || { key, v: l.videoId ? D.video(l.videoId) : null, last: l, sec: 0, n: 0, resume: null };
+    g.sec += l.sec || 0; g.n++;
+    if (!out.has(key)) {
+      // 가장 최근 ‘전화’ 기록에서 끊긴 위치
+      out.set(key, g);
+    }
+    if (!g.resumeChecked && l.mode === 'call' && g.v) {
+      g.resumeChecked = true;
+      if (l.pos != null && callable(g.v)) { const total = callTurns(g.v).length; if (l.pos >= 1 && l.pos < total) g.resume = { pos: l.pos, total }; }
+    }
+  }
+  return [...out.values()].filter(g => !g.key.startsWith('mode:') || g.n);
 }
 export function speak(root) {
   active?.(); active = null;
   const vids = D.get().videos.filter(callable);
   const sits = situations().filter(([k]) => vids.some(v => matchesSit(v, k)));
   if (sit && !sits.some(([k]) => k === sit)) sit = '';
-  const qs = questionPool(); const st = D.callStats(); const rs = resumeInfo();
+  const qs = questionPool(); const st = D.callStats(); const groups = callGroups();
   const sitL = sits.find(([k]) => k === sit)?.[1] || '랜덤';
   root.innerHTML = `<div class="screen talk">
-    <header class="top"><h1 class="page-title">TALK</h1></header>
+    <header class="top"><h1 class="page-title">CALL</h1></header>
     <section class="call-card">
       <p class="cc-q">${vids.length ? `${NAME}는 지금 뭐하고 있을까요?` : '전화할 라이브 영상이 아직 없어요'}</p>
       ${vids.length ? `<button class="call-orb" id="call" aria-label="${NAME}랑 전화하기"><span class="orb-waves"><i></i><i></i><i></i></span><span class="orb">${ic('phone')}</span></button>
       <b class="cc-label">${NAME}랑 전화하기</b>
-      <div class="cc-opts">${sits.length ? `<button class="cc-opt" id="sitbtn">${esc(sitL)}<i class="chev">${ic('next')}</i></button>` : ''}${rs ? `<button class="cc-opt" id="resume">이어서 · ${rs.pos + 1}/${rs.total}</button>` : ''}</div>
+      <div class="cc-opts">${sits.length ? `<button class="cc-opt" id="sitbtn">${esc(sitL)}<i class="chev">${ic('next')}</i></button>` : ''}</div>
       ${sits.length ? `<div class="sit-panel" id="sitp"><div class="sit-row wrap"><button class="sit ${sit ? '' : 'on'}" data-sit="">랜덤</button>${sits.map(([k, l]) => `<button class="sit ${sit === k ? 'on' : ''}" data-sit="${k}">${esc(l)}</button>`).join('')}</div></div>` : ''}`
         : `<a class="btn sm soft" href="#/settings">${ic('plus')} 영상 추가하기</a>`}
     </section>
@@ -99,11 +111,11 @@ export function speak(root) {
     </div>
     <section class="call-log">
       <div class="cl-total"><span class="label">총 통화 시간</span><div class="cl-big">${bigDur(st.total)}</div></div>
-      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 3).map(l => `<div class="cl-row"><b class="grow">${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}</small><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
+      ${groups.length ? `<div class="cl-list">${groups.slice(0, 8).map(g => `<div class="cl-row"><div class="grow"><b>${esc(g.v ? (g.last.concept || conceptOf(g.v)) : MODE_KO[g.last.mode] || '통화')}</b><small>${g.v ? `${esc(g.v.title)} · ` : ''}${clock(g.sec)}</small></div>${g.resume ? `<button class="cl-resume" data-resume="${g.v.id}" data-pos="${g.resume.pos}">이어서 ${g.resume.pos + 1}/${g.resume.total}</button>` : ''}</div>`).join('')}</div>` : ''}
     </section>
   </div>`;
   $('#call', root) && ($('#call', root).onclick = () => { unlock(); call(root, 'call', pickVideo(new Date(), sit)); });
-  $('#resume', root) && ($('#resume', root).onclick = () => { unlock(); call(root, 'call', rs.v, { start: rs.pos }); });
+  $$('[data-resume]', root).forEach(b => b.onclick = () => { unlock(); call(root, 'call', D.video(b.dataset.resume), { start: +b.dataset.pos }); });
   $('#sitbtn', root) && ($('#sitbtn', root).onclick = e => { $('#sitp', root).classList.toggle('on'); e.currentTarget.classList.toggle('open'); });
   $$('[data-sit]', root).forEach(b => b.onclick = () => {
     sit = b.dataset.sit; $$('[data-sit]', root).forEach(x => x.classList.toggle('on', x === b));
@@ -142,7 +154,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
         <button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button>
       </div></div>
     <div class="vc-panel" id="vpanel"></div>
-    <div class="vc-bye hide" id="vbye"><span class="bye-name">${NAME}</span><p>${NAME}와 통화 종료</p></div>
+    <div class="vc-bye hide" id="vbye"><p>${NAME}와 통화 종료</p></div>
     <div class="ring2" id="ring">
       <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
       <div class="ring-top"><span class="ring-kind">${ic('cam')} 영상통화</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
