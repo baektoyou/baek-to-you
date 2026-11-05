@@ -10,7 +10,6 @@ import { startRing, stopRing, blip, unlock } from './ringtone.js';
 
 const NAME = '백현이';
 let active = null;   // 진행 중인 통화 정리 함수
-let chosenId = null; // 이번 세션에 직접 고른 영상
 
 // ---------- 데이터 ----------
 const allClips = () => D.get().utts.filter(u => u.ko && D.video(u.videoId)).sort((a, b) => a.videoId < b.videoId ? -1 : a.videoId > b.videoId ? 1 : a.start - b.start);
@@ -68,45 +67,32 @@ function when(t) {
 const MODE_KO = { call: '전화', chat: '대화', long: '오래 이야기', today: '오늘의 백현이' };
 
 // ---------- 첫 화면 ----------
+// 어떤 영상인지는 전화가 연결될 때까지 몰라요 — 누르면 지금 시간대에 맞춰 랜덤으로 연결
 export function speak(root) {
   active?.(); active = null;
   const vids = D.get().videos.filter(callable);
-  const chosen = chosenId && D.video(chosenId) && callable(D.video(chosenId)) ? D.video(chosenId) : null;
-  const v = chosen || pickVideo();
   const qs = questionPool(); const st = D.callStats();
   const tb = timeBucket();
-  const turns = v ? callTurns(v) : [];
   root.innerHTML = `<div class="screen talk">
-    <header class="top"><h1 class="page-title">Talk</h1><span class="now-chip">${ic('moon')}${TIME_KO[tb]}</span></header>
-    ${v ? `<section class="call-hero">
-      <div class="ch-glow"></div>
-      <span class="ch-kicker"><i></i>${chosen ? '직접 고른 영상' : `지금 ${TIME_KO[tb]}에 어울리는 ${isLive(v) ? '라이브' : '영상'}`}</span>
-      <p class="ch-concept">${esc(conceptOf(v))}</p>
-      <p class="ch-title">${esc(v.title)}</p>
-      <span class="ch-meta">${turns.length}문장 · 처음부터</span>
-      <button class="call-btn" id="call"><span class="cb-ic">${ic('phone')}</span><span>${NAME}에게 전화하기</span></button>
-      <button class="ch-pick" id="pickv">${chosen ? '자동 선택으로 돌아가기' : '다른 영상 고르기'}</button>
-    </section>` : `<section class="call-hero empty"><div class="ch-glow"></div><p class="ch-concept">아직 통화할 영상이 없어요</p><p class="ch-title">SETTINGS에서 백현이 영상과 문장(JSON)을 추가하면 바로 전화할 수 있어요.</p><a class="call-btn ghost" href="#/settings">${ic('plus')} 영상 추가하기</a></section>`}
+    <header class="top"><h1 class="page-title">Talk</h1></header>
+    <section class="call-card">
+      <p class="cc-now"><i></i>${TIME_KO[tb]} · ${vids.length ? '시간대에 맞춰 연결돼요' : '통화할 영상이 아직 없어요'}</p>
+      ${vids.length ? `<button class="call-btn" id="call">${ic('phone')}<span>${NAME}랑 전화하기</span></button>`
+        : `<a class="call-btn off" href="#/settings">${ic('plus')}<span>영상 추가하기</span></a>`}
+    </section>
     <div class="modes">
-      <button class="mode" data-mode="chat" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><span class="grow"><b>${NAME}랑 대화하기</b><small>백현이 질문에 자유롭게 대답하기</small></span><em>${qs.length}</em></button>
-      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><span class="grow"><b>${NAME}랑 오래 이야기하기</b><small>60초씩, 힌트 받고 더 길게</small></span><em>60s</em></button>
+      <button class="mode" data-mode="chat" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('chat')}</span><span class="grow"><b>${NAME}랑 대화하기</b><small>질문에 자유롭게 대답하기</small></span>${ic('next')}</button>
+      <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><span class="grow"><b>${NAME}랑 오래 이야기하기</b><small>60초씩, 힌트 받고 더 길게</small></span>${ic('next')}</button>
     </div>
     <section class="call-log">
       <div class="cl-total"><span class="label">총 통화 시간</span><div class="cl-big">${bigDur(st.total)}</div>
-        <div class="cl-sub"><span>통화 <b>${st.count}</b>번</span><span>가장 긴 통화 <b>${fmtDur(st.longest)}</b></span><span>연속 <b>${st.streak}</b>일</span></div></div>
-      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 6).map(l => `<div class="cl-row"><span class="cl-ic ${l.mode || 'call'}">${ic(l.mode === 'chat' ? 'chat' : l.mode === 'long' ? 'timer' : 'phone')}</span><div class="grow"><b>${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}${l.title ? ` · ${esc(l.title)}` : ''}</small></div><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
+        <div class="cl-sub"><span>통화 ${st.count}번</span><span>가장 긴 통화 ${fmtDur(st.longest)}</span><span>연속 ${st.streak}일</span></div></div>
+      ${st.logs.length ? `<div class="cl-list">${st.logs.slice(0, 6).map(l => `<div class="cl-row"><span class="cl-ic">${ic(l.mode === 'chat' ? 'chat' : l.mode === 'long' ? 'timer' : 'phone')}</span><div class="grow"><b>${esc(l.concept || MODE_KO[l.mode] || '통화')}</b><small>${esc(when(l.at))}${l.title ? ` · ${esc(l.title)}` : ''}</small></div><span class="cl-dur">${clock(l.sec || 0)}</span></div>`).join('')}</div>` : ''}
     </section>
-    ${!qs.length && vids.length ? `<p class="tiny muted center-t">백현이가 질문하는 문장(type: question)이나 패턴 질문이 생기면 대화 모드가 열려요.</p>` : ''}
   </div>`;
-  $('#call', root) && ($('#call', root).onclick = () => { unlock(); call(root, 'call', v); });
-  $('#pickv', root) && ($('#pickv', root).onclick = () => { if (chosen) { chosenId = null; speak(root); } else pickSheet(root); });
+  $('#call', root) && ($('#call', root).onclick = () => { unlock(); call(root, 'call', pickVideo()); });
   $$('[data-mode]', root).forEach(b => b.onclick = () => { unlock(); call(root, b.dataset.mode); });
   return () => { active?.(); active = null; };
-}
-function pickSheet(root) {
-  const vids = D.get().videos.filter(callable);
-  const s = sheet(`<h3>어떤 영상으로 통화할까요?</h3><div class="vpick">${vids.map(v => `<button class="vp-row" data-v="${v.id}"><span class="vp-th" style="background-image:url('${thumb(v.ytId)}')"></span><span class="grow"><b class="clamp2">${esc(v.title)}</b><small>${esc(conceptOf(v))} · ${callTurns(v).length}문장</small></span></button>`).join('')}</div>`);
-  $$('[data-v]', s).forEach(b => b.onclick = () => { chosenId = b.dataset.v; s.close(); speak(root); });
 }
 
 // ---------- 통화 ----------
@@ -140,8 +126,9 @@ function call(root, mode, v = null) {
     <div class="vc-panel" id="vpanel"></div>
     <div class="ring2" id="ring">
       <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
-      <div class="ring-top"><span class="ring-kind">${ic('cam')} 영상통화</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
-      <div class="ring-acts"><div><button class="r-no" id="dec" aria-label="거절">${ic('phoneoff')}</button><span>거절</span></div><div><button class="r-ok" id="acc" aria-label="받기">${ic('phone')}</button><span>받기</span></div></div>
+      <div class="ring-top">${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}<h2 class="ring-name">${NAME}</h2>
+        <p class="ring-status"><span id="rst">연결 중</span><span class="rs-dots"><i></i><i></i><i></i></span></p></div>
+      <div class="ring-bottom"><div class="ring-waves"><i></i><i></i><i></i></div><button class="r-no" id="dec" aria-label="전화 끊기">${ic('phoneoff')}</button><span>취소</span></div>
     </div>
   </div>`;
   const $v = s => $(s, root);
@@ -155,15 +142,19 @@ function call(root, mode, v = null) {
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
 
-  // ----- 수신 화면 -----
+  // ----- 거는 화면: 몇 초 울리다가 백현이가 받음 -----
   const ring = $v('#ring');
-  const killRing = () => { stopRing(); ring.classList.add('leave'); setTimeout(() => { unPhoto?.(); unPhoto = null; ring.remove(); }, 520); };
-  $v('#dec').onclick = () => { stopRing(); blip('end'); cleanup(); document.body.classList.remove('in-call'); speak(root); };
-  $v('#acc').onclick = () => {
-    if (accepted) return; accepted = true; blip('connect'); killRing();
-    t0 = Date.now(); timer = setInterval(() => ($v('#vtm').textContent = clock((Date.now() - t0) / 1000)), 1000);
-    run();
-  };
+  const killRing = () => { stopRing(); ring.classList.add('leave'); setTimeout(() => { unPhoto?.(); unPhoto = null; ring.remove(); }, 900); };
+  const pickUp = setTimeout(() => {
+    if (dead || accepted) return; accepted = true;
+    ring.classList.add('picked'); $v('#rst').textContent = '연결됨'; blip('connect'); stopRing();
+    setTimeout(() => {
+      if (dead) return; killRing();
+      t0 = Date.now(); timer = setInterval(() => ($v('#vtm').textContent = clock((Date.now() - t0) / 1000)), 1000);
+      run();
+    }, 650);
+  }, 2600 + Math.random() * 1600);
+  $v('#dec').onclick = () => { clearTimeout(pickUp); stopRing(); blip('end'); cleanup(); document.body.classList.remove('in-call'); speak(root); };
 
   // ----- 채팅 (라이브 방송처럼 아래에서 올라옴) -----
   const chat = $v('#vchat');

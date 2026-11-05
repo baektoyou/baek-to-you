@@ -98,11 +98,11 @@ export const isLive = v => LIVE.test((v.title || '') + ' ' + (v.desc || ''));
 
 // 통화 콘셉트: 영상 장면 → 짧은 한 줄
 const CONCEPT = [
-  ['bed', '침대에 누워서 하는 통화'], ['eat', '밥 먹으면서 수다'], ['cafe', '카페에서 잠깐'], ['drink', '한잔하면서 수다'], ['car', '이동하는 차 안에서'],
-  ['plane', '비행기 타기 전에'], ['travel', '여행 중에 건 전화'], ['hotel', '숙소에서 쉬면서'], ['studio', '작업실에서 잠깐 쉬는 중'], ['practice', '연습 끝나고 잠깐'],
-  ['music', '노래 얘기하다가'], ['event', '스케줄 끝나고 바로'], ['outdoor', '산책하면서'], ['exercise', '운동 끝나고'], ['home', '집에서 편하게']
+  ['bed', '잠들기 전 백현이랑'], ['eat', '밥 먹는 백현이랑'], ['cafe', '카페에 있는 백현이랑'], ['drink', '한잔하는 백현이랑'], ['car', '이동 중인 백현이랑'],
+  ['plane', '여행 가는 백현이랑'], ['travel', '여행 중인 백현이랑'], ['hotel', '숙소에서 쉬는 백현이랑'], ['studio', '작업하다 쉬는 백현이랑'], ['practice', '연습 끝난 백현이랑'],
+  ['music', '노래 얘기하는 백현이랑'], ['event', '스케줄 끝난 백현이랑'], ['outdoor', '산책하는 백현이랑'], ['exercise', '운동 끝난 백현이랑'], ['home', '집에서 쉬는 백현이랑']
 ];
-const BY_TIME = { morning: '좋은 아침 통화', day: '점심시간 통화', evening: '퇴근길 통화', night: '늦은 밤 통화' };
+const BY_TIME = { morning: '아침에 백현이랑', day: '낮에 백현이랑', evening: '저녁에 백현이랑', night: '늦은 밤 백현이랑' };
 export function conceptOf(v, scene = sceneOf(v)) {
   const t = timeOfScene(scene);
   const hit = CONCEPT.filter(([k]) => scene[k]).sort((a, b) => scene[b[0]] - scene[a[0]])[0];
@@ -126,10 +126,13 @@ export function pickVideo(now = new Date()) {
     if (isLive(v)) sc += 2;
     const ago = Date.now() - last(v.id);
     if (ago < 864e5) sc -= 3; else if (ago < 3 * 864e5) sc -= 1;
-    sc += Math.random() * 0.8; // 비슷하면 가끔 다른 영상
     return { v, sc };
   }).sort((a, b) => b.sc - a.sc);
-  return scored[0].v;
+  // 지금 시간대에 어울리는 후보들 중에서 랜덤 (점수가 높을수록 잘 뽑힘)
+  const pool = scored.filter(x => x.sc >= scored[0].sc - 2.5);
+  const w = pool.map(x => Math.exp((x.sc - scored[0].sc) / 1.5)); let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) return pool[i].v; }
+  return pool[0].v;
 }
 
 // ---------- 사진 매칭: 영상 장면과 가장 비슷한 사진 ----------
