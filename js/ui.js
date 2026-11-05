@@ -3,6 +3,7 @@ import * as S from './speech.js';
 import * as D from './store.js';
 import { markPattern, diffWords } from './compare.js';
 import { hintSteps } from './judge.js';
+import { aiGloss } from './ai.js';
 
 export const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 export const $ = (sel, el = document) => el.querySelector(sel);
@@ -326,25 +327,70 @@ export function naturalHTML(list, label = '더 자연스럽게') {
   if (!list?.length) return '';
   return `<div class="nat"><span class="cor-l">${esc(label)}</span>${list.map(t => `<div class="nat-s"><p class="en">${unitHTML(t)}</p><button class="sv" type="button" data-sv="${esc(t)}" aria-label="저장">${ic('bookmark')}</button></div>`).join('')}</div>`;
 }
-export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x => `<button class="xp en" type="button" data-sw="${esc(x.text || x)}" data-ko="${esc(x.ko || '')}">${ic('plus')}<span>${esc(x.text || x)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</button>`).join('')}</div>` : '';
+export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x => `<button class="xp en" type="button" data-sw="${esc(x.text || x)}" data-ko="${esc(x.ko || '')}">${ic('plus')}<span>${esc(x.text || x)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}${x.mine ? '<i class="xp-mine">내 표현</i>' : ''}</button>`).join('')}</div>` : '';
 
 // ---------- 문장 속 단어: 길게 누르면 단어 저장 ----------
 const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
 export const lpHTML = t => String(t || '').split(/\s+/).filter(Boolean).map(w => wspan(w)).join(' ');
+// 문장에서 단어·표현 저장: 단어를 꾹 누른 채(0.3초) 옆으로 드래그해서 범위 선택 → ‘저장’
+// · 저장할 때 문장 속 뜻(한국어)을 AI가 같이 넣어줌 (AI 없으면 뜻은 비워두고 문장을 메모로)
+let lpCtx = {};
+export const setLpCtx = c => (lpCtx = c || {});
+const clean = t => t.replace(/^[^\w']+|[^\w']+$/g, '');
+function closePill() { $$('.sel-pill').forEach(p => p.remove()); $$('.w.sel').forEach(w => w.classList.remove('sel')); }
+document.addEventListener('pointerdown', e => { if (!e.target.closest('.sel-pill') && !e.target.closest('.lp')) closePill(); }, true);
+window.addEventListener('scroll', () => $$('.sel-pill').length && closePill(), true);
+function showPill(box, sel) {
+  closePill();
+  const text = clean(sel.map(w => w.textContent).join(' ')); if (!text) return;
+  sel.forEach(w => w.classList.add('sel'));
+  const ex = D.findWordByText(text);
+  const r = sel[0].getBoundingClientRect(), r2 = sel[sel.length - 1].getBoundingClientRect();
+  const p = h(`<div class="sel-pill" role="dialog"><span class="en">${esc(text)}</span><button type="button">${ex ? '저장 취소' : '저장'}</button></div>`);
+  document.body.appendChild(p);
+  const pw = p.offsetWidth, x = Math.min(window.innerWidth - pw - 8, Math.max(8, (r.left + r2.right) / 2 - pw / 2));
+  const top = r.top - p.offsetHeight - 8; p.style.left = x + 'px'; p.style.top = (top < 8 ? r2.bottom + 8 : top) + 'px';
+  $('button', p).onclick = async () => {
+    const mark = on => $$('.w', box.ownerDocument).forEach(w => clean(w.textContent).toLowerCase() === text.toLowerCase() && w.classList.toggle('saved', on));
+    closePill();
+    if (ex) { D.deleteWord(ex.id); if (!text.includes(' ')) mark(false); toast(`‘${text}’ 저장 취소`); return; }
+    const sentence = box.textContent.replace(/\s+/g, ' ').trim();
+    const { item } = D.saveWord({ text, kind: text.includes(' ') ? 'expr' : 'word', note: sentence });
+    if (!text.includes(' ')) mark(true);
+    navigator.vibrate?.(12);
+    toast(`‘${text}’ 저장 · 뜻 찾는 중…`);
+    const ko = await aiGloss({ phrase: text, sentence, ko: lpCtx.ko || '' });
+    if (ko && item) { D.updateWord(item.id, { ko }); toast(`‘${text}’ = ${ko} · 저장했어요`); }
+    else toast(`‘${text}’ 저장했어요${item && !ko ? ' · 뜻은 SAVED에서 적을 수 있어요' : ''}`);
+  };
+}
 export function bindLongPress(el) {
-  $$('.w', el).forEach(w => {
-    let t = null;
-    if (D.findWordByText(w.dataset.w)) w.classList.add('saved');
-    const cancel = () => { clearTimeout(t); t = null; w.classList.remove('press'); };
-    w.addEventListener('pointerdown', () => { w.classList.add('press'); t = setTimeout(() => {
-      t = null; w.classList.remove('press');
-      const ex = D.findWordByText(w.dataset.w);
-      if (ex) { D.deleteWord(ex.id); $$(`.w[data-w="${CSS.escape(w.dataset.w)}"]`).forEach(x => x.classList.remove('saved')); toast(`‘${w.dataset.w}’ 저장 취소`); }
-      else { D.saveWord({ text: w.dataset.w, kind: 'word' }); $$(`.w[data-w="${CSS.escape(w.dataset.w)}"]`).forEach(x => x.classList.add('saved')); toast(`‘${w.dataset.w}’ 단어 저장`); }
-      navigator.vibrate?.(15);
-    }, 480); });
-    w.addEventListener('pointerup', cancel); w.addEventListener('pointerleave', cancel); w.addEventListener('pointercancel', cancel);
-    w.addEventListener('contextmenu', e => e.preventDefault());
+  const boxes = el.classList?.contains('lp') ? [el] : $$('.lp', el);
+  boxes.forEach(box => {
+    if (box._lp) return; box._lp = true;
+    $$('.w', box).forEach(w => { if (D.findWordByText(w.dataset.w)) w.classList.add('saved'); });
+    let t = null, on = false, a = -1, b = -1, words = [], x0 = 0, y0 = 0;
+    const paint = () => words.forEach((w, i) => w.classList.toggle('sel', i >= Math.min(a, b) && i <= Math.max(a, b)));
+    box.addEventListener('pointerdown', e => {
+      const w = e.target.closest('.w'); if (!w || !box.contains(w)) return;
+      closePill(); words = $$('.w', box); a = b = words.indexOf(w); x0 = e.clientX; y0 = e.clientY;
+      t = setTimeout(() => { t = null; on = true; navigator.vibrate?.(8); paint(); try { box.setPointerCapture(e.pointerId); } catch { } }, 300);
+    });
+    box.addEventListener('pointermove', e => {
+      if (t && Math.hypot(e.clientX - x0, e.clientY - y0) > 8) { clearTimeout(t); t = null; } // 그냥 스크롤
+      if (!on) return;
+      const w = document.elementFromPoint(e.clientX, e.clientY)?.closest?.('.w');
+      if (w && box.contains(w)) { const i = words.indexOf(w); if (i >= 0 && i !== b) { b = i; paint(); } }
+    });
+    const up = () => {
+      clearTimeout(t); t = null; if (!on) return; on = false;
+      const sel = words.slice(Math.min(a, b), Math.max(a, b) + 1);
+      words.forEach(w => w.classList.remove('sel'));
+      showPill(box, sel);
+    };
+    box.addEventListener('pointerup', up); box.addEventListener('pointercancel', () => { clearTimeout(t); t = null; on = false; words.forEach(w => w.classList.remove('sel')); });
+    box.addEventListener('touchmove', e => { if (on) e.preventDefault(); }, { passive: false }); // 선택 중엔 화면이 안 움직이게
+    box.addEventListener('contextmenu', e => e.preventDefault());
   });
 }
 
@@ -378,7 +424,7 @@ export function bindCompare(el, make) { bindSaves(el, make); bindLongPress(el); 
 // f: smartFeedback() 결과 {correct, feedback, fixes, natural, xs, ai}
 // rec: 업로드한 영어 문장 → 항상 ‘추천 문장’으로 그대로 보여줌 (AI가 바꾸지 않음)
 //      AI의 natural은 내 문장이 맞았는데 더 자연스럽게 다듬을 수 있을 때만 ‘더 자연스럽게’로 따로
-export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '정답' } = {}) {
+export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '정답', natLabel = '' } = {}) {
   if (!f) return '';
   const low = said.toLowerCase(), marks = [], amarks = [];
   (f.fixes || []).forEach(x => { const i = low.indexOf(String(x.wrong).toLowerCase()); if (i >= 0) marks.push([i, i + x.wrong.length]); });
@@ -397,7 +443,7 @@ export function feedbackHTML(f, said, { rec = '', answer = '', answerLabel = '�
     ${(f.asr || []).length ? `<p class="asr-note">${f.asr.map(x => `<span class="en">${esc(x.heard)}</span> → <span class="en">${esc(x.meant)}</span>`).join(', ')} <small>음성 인식이 잘못 들은 것 같아요 · 영어 실수 아님</small></p>` : ''}
     ${(f.fixes || []).length ? `<ul class="fx">${f.fixes.map(x => `<li><span class="en"><s>${esc(x.wrong)}</s> → <b>${esc(x.right)}</b></span>${x.why ? `<small>${esc(x.why)}</small>` : ''}</li>`).join('')}</ul>` : ''}
     ${recRow ? row('추천 문장', recRow, 'rec') : ''}
-    ${nat ? row(rec ? '더 자연스럽게' : '추천', nat, rec ? 'nat' : 'rec') : ''}
+    ${nat ? row(natLabel || (rec ? '더 자연스럽게' : '추천'), nat, rec ? 'nat' : 'rec') : ''}
     ${showA ? row(answerLabel, answer, 'ans') : ''}
     ${(f.xs || []).length ? `<div class="fxs">${f.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}
   </div>`;

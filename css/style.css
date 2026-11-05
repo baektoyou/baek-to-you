@@ -1334,3 +1334,26 @@ a.uitem>svg{color:var(--muted2);width:16px;height:16px;align-self:center}
 .wl-row .mini svg{width:16px;height:16px}
 .key-guide ol{margin:8px 0 6px}
 .key-guide a{color:var(--pink-ink);text-decoration:underline;text-underline-offset:3px;word-break:break-all}
+/* 대화하기: 내가 배운 표현 표시 · 추천 표현 사용 여부 */
+.xp-mine{font-style:normal;font-size:9.5px;font-weight:600;color:var(--pink-ink);background:var(--pink-soft2);border-radius:5px;padding:1px 5px;margin-left:4px;font-family:inherit;letter-spacing:0}
+.used-x{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:10px}
+.used-x .cor-l{width:100%}
+.ux{display:inline-flex;align-items:center;gap:3px;height:26px;padding:0 10px;border-radius:var(--pill);border:1px dashed var(--line2);font-size:12.5px;color:var(--muted)}
+.ux.on{border:1px solid var(--pink);color:var(--pink-ink);background:var(--pink-soft)}
+.ux svg{width:13px;height:13px}
+/* 대화하기 추천 표현: 많아도 화면을 덮지 않게 (말하는 중엔 가로 스크롤) */
+.kit:not(.compact) .rec-x{max-height:38vh;overflow-y:auto}
+.kit.compact .rec-x{flex-wrap:nowrap;overflow-x:auto;-webkit-overflow-scrolling:touch;scrollbar-width:none;margin-left:-16px;margin-right:-16px;padding:0 16px 2px}
+.kit.compact .rec-x::-webkit-scrollbar{display:none}
+.kit.compact .xp{flex:none}
+.kit-off{margin:8px 0 0;font-size:11.5px;color:var(--muted);line-height:1.5}
+.kit.compact .rec-x{flex-wrap:wrap;overflow-x:visible;margin:8px 0 0;padding:0;max-height:132px;overflow-y:auto}
+/* 백현이 멘트: 누르면 그 장면 재생 */
+.vm.baek.replay>div p,.msg2.bh.replay .m-bub{cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s var(--ease),opacity .15s}
+.vm.baek.replay:active>div p,.msg2.bh.replay:active .m-bub{transform:scale(.97);opacity:.8}
+/* 드래그로 표현 저장 */
+.lp{touch-action:pan-y}
+.lp .w.sel{background:var(--pink-soft2);border-radius:4px;box-shadow:0 0 0 2px var(--pink-soft2)}
+.sel-pill{position:fixed;z-index:200;display:flex;align-items:center;gap:8px;max-width:calc(100vw - 16px);padding:6px 6px 6px 12px;border-radius:var(--pill);background:#1F1B1D;color:#fff;font-size:13px;box-shadow:0 6px 20px rgba(0,0,0,.18);animation:pop .2s var(--spring)}
+.sel-pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.sel-pill button{flex:none;height:28px;padding:0 12px;border-radius:var(--pill);background:var(--pink);color:#fff;font-size:12.5px;font-weight:600}

@@ -84,21 +84,32 @@ If the learner's sentence is correct and fine: correct=true, awkward=false, fixe
 }
 Modes:
  translate — the learner tried to say Baekhyun's Korean line in English. The reference translation was written by the app owner and is shown to the learner as-is; never rewrite or replace it. Any wording with the same meaning and natural grammar is correct.
- reply / long — the learner answered Baekhyun's question. Correct = on-topic, sensible answer (grammar slips are fixes, not "incorrect").
+ reply / long — the learner answered Baekhyun's question in their own words. Correct = on-topic, sensible answer (grammar slips are fixes, not "incorrect").
+  In these modes "natural" = the learner's OWN answer rewritten the way a native speaker would say it: keep exactly their content, facts and opinion (never invent details, never answer differently, never use a sample answer). Fix grammar and make it sound natural. Give it whenever there is any real improvement; "" only if their answer is already natural. "expressions" must be [] in these modes.
+  "feedback": 1–2 short Korean lines — what was good, and the single most useful point about their grammar or phrasing.
  review — the learner answered a review question and should use the target expression/sentence. Correct only if it fits the question AND uses the target (or the target sentence's meaning). In "natural", answer the question using the target.
 If the learner used Korean, correct=false and feedback "영어로 말해볼까?".`;
 function fbUser(b) {
   return [`Mode: ${b.mode}`, b.ko ? `Baekhyun's Korean line: ${clip(b.ko)}` : '', b.target ? `Reference / target English: ${clip(b.target)}` : '', b.expr ? `Target expression: ${clip(b.expr, 80)}` : '',
-    b.question ? `Question (English): ${clip(b.question)}` : '', b.qko ? `Question (Korean): ${clip(b.qko)}` : '', b.words ? `Registered names/words (speech recognition may mishear these, e.g. "Back" for "Baekhyun"): ${clip(b.words, 200)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
+    b.question ? `Question (English): ${clip(b.question)}` : '', b.qko ? `Question (Korean): ${clip(b.qko)}` : '', b.use?.length ? `Suggested expressions: ${b.use.slice(0, 6).join(' | ')}` : '', b.words ? `Registered names/words (speech recognition may mishear these, e.g. "Back" for "Baekhyun"): ${clip(b.words, 200)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
+}
+// 추천 표현을 썼는지 (단어 형태가 조금 달라도: like → liked, be into → I'm into)
+export function usedIn(said, expr) {
+  const stem = w => w.replace(/(ing|ed|es|s)$/, '');
+  const S = String(said || '').toLowerCase().replace(/[^a-z' ]/g, ' ').split(/\s+/).filter(Boolean).map(stem);
+  const E = String(expr || '').toLowerCase().replace(/[^a-z' ]/g, ' ').split(/\s+/).filter(w => w && !/^(be|am|is|are|was|were|someone|something|sb|sth|one's|my|your|a|an|the)$/.test(w)).map(stem);
+  if (!E.length) return false;
+  for (let i = 0; i < S.length; i++) { let j = 0, k = i; while (k < S.length && j < E.length && k - i < E.length + 2) { if (S[k] === E[j]) j++; k++; } if (j === E.length) return true; }
+  return false;
 }
 const cleanX = x => String(x || '').replace(/\s+/g, ' ').trim();
 const expand = t => t.replace(/\b(i|you|we|they|he|she|it|that|there|what)'(m|re|s|ve|ll|d)\b/g, (m, a, b) => a + ' ' + ({ m: 'am', re: 'are', s: 'is', ve: 'have', ll: 'will', d: 'would' })[b]).replace(/\b(do|does|did|is|are|was|were|have|has|can|could|would|should|won)n't\b/g, (m, a) => (a === 'won' ? 'will' : a === 'can' ? 'can' : a) + ' not').replace(/\bcan not\b/g, 'cannot');
 const cleanF = x => String(x || '').split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // 반환 {correct, feedback, fixes:[{wrong,right,why}], natural, xs:[{text,ko}], ai}
-export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [] }) {
+export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [], use = [] }) {
   const words = parseFixes(D.get().settings.sttFix).terms.concat(['Baekhyun']).filter((x, i, a) => a.indexOf(x) === i).join(', ');
-  const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr, words }), { temp: 0.2 });
+  const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr, words, use }), { temp: 0.2 });
   const a = await aiP;
   if (ok(a) && typeof a.feedback === 'string') {
     const sl = said.toLowerCase();
@@ -107,11 +118,13 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
     const asrSet = new Set(asr.map(x => x.heard.toLowerCase()));
     const fixes = (Array.isArray(a.fixes) ? a.fixes : []).filter(f => f && f.wrong && sl.includes(String(f.wrong).toLowerCase()) && !asrSet.has(String(f.wrong).toLowerCase()) && !minor(f)).slice(0, 3).map(f => ({ wrong: cleanX(f.wrong), right: cleanX(f.right), why: cleanX(f.why).slice(0, 50) }));
     // 맞게 말했고 어색하지 않으면 ‘더 자연스럽게’를 억지로 보여주지 않음
-    const nat = (a.awkward === true || fixes.length || !a.correct) ? cleanX(a.natural) : '';
+    const own = mode === 'reply' || mode === 'long'; // 질문하기·대화하기: 내 대답을 원어민처럼 다듬은 문장
+    const nat = (own || a.awkward === true || fixes.length || !a.correct) ? cleanX(a.natural) : '';
+    const usedAI = new Set((Array.isArray(a.used) ? a.used : []).map(x => cleanX(x).toLowerCase()));
     return {
-      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes,
+      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes, used: use.filter(u => usedAI.has(u.toLowerCase()) || usedIn(said, u)),
       natural: nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== sl.replace(/[^a-z ]/g, '') ? nat : '',
-      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !said.toLowerCase().includes(x.text.toLowerCase())).slice(0, 3),
+      xs: own ? [] : (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !said.toLowerCase().includes(x.text.toLowerCase())).slice(0, 3),
       ai: true
     };
   }
@@ -119,10 +132,10 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
   const ev = mode === 'translate' ? judgeTranslation(said, target) : judgeReply(said, { question, expr: mode === 'review' ? expr : '', strict: mode === 'reply' || (mode === 'review' && !!question) });
   const imp = await improve(said, { pattern: pattern || expr, useLT: true });
   const fixes = (imp.changes || []).filter(c => c.from && said.toLowerCase().includes(c.from.toLowerCase())).slice(0, 3).map(c => ({ wrong: c.from, right: c.to, why: c.why || '' }));
-  const alt = mode === 'translate' ? target : mode === 'review' ? '' : bestReply(said, replies);
-  const nat = !imp.same ? imp.after : alt;
+  // 규칙 피드백: 질문하기·대화하기는 내 문장을 고친 것만 (다른 사람 예시 답변은 추천하지 않음)
+  const nat = !imp.same ? imp.after : '';
   const msg = ev.ok ? (fixes.length ? '뜻은 잘 통해요. 표시한 부분만 고치면 돼요.' : '뜻이 잘 통해요.') : ev.level === 'off' ? (ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?' : '뜻이 조금 달라요. 추천 문장을 참고해봐요.') : '조금 빠진 부분이 있어요. 추천 문장을 참고해봐요.';
-  return { correct: ev.ok, feedback: msg, fixes, asr: [], natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
+  return { correct: ev.ok, feedback: msg, fixes, asr: [], used: use.filter(u => usedIn(said, u)), natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
 }
 
 // ---------- 2) 영어 질문하기 (채팅) ----------
@@ -136,19 +149,35 @@ export async function aiAsk(q, ctx = {}) {
   return { answer: String(a.answer), xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text)).slice(0, 3) };
 }
 
+// ---------- 드래그 저장: 문맥에 맞는 한국어 뜻 ----------
+export async function aiGloss({ phrase, sentence = '', ko = '' }) {
+  if (!aiOn()) return null;
+  const a = await callAI(`You give the Korean meaning of an English word or phrase AS USED in the given sentence (its meaning in this context, not a dictionary list). Natural, short Korean (max 20 characters). Return ONLY JSON {"ko": "..."}.`,
+    [`Phrase: ${clip(phrase, 80)}`, `Sentence: ${clip(sentence, 300)}`, ko ? `Korean context (what the sentence means): ${clip(ko, 200)}` : ''].filter(Boolean).join('\n'), { ms: 10000, temp: 0.2 });
+  return ok(a) && a.ko ? cleanX(a.ko).slice(0, 40) : null;
+}
+
 // ---------- 3) 대화하기: 질문에 맞는 추천 표현 + 다음 질문 ----------
 const KIT_SYS = `${COACH}
-You help the learner keep a conversation going with Baekhyun.
-Given the current question and what the learner has said so far, return ONLY JSON:
-{"expressions": exactly 3 useful, real English expressions the learner can use in their NEXT answer — tied to this question and to what the learner actually said (their topic, people, feelings, details). Not generic fillers, nothing they already used, nothing in the "Already suggested" list. Each {"en": 2–6 words, "ko": Korean meaning},
- "next": a natural follow-up question Baekhyun could ask next, based on what the learner just said (casual, short) {"en": "...", "ko": "자연스러운 반말"} — or null if nothing was said yet}`;
-export async function aiKit({ question, qko, history = [], avoid = [] }) {
+You help the learner keep a real conversation going with Baekhyun. Expressions must change with the conversation: read the WHOLE dialog so far and suggest what the learner could say NEXT.
+Return ONLY JSON:
+{"next": Baekhyun's natural follow-up question that reacts to what the learner just said (casual, short) {"en": "...", "ko": "자연스러운 반말"} — or null if the learner has not answered yet,
+ "mine": 0–3 expressions copied EXACTLY from the learner's studied list that would fit naturally in their answer to the question they will answer next (the "next" question, or the current question if next is null). Empty if none really fit — never force one,
+ "expressions": 4–6 NEW real English expressions for answering that question, built from THIS dialog — the learner's own topic, people, places, feelings and details (e.g. if they said they love ballads, suggest things like "hits different at night", "gives me chills"). Mix: reacting/agreeing, adding detail or reason, giving an example, asking Baekhyun back. Not generic fillers, nothing the learner already used, nothing in "Already suggested". Each {"en": 2–7 words, "ko": short Korean meaning}}`;
+// dialog: [{q: 백현이 질문(영어), a: 내 대답}] · learned: SAVED 표현·단어 [{text, ko}]
+export async function aiKit({ question, qko, history = [], dialog = null, avoid = [], learned = [] }) {
   if (!aiOn()) return null;
-  const a = await callAI(KIT_SYS, [`Question: ${clip(question)}`, qko ? `(Korean: ${clip(qko)})` : '', history.length ? `Learner said so far:\n${history.map(h => '- ' + clip(h, 400)).join('\n')}` : 'Learner has not answered yet.', avoid.length ? `Already suggested (do not repeat): ${avoid.slice(-12).join(' | ')}` : ''].filter(Boolean).join('\n'), { temp: 0.7 });
+  const dl = dialog || history.map(h => ({ q: '', a: h }));
+  const a = await callAI(KIT_SYS, [`Current question from Baekhyun: ${clip(question)}`, qko ? `(Korean: ${clip(qko)})` : '',
+    dl.length ? `Dialog so far:\n${dl.map(d => `${d.q ? `Baekhyun: ${clip(d.q, 200)}\n` : ''}Learner: ${clip(d.a, 400)}`).join('\n')}` : 'The learner has not answered yet — suggest expressions for answering the current question.',
+    learned.length ? `Learner's studied expressions: ${learned.slice(0, 40).map(x => x.text).join(' | ')}` : '', avoid.length ? `Already suggested (do not repeat): ${avoid.slice(-30).join(' | ')}` : ''].filter(Boolean).join('\n'), { temp: 0.8, ms: 20000 });
   if (!ok(a)) return null;
-  const said = history.join(' ').toLowerCase(), av = new Set(avoid.map(x => String(x).toLowerCase()));
+  const said = dl.map(d => d.a).join(' ').toLowerCase(), av = new Set(avoid.map(x => String(x).toLowerCase()));
+  const lmap = new Map(learned.map(x => [x.text.toLowerCase(), x]));
+  const mine = (Array.isArray(a.mine) ? a.mine : []).map(t => lmap.get(cleanX(t?.en || t).toLowerCase())).filter(Boolean).filter(x => !av.has(x.text.toLowerCase())).slice(0, 3).map(x => ({ text: x.text, ko: x.ko || '', mine: true }));
+  const fresh = (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !av.has(x.text.toLowerCase()) && !said.includes(x.text.toLowerCase()) && !lmap.has(x.text.toLowerCase()));
   return {
-    xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !av.has(x.text.toLowerCase()) && !said.includes(x.text.toLowerCase())).slice(0, 3),
+    xs: [...mine, ...fresh].filter((x, i, l) => l.findIndex(y => y.text.toLowerCase() === x.text.toLowerCase()) === i).slice(0, 8),
     next: a.next && a.next.en ? { en: cleanX(a.next.en), ko: cleanX(a.next.ko) } : null
   };
 }

@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress } from './ui.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
@@ -173,13 +173,14 @@ export function study(root, uttId) {
   const accBadge = (el, a) => { const b = $('.m-bub', el); b && b.insertAdjacentHTML('beforeend', `<em class="acc-b ${a >= 85 ? 'hi' : ''}">${a}%</em>`); };
 
   async function run(x) {
-    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; ta.placeholder = '영어로 말하거나 입력해요';
+    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; setLpCtx({ ko: x.ko }); ta.placeholder = '영어로 말하거나 입력해요';
     $('#cvi', root).textContent = `${i + 1} / ${list.length}`;
     if (location.hash !== `#/study/${x.id}`) history.replaceState(null, '', `#/study/${x.id}`);
     if (th.children.length) sys(`${i + 1} / ${list.length}`);
     // 재생과 동시에 한국어 대사
     if (pending?.u === x) pending = null; else playU(x);
-    lastWho = ''; add('bh', `<span class="ko">${esc(ko)}</span>`);
+    lastWho = ''; const kb = add('bh', `<span class="ko">${esc(ko)}</span>`);
+    kb.classList.add('replay'); kb.onclick = () => { if (!cap) playU(x); }; // 멘트 누르면 그 장면 바로 재생
     onEnded = y => { if (y === x) addChip(['다시 듣기', 'replay', 'line', { tap: () => playU(x), stay: true }]); };
     await chips([['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [target] }]], { replay: true }); if (dead) return;
     const said = await askInput('영어로 말해봐요', [target]); if (dead) return;

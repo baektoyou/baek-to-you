@@ -3,7 +3,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, bindSaves, swipeDelete, feedbackHTML, aiAnswerHTML, bindCompare } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, exprChips, bindSaves, swipeDelete, feedbackHTML, aiAnswerHTML, bindCompare, setLpCtx } from './ui.js';
 import { diff } from './compare.js';
 import { smartFeedback, aiAsk, aiKit, aiPickNext, aiOn } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
@@ -255,7 +255,19 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : who === 'ai' ? `<i class="ai-av">AI</i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? 'AI 코치' : esc(myName)}</b>${html}</div></div>`);
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
-  const say2 = (who, text) => msg(who, `<p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>`);
+  const say2 = (who, text, u = null) => {
+    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>`);
+    // 백현이 멘트를 누르면 그 장면 바로 재생 (누른 순간 재생 → iPhone에서도 소리와 함께)
+    if (u && who === 'baek') { m.classList.add('replay'); m.onclick = () => replayClip(u); }
+    return m;
+  };
+  function replayClip(u) {
+    if (dead || $v('#vmic').classList.contains('live')) return; // 녹음 중엔 X
+    const vid = D.video(u.videoId); if (!vid) return;
+    pl.ambientPlay?.(false);
+    $v('#vcap').innerHTML = `<span>${esc(u.ko)}</span>`;
+    pl.playSegment(vid.ytId, u.start, u.playEnd || u.end + 0.6, { tail: 0 }).then(() => { $v('#vcap').innerHTML = ''; });
+  }
   // ✦ 질문: 언제든 영어에 대해 AI에게 물어보기 (대답 입력용이 아님)
   const vin = $v('#vin'), vint = $v('#vint');
   let curLine = { ko: '', en: '' };
@@ -361,7 +373,7 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     for (let i = Math.min(start, list.length - 1); i < list.length && !stopped; i++) {
       const u = list[i], target = natOf(u), nx = list[i + 1]; callPos = i; progress(`${i + 1} / ${list.length}`);
       await say(u); if (stopped) return;
-      say2('baek', u.ko); curLine = { ko: u.ko, en: target };
+      say2('baek', u.ko, u); curLine = { ko: u.ko, en: target }; setLpCtx(curLine);
       const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords } }); log('sp-call', r, u.id); if (stopped) return;
       if (r.skipped || !r.text) { if (!stopped) callPos = i + 1; continue; }
       status('다듬는 중…');
@@ -381,8 +393,8 @@ function call(root, mode, v = null, { start = 0 } = {}) {
     while (q && !stopped) {
       n++; progress(`${n} / ${qs.length}`);
       await say(q.u); if (stopped) return;
-      say2('baek', q.ko); curLine = { ko: q.ko, en: q.en };
-      const r = await turn({ label: '영어로 대답해볼까?', hint: replyHint(q.u) }); log('sp-chat', r, q.u.id); if (stopped) return;
+      say2('baek', q.ko, q.u); curLine = { ko: q.ko, en: q.en }; setLpCtx(curLine);
+      const r = await turn({ label: '영어로 대답해볼까?' }); log('sp-chat', r, q.u.id); if (stopped) return;
       if (r.text) {
         hist.push(`Baekhyun: ${q.en || q.ko}`, `Me: ${r.text}`);
         status('확인하는 중…');
@@ -395,10 +407,10 @@ function call(root, mode, v = null, { start = 0 } = {}) {
         const ans = q.real ? answerClip(q.u) : null;
         const goNext = () => { if (ans) startClip(ans); else if (nq) startClip(nq.u); };
         const save = saveMine(q.u, r.text);
-        const k = await card(feedbackHTML(f, r.text), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
+        const k = await card(feedbackHTML(f, r.text, { natLabel: '더 좋은 문장' }), [['read', '보면서 따라 말하기', ''], ['next', `${nq || ans ? '다음' : '마치기'} ${ic('next')}`, 'nx', { tap: goNext }]], save);
         if (stopped) return;
         if (k === 'read') { const k2 = await practice(f.natural || r.text, { ko: q.ko, uttId: q.u.id, nextU: null, save }); if (k2 === 'stop') return; goNext(); }
-        if (ans) { await say(ans); if (stopped) return; say2('baek', ans.ko); if (nq) startClip(nq.u); }
+        if (ans) { await say(ans); if (stopped) return; say2('baek', ans.ko, ans); if (nq) startClip(nq.u); }
         q = nq;
       } else q = left.shift();
     }
@@ -408,54 +420,52 @@ function call(root, mode, v = null, { start = 0 } = {}) {
   // ----- 3. 대화하기: 질문 + AI 추천 표현 → 30초 → (AI가 내 말에 이어지는 다음 질문) 45초 → 60초 -----
   const ROUNDS = [30, 45, 60], GOALS = [20, 35, 50]; // 말하기 시간 · 목표 단어 수
   const kitBox = (q, xs, { start = false } = {}) => `<div class="kit"><p class="kit-q en">${esc(q.en || q.ko)}</p>${q.ko ? `<p class="kit-ko">${esc(q.ko)}</p>` : ''}
-    ${xs === null ? '<p class="kit-wait">추천 표현 고르는 중…</p>' : xs.length ? exprChips(xs) : ''}
+
     ${start ? `<div class="kit-go"><button class="nx-btn" id="kother">다른 질문</button><button class="btn sm" id="kgo">${ic('mic')} 시작</button></div>` : ''}</div>`;
   const fallbackXs = q => answerFrames(q.en).slice(0, 3);
+  // 내가 SAVED에 저장한 표현·단어 (최근 것부터) → AI가 이번 질문에 맞는 것만 ‘내 표현’으로 추천
+  const learned = () => { const seen = new Set(); return D.get().words.filter(w => w.text && !seen.has(w.text.toLowerCase()) && seen.add(w.text.toLowerCase())).slice(0, 40).map(w => ({ text: w.text, ko: w.ko || '' })); };
   async function runLong() {
     let qi = 0, q = qs[0], startXs = []; const tg = $v('#vtg');
     // 시작: 질문 + 이 질문에 맞는 표현 3개
     for (;;) {
-      progress(''); const kp = aiKit({ question: q.en, qko: q.ko });
+      progress('');
       await say(q.u); if (stopped) return;
-      startXs = aiOn() ? [] : fallbackXs(q);
-      tg.innerHTML = kitBox(q, aiOn() ? null : startXs, { start: true }); tg.classList.remove('hide'); tg.classList.add('kit-on');
+      tg.innerHTML = kitBox(q, [], { start: true }); tg.classList.remove('hide'); tg.classList.add('kit-on');
       const bindKit = () => { bindSaves(tg); $v('#kgo').onclick = () => go('y'); $v('#kother').onclick = () => { const n = qs[(qi + 1) % qs.length]; startClip(n.u); go('o'); }; };
       let go; const kp2 = new Promise(res => { go = res; skipTurn = () => res('o'); endTurn = () => res('e'); });
       bindKit();
-      kp.then(kit => { if (stopped || !tg.querySelector('.kit-wait')) return; startXs = kit?.xs?.length ? kit.xs : fallbackXs(q); tg.innerHTML = kitBox(q, startXs, { start: true }); bindKit(); });
       status('준비되면 시작');
       const k = await kp2; skipTurn = endTurn = null;
       if (stopped || k === 'e') return;
       if (k === 'y') break; qi = (qi + 1) % qs.length; q = qs[qi];
     }
     tg.classList.remove('kit-on');
-    say2('baek', q.ko || q.en);
-    const hist = []; let cur = { en: q.en, ko: q.ko }, xs = startXs, prevW = 0;
+    say2('baek', q.ko || q.en, q.u);
+    const hist = [], dialog = []; let cur = { en: q.en, ko: q.ko }, xs = startXs, prevW = 0;
     const used = new Set(xs.map(x => x.text.toLowerCase())); // 이미 보여준 표현 (반복 방지)
     for (let i = 0; i < ROUNDS.length && !stopped; i++) {
       progress(`${i + 1} / 3`); curLine = cur;
-      tg.innerHTML = `<div class="kit compact"><p class="kit-q en">${esc(cur.en || cur.ko)}</p>${xs.length ? exprChips(xs) : ''}<p class="kit-wc">목표 <b>${GOALS[i]}</b>단어 · 지금 <b id="kwc">0</b>단어</p></div>`; tg.classList.remove('hide'); bindSaves(tg);
+      tg.innerHTML = `<div class="kit compact"><p class="kit-q en">${esc(cur.en || cur.ko)}</p><p class="kit-wc">목표 <b>${GOALS[i]}</b>단어 · 지금 <b id="kwc">0</b>단어</p></div>`; tg.classList.remove('hide'); bindSaves(tg);
       const wc = $v('#kwc');
       const r = await turn({ limit: ROUNDS[i], auto: true, ambient: true, label: `${ROUNDS[i]}초 동안 이야기해요`, onText: t => { if (wc) { const n = words(t); wc.textContent = n; wc.parentElement.classList.toggle('hit', n >= GOALS[i]); } } }); log('sp-long', r, q.u.id); if (stopped) return;
       tg.classList.add('hide');
       const w = words(r.text), last = i === ROUNDS.length - 1;
-      if (r.text) hist.push(r.text);
+      if (r.text) { hist.push(r.text); dialog.push({ q: cur.en, a: r.text }); }
       status('확인하는 중…');
       const [f, kit] = await Promise.all([
-        r.text ? smartFeedback({ mode: 'long', said: r.text, question: cur.en, qko: cur.ko, replies: q.u.replies }) : null,
-        !last && r.text ? aiKit({ question: cur.en, qko: cur.ko, history: hist, avoid: [...used] }) : null
+        r.text ? smartFeedback({ mode: 'long', said: r.text, question: cur.en, qko: cur.ko }) : null,
+        !last && r.text ? aiKit({ question: cur.en, qko: cur.ko, dialog: [...dialog] }) : null // 내 말에 이어지는 다음 질문
       ]); if (stopped) return;
       const next = kit?.next || null;
       await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${w} / ${GOALS[i]}단어${w >= GOALS[i] ? ' ✓' : ''}${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${f ? feedbackHTML(f, r.text) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${f ? feedbackHTML(f, r.text, { natLabel: '더 좋은 문장' }) : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last && next ? `<div class="next-q"><span class="cor-l">이어서</span><p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}</div>` : ''}
           <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      xs = (kit?.xs || []).filter(x => !used.has(x.text.toLowerCase()));
-      xs.forEach(x => used.add(x.text.toLowerCase()));
       if (next) { cur = next; say2('ai', next.en); }
       prevW = w;
     }
