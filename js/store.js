@@ -207,7 +207,7 @@ export const isSavedUtt = (uttId, level) => db.saved.some(s => s.uttId === uttId
 // ---------- 복습 주기 ----------
 // again: 10분 뒤 다시 (오늘 안에) · okay: 1→2→4→8일… · mastered: 4→10→25일…
 const DAY = 864e5;
-export const STATUS = { again: '다시 연습할래요', okay: '어느 정도 알아요', mastered: '완전히 익혔어요' };
+export const STATUS = { again: '다시 복습할래요', okay: '어느 정도 알아요', mastered: '복습완료' };
 export function nextInterval(s, status) {
   const iv = s.srs.interval || 0;
   if (status === 'again') return 0;

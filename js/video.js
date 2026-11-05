@@ -6,7 +6,7 @@ import { esc, $, $$, ic, toast, h, ytLink, natOf, beforeAfter, hintBox, phrasePi
 import { markPattern } from './compare.js';
 import { improve, patternInfo } from './feedback.js';
 import { patternSpeak } from './apply.js';
-import { isLive } from './scene.js';
+import { isLive, avatarStyle, randomPhoto } from './scene.js';
 
 // 영상 듣기 → 영어로 말하기 → 추천 문장 확인 → 보고 말하기 → 안 보고 말하기 → 패턴으로 새 문장
 const STEPS = ['listen', 'speak', 'check', 'read', 'recall', 'apply'];
@@ -58,12 +58,14 @@ export function study(root, uttId, startStep) {
   const v = D.video(u.videoId); const list = D.uttsOf(u.videoId); const idx = list.findIndex(x => x.id === u.id);
   const en = natOf(u);
   let dead = false, cap = null, waiting = null;
+  const ph = randomPhoto(); // 들어올 때마다 프사가 바뀜
+  const AV = s => `<span class="m-av ph" style="${avatarStyle(ph, s)}"></span>`;
   document.body.classList.add('no-tab');
   root.innerHTML = `<div class="chatv">
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
-      <div class="cv-title"><b>백현이</b><small>${idx + 1} / ${list.length}</small></div>
+      <div class="cv-title">${AV(28)}<div><b>백현이</b><small>${idx + 1} / ${list.length}</small></div></div>
       <button class="icon-btn save-btn" aria-label="SAVED에 저장">${ic('bookmark')}</button></header>
-    <div class="cv-player"><div class="player" id="pl"><div class="tap-hint hide">영상을 한 번 탭해서 재생해주세요</div></div></div>
+    <div class="cv-player"><div class="player clean" id="pl"><div class="tap-hint hide">영상을 한 번 탭해서 재생해주세요</div></div><button class="yt-shield hide" id="ysh" aria-label="재생/일시정지"><span>${ic('play')}</span></button></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer" id="cp">
@@ -73,7 +75,14 @@ export function study(root, uttId, startStep) {
     </div>
   </div>`;
   const th = $('#th', root), qk = $('#qk', root), cp = $('#cp', root), ta = $('#cpt', root), micB = $('#cpm', root);
-  const pl = new Player($('#pl', root), { onState: s => { if (s === 'blocked') $('.tap-hint', root).classList.remove('hide'); if (s === 'playing') $('.tap-hint', root).classList.add('hide'); } });
+  // YouTube 컨트롤 숨김 + 처음 재생된 뒤엔 투명 덮개로 탭을 받아서, 일시정지 때 YouTube 흰 화면·버튼이 안 보이게
+  const ysh = $('#ysh', root);
+  const pl = new Player($('#pl', root), { controls: 0, onState: s => {
+    if (s === 'blocked') $('.tap-hint', root).classList.remove('hide');
+    if (s === 'playing') { $('.tap-hint', root).classList.add('hide'); ysh.classList.remove('hide'); }
+    ysh.classList.toggle('paused', s !== 'playing' && s !== 'buffering');
+  } });
+  ysh.onclick = () => { if (pl.playing) pl.pause(); else play(); };
   pl.cue(v.ytId, u.start);
   const play = () => { D.markStep(u.id, 'listen'); return pl.playSegment(v.ytId, u.start, u.end); };
   const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
@@ -82,7 +91,7 @@ export function study(root, uttId, startStep) {
   let lastWho = '';
   const add = (who, html, cls = '') => {
     const first = who !== lastWho; lastWho = who;
-    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' && first ? '<span class="m-av">B</span>' : who === 'bh' ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
+    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${who === 'bh' && first ? AV(34) : who === 'bh' ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${who === 'bh' && first ? '<span class="m-name">백현이</span>' : ''}<div class="m-bub">${html}</div></div></div>`);
     th.appendChild(el); scroll(); return el;
   };
   const sys = t => { lastWho = ''; const el = h(`<p class="m-sys">${t}</p>`); th.appendChild(el); scroll(); };

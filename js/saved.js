@@ -7,8 +7,9 @@ import { markPattern, splitPatterns } from './compare.js';
 import { patternSpeak } from './apply.js';
 
 let filter = 'due';
+let view = 'sent'; // 'sent' 문장 | 'words' 표현·단어
 const KIND = { utt: '영상 문장', talk: '통화', mine: '내 문장' };
-const ST = { new: ['새로 저장', ''], again: ['연습 필요', 'warn'], okay: ['어느 정도', 'mid'], mastered: ['익숙해짐', 'ok'] };
+const ST = { new: ['새로 저장', ''], again: ['복습', 'warn'], okay: ['어느 정도', 'mid'], mastered: ['복습완료', 'ok'] };
 const enOf = s => s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s));
 const enHTML = s => markPattern(enOf(s), s.pattern, esc, s.marks || []);
 
@@ -21,18 +22,21 @@ export function saved(root) {
     mine: db.saved.filter(s => s.kind === 'mine' || s.kind === 'talk')
   };
   const doneN = done.filter(s => !due.includes(s)).length, total = due.length + doneN;
-  const isW = filter === 'words';
+  if (filter === 'words') filter = 'due';
+  const isW = view === 'words';
   const items = isW ? lists.words : (lists[filter] || lists.all);
   root.innerHTML = `<div class="screen saved-scr">
     <header class="top"><h1 class="page-title">Saved</h1></header>
     <div class="stats-strip"><div><b class="${due.length ? 'accent' : ''}">${due.length}</b><span>복습할 문장</span></div><div><b class="${dueW.length ? 'accent' : ''}">${dueW.length}</b><span>복습할 표현</span></div><div><b>${db.saved.filter(s => s.status === 'mastered').length}</b><span>익힌 문장</span></div></div>
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
-    <div class="tabs-scroll"><div class="seg">${[['due', '오늘'], ['all', '문장'], ['words', '표현·단어'], ['again', '연습 필요'], ['known', '익숙해진'], ['mine', '내 문장']].map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>
+    <div class="view-sw"><button data-v="sent" class="${isW ? '' : 'on'}">문장</button><button data-v="words" class="${isW ? 'on' : ''}">표현·단어</button></div>
+    ${isW ? '' : `<div class="tabs-scroll"><div class="seg">${[['due', '오늘'], ['all', '전체'], ['mine', '내 문장'], ['again', '복습'], ['known', '복습완료']].map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div>`}
     ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} 단어·표현 추가</button>${items.length > 1 ? `<button class="btn sm" id="pw">${ic('play')} 표현 ${items.length}개 복습</button>` : ''}</div>` : ''}
     ${items.length ? `${!isW && filter !== 'due' && items.length > 1 ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${items.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${filter === 'due' ? '지금 복습할 게 없어요' : isW ? '아직 저장한 표현이 없어요' : '아직 문장이 없어요'}</b><p>${filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? '추천 문장에서 외우고 싶은 단어를 눌러 저장해요' : 'TALK·CALL에서 추천 문장을 저장해요'}</p></div>`}
   </div>`;
   $$('[data-f]', root).forEach(b => b.onclick = () => { filter = b.dataset.f; saved(root); });
+  $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; saved(root); });
   $('#go', root).onclick = () => due.length ? practice(root, due.map(s => s.id), dueW.map(w => w.id)) : exprPractice(root, dueW.map(w => w.id));
   $('#pa', root) && ($('#pa', root).onclick = () => practice(root, items.map(s => s.id)));
   $('#pw', root) && ($('#pw', root).onclick = () => exprPractice(root, items.map(w => w.id)));
@@ -64,7 +68,7 @@ function srcLink(s) {
 const dueText = srs => srs.due <= Date.now() ? '지금' : relTime(srs.due);
 function itemHTML(s) {
   const link = srcLink(s); const [stL, stC] = ST[s.status] || ST.new;
-  return `<article class="sitem" data-id="${s.id}">
+  return `<article class="sitem ${s.status === 'again' || s.status === 'new' || s.srs.due <= Date.now() ? 'imp' : ''}" data-id="${s.id}">
     <div class="en s-en">${enHTML(s)}</div>
     ${s.ko ? `<div class="ko s-ko">${esc(s.ko)}</div>` : ''}
     <div class="foot">
@@ -225,7 +229,7 @@ function summaryScreen(root, result, end, again) {
 function exprPractice(root, ids, carry = null) {
   let queue = [...ids], i = 0, stop = null; const result = carry || { again: [], okay: 0, mastered: 0 };
   document.body.classList.add('no-tab');
-  const end = () => { stop?.(); document.body.classList.remove('no-tab'); filter = 'words'; saved(root); };
+  const end = () => { stop?.(); document.body.classList.remove('no-tab'); view = 'words'; saved(root); };
   const next = () => { stop?.(); stop = null; i++; if (i >= queue.length) summaryScreen(root, result, end, () => { }); else card(); };
   function card() {
     const w = D.get().words.find(x => x.id === queue[i]); if (!w) return next();

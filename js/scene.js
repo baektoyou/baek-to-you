@@ -269,3 +269,12 @@ export function mountPhoto(el, p, opt = {}) {
 }
 
 export const TAG_KO = { bed: '침대', night: '밤', morning: '아침', day: '낮', evening: '저녁', eat: '식사', cafe: '카페', drink: '음료', car: '차 안', plane: '비행기', travel: '여행', hotel: '숙소', outdoor: '야외', exercise: '운동', studio: '작업실', music: '음악', practice: '연습', event: '스케줄', suit: '정장', home: '집', cozy: '편안함', dawn: '새벽', glasses: '안경', mask: '마스크', hoodie: '후드티' };
+
+// 작은 프로필 사진: 머리 영역을 정사각형으로 잘라 size(px) 원 안에 맞춤
+export function avatarStyle(p, size = 34) {
+  const [x0, y0, x1, y1] = p.box;
+  const side = Math.max((x1 - x0) * p.w, (y1 - y0) * p.h) * 1.12;
+  const k = size / side, cx = (x0 + x1) / 2 * p.w * k, cy = (y0 + y1) / 2 * p.h * k;
+  return `background-image:url('${p.src}');background-size:${(p.w * k).toFixed(1)}px ${(p.h * k).toFixed(1)}px;background-position:${(size / 2 - cx).toFixed(1)}px ${(size / 2 - cy).toFixed(1)}px`;
+}
+export const randomPhoto = () => { const a = allPhotos(); return a[Math.floor(Math.random() * a.length)]; };
