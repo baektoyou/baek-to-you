@@ -1,8 +1,8 @@
 // CHAT — 백현이 한국어를 듣고 영어로 ‘번역’해서 말하기 (CALL › 질문하기는 영어로 ‘대답’)
 import * as D from './store.js';
 import * as S from './speech.js';
-import { thumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, feedbackHTML, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx } from './ui.js';
+import { vThumb as thumbOf, Player } from './yt.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx, bhLines, AI_MARK, checkRetry } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
@@ -24,6 +24,7 @@ export function videoList(root) {
   const due = D.dueList().length;
   root.innerHTML = `<div class="screen">
     <header class="top">${WORDMARK}${D.canEdit() ? `<a class="icon-btn" href="#/settings" aria-label="영상 추가">${ic('plus')}</a>` : ''}</header>
+    <a class="ex-entry" href="#/express"><span class="ex-ic">${ic('sparkle')}</span><span class="grow"><b>즉석 영어 표현</b><small>하고 싶은 말을 한국어로 → 바로 영어로</small></span>${ic('next')}</a>
     <div class="stats-strip">
       <div><b>${db.utts.filter(u => vids.some(v => v.id === u.videoId)).length}</b><span>문장</span></div>
       <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
@@ -31,7 +32,7 @@ export function videoList(root) {
     </div>
     ${vids.length ? `<div class="sec-title label">VIDEOS · ${vids.length}</div><div class="vgrid two">${vids.map(v => {
       const us = D.uttsOf(v.id); const done = us.filter(u => db.progress[u.id]?.steps?.check).length;
-      return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumb(v.ytId)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>
+      return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumbOf(v)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>
       <div class="vmeta"><b>${esc(v.title)}</b><span class="cnt">${done}/${us.length}</span></div></a>`;
     }).join('')}</div>`
       : `<div class="empty"><b>아직 영상이 없어요</b>${D.canEdit() ? `<p>백현이 YouTube 영상을 추가해보세요</p><a class="btn" href="#/settings">${ic('plus')} 영상 추가</a>` : '<p>곧 영상이 올라올 거예요</p>'}</div>`}
@@ -43,7 +44,7 @@ export function videoDetail(root, vid) {
   const us = D.uttsOf(vid), db = D.get();
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(v.title)}</h2>${D.canEdit() ? `<a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a>` : '<span class="icon-btn ghost"></span>'}</header>
-    <div class="vthumb hero-thumb" style="background-image:url('${thumb(v.ytId)}')"></div>
+    <div class="vthumb hero-thumb" style="background-image:url('${thumbOf(v)}')"></div>
     <div class="row between sub-row"><span class="label">SENTENCES · ${us.length}</span><a class="link-sm" href="${ytLink(v.ytId)}" target="_blank" rel="noopener">${ic('external')} YouTube</a></div>
     ${us.length ? `<div class="ulist">${us.map(u => {
       const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => stepDone(st, s)).length;
@@ -67,7 +68,7 @@ export function study(root, uttId) {
     <header class="cv-top"><a class="icon-btn" href="#/video/${v.id}" aria-label="뒤로">${ic('back')}</a>
       <div class="cv-title">${AV(28)}<div><b>백현이</b><small id="cvi"></small></div></div>
       <button class="icon-btn snd-tg" id="sndt" aria-label="백현이 목소리 켜기/끄기"></button></header>
-    <div class="cv-player"><div class="player clean" id="pl"></div></div>
+    <div class="cv-player"><div class="player clean" id="pl"></div><button class="snd-pill hide" id="sndp">${ic('play')} 탭해서 소리와 함께 재생</button></div>
     <div class="thread" id="th"></div>
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
@@ -83,7 +84,10 @@ export function study(root, uttId) {
   let soundOn = D.get().settings.chatSound !== false, waitTap = false;
   const sndt = $('#sndt', root);
   const drawSnd = () => { sndt.innerHTML = ic(soundOn ? 'volume' : 'mute'); sndt.classList.toggle('off', !soundOn); sndt.classList.toggle('wait', soundOn && waitTap); sndt.setAttribute('aria-pressed', soundOn ? 'true' : 'false'); };
-  const pl = new Player($('#pl', root), { controls: 0, mutedFallback: true, onState: st => { if (st === 'muted' || st === 'blocked') { waitTap = true; drawSnd(); } if (st === 'unmuted' || st === 'unblocked' || (st === 'playing' && !pl?.mutedAuto)) { waitTap = false; drawSnd(); } } });
+  // 자동 재생이 막히면 음소거로 바꾸지 않고 ‘탭해서 재생’ → 누르는 순간(사용자 동작) 소리와 함께 처음부터 재생
+  const sndp = $('#sndp', root);
+  const pl = new Player($('#pl', root), { controls: 0, blockMs: 1200, onState: st => { if (st === 'muted' || st === 'blocked') { waitTap = true; drawSnd(); if (st === 'blocked') sndp.classList.remove('hide'); } if (st === 'unmuted' || st === 'unblocked' || (st === 'playing' && !pl?.mutedAuto)) { waitTap = false; drawSnd(); sndp.classList.add('hide'); } } });
+  sndp.onclick = () => { pl.unmute(); sndp.classList.add('hide'); };
   pl.userMuted = !soundOn; drawSnd();
   sndt.onclick = e => { e.stopPropagation(); soundOn = !soundOn; D.setSetting('chatSound', soundOn); pl.setUserMuted(!soundOn); waitTap = false; drawSnd(); toast(soundOn ? '백현이 목소리 켜짐' : '백현이 목소리 꺼짐'); };
   // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기 (그다음부터는 계속 소리와 함께)
@@ -99,12 +103,16 @@ export function study(root, uttId) {
   const bhLike = w => w === 'bh' || w === 'ai'; // 영어 질문 답변(AI)도 백현이 프로필로 · AI 표시
   const add = (who, html, cls = '') => {
     const first = who !== lastWho; lastWho = who;
-    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${bhLike(who) && first ? AV(34) : bhLike(who) ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${bhLike(who) && first ? `<span class="m-name">백현이${who === 'ai' ? ' <i class="ai-tag" title="AI가 만든 답이에요">AI</i>' : ''}</span>` : ''}<div class="m-bub">${html}</div></div></div>`);
+    const el = h(`<div class="msg2 ${who} ${first ? 'first' : ''} ${cls}">${bhLike(who) && first ? AV(34) : bhLike(who) ? '<span class="m-av sp"></span>' : ''}<div class="m-col">${bhLike(who) && first ? `<span class="m-name">백현이${who === 'ai' ? AI_MARK : ''}</span>` : ''}<div class="m-bub">${html}</div></div></div>`);
     if (th.classList.contains('veil')) el.classList.add('keep');
     th.appendChild(el); scroll(); return el;
   };
   async function bh(html, cls) { const t = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(320); if (dead) return h('<div></div>'); t.remove(); lastWho = ''; return add('bh', html, cls); }
   const me = t => add('me', `<span class="en">${esc(t)}</span>`);
+  // 백현이 반응 = 짧은 메시지를 연속으로 (AI가 만든 말 · 이름 옆 ✦)
+  async function bhSay(text, cls = '') { const ls = bhLines(text); let last = null; for (const l of ls) { if (dead) return last; const t = add('ai', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(last ? 420 : 260); if (dead) return last; t.remove(); lastWho = last ? 'ai' : ''; last = add('ai', `<span class="ko">${esc(l)}</span>`, `bhl ${cls}`); } return last; }
+  // 영어 교정·설명 = 말풍선과 따로 보이는 학습 영역
+  const learn = (html, cls = '') => { const el = add('learn', html, `wide ${cls}`); lastWho = ''; return el; };
   const sys = t => { lastWho = ''; th.appendChild(h(`<p class="m-sys">${t}</p>`)); scroll(); };
 
   // ----- 칩: 왼쪽 = 말하기(누르면 바로 녹음) · 오른쪽 = 다음(누르면 다음 구간 재생) -----
@@ -125,19 +133,22 @@ export function study(root, uttId) {
   // ----- 입력 -----
   const askInput = (placeholder = '영어로 말하거나 입력해요', targets = []) => new Promise(res => { soon = false; if (early != null) { const t = early; early = null; return res(t); } ta.placeholder = placeholder; if (!cap) ta.value = ''; fit(); waiting = { res, targets }; });
   function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
-  ta.oninput = fit;
+  // 말하는 중에 내가 글자를 고치면 인식 결과로 덮어쓰지 않고, 고친 문장 그대로 보냄
+  let userEdit = false;
+  ta.oninput = () => { if (cap) userEdit = true; fit(); };
   function startMic(targets = waiting?.targets || []) {
     if (cap) return;
+    userEdit = false;
     if (!S.support.stt) { ta.focus(); toast('키보드의 받아쓰기(🎤)로 말해도 돼요'); return; }
     if (pl.playing) pl.pause();
     micB.classList.add('live'); cp.classList.add('rec'); micB.innerHTML = ic('stop');
     const prefix = ta.value.trim();
-    const c = cap = S.capture({ stt: true, prefix, targets, onInterim: t => { ta.value = t; fit(); } });
+    const c = cap = S.capture({ stt: true, prefix, targets, onInterim: t => { if (!userEdit) { ta.value = t; fit(); } } });
     fit();
     c.result.then(r => {
       if (cap === c) cap = null;
       micB.classList.remove('live'); cp.classList.remove('rec'); micB.innerHTML = ic('mic');
-      if (r.text) ta.value = r.text; else if (r.sttError && !sendAfter) toast(S.sttErrorText(r.sttError));
+      if (userEdit) { /* 고친 글자 유지 */ } else if (r.text) ta.value = r.text; else if (r.sttError && !sendAfter) toast(S.sttErrorText(r.sttError));
       fit();
       if (sendAfter) { sendAfter = false; doSend(); }
     });
@@ -194,37 +205,39 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    const el = add('bh', coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, said, real: true }), 'wide');
+    // 백현이 반응(일반 말풍선) → 영어 교정·설명(학습 영역)
+    if (f.feedback) await bhSay(f.feedback); if (dead) return;
+    const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, said }));
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
-    // 보면서 따라 말하기 — 정답 영어 문장
-    let k = await chips([['보면서 따라 말해볼게', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
-    if (k !== 'read') return goOn(x, k);
-    const re = await bh(`<span class="bub-tag">보면서 따라 말해봐</span><span class="en big lp">${lpHTML(target)}</span>`); bindLongPress(re); if (dead) return;
-    const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
-    D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
-    accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
-    // 안 보고 말하기 — 맞히면 이 문장 완료 + ‘다음’만 · 틀렸거나 인식 실패면 다시 시도
-    let retry = false;
+    const check = s2 => smartFeedback({ mode: 'translate', said: s2, target, ko: x.ko, pattern: x.pattern });
+    // 교정 후 다시 말하기(정답 블러) · 보면서 따라 말하기 · 다음
+    let read = false;
     for (;;) {
-      k = await chips([[retry ? '다시 안 보고 말해볼게' : '안 보고 말해볼게', 'recall', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
-      if (k !== 'recall') return goOn(x, k);
-      th.classList.add('veil');
-      const nm = D.callName();
-      const rl = await bh(`<span class="bub-tag">${nm ? `${esc(nm)}, ` : ''}이번엔 안 보고!</span><span class="ko">${esc(ko)}</span><div class="bub-hint"></div>`); if (dead) return;
-      hintBox($('.bub-hint', rl), target, { pattern: x.pattern, keywords: x.keywords });
-      const t2 = await askInput('기억해서 말해봐요', [target]); if (dead) return;
-      th.classList.remove('veil');
-      D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
-      const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
-      const f2 = await smartFeedback({ mode: 'translate', said: t2, target, ko: x.ko, pattern: x.pattern }); ty2.remove(); lastWho = ''; if (dead) return;
-      const fl = add('bh', coachHTML(f2, { rec: target, recKo: x.ko, pattern: x.pattern, said: t2, real: true }), 'wide');
-      bindCompare(fl, saveItem(x, t2));
-      if (t2 && f2.correct) { // 정답 → 완료 처리 · 다시 말하기 없이 다음만
-        D.markStep(x.id, 'recall');
-        k = await chips([NEXT(x)]); if (dead) return;
-        return goOn(x, k);
+      const k = await chips([['다시 말하기', 'retry', 'pri', { mic: true, targets: [target], tap: () => th.classList.add('veil') }], ...(read ? [] : [['보면서 따라 말하기', 'read', 'line', { mic: true, targets: [target] }]]), NEXT(x)]); if (dead) return;
+      if (k === 'read') {
+        read = true;
+        const re = await bh(`<span class="bub-tag">보면서 따라 말해봐</span><span class="en big lp">${lpHTML(target)}</span>`); bindLongPress(re); if (dead) return;
+        const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
+        D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
+        accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
+        continue;
       }
-      retry = true;
+      if (k !== 'retry') return goOn(x, k);
+      // 다시 말하기: 추천 문장은 가린 채 바로 녹음 (마이크는 칩을 누르는 순간 켜짐)
+      $$('.msg2', th).forEach(m => m.classList.remove('keep'));
+      const t2 = await askInput('안 보고 다시 말해봐요', [target]); if (dead) { th.classList.remove('veil'); return; }
+      D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
+      const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing keep');
+      const r = await checkRetry(t2, target, { ko, check }); ty2.remove(); lastWho = ''; if (dead) return;
+      th.classList.remove('veil');
+      await bhSay(r.msg);  if (dead) return;
+      if (r.state === 'ok') { // 칭찬하고 다음 대화로
+        D.markStep(x.id, 'recall');
+        const nx = nextOf(x);
+        if (nx) { await wait(900); if (dead) return; return goOn(x, 'next'); }
+        const k2 = await chips([NEXT(x)]); if (dead) return; return goOn(x, k2);
+      }
+      if (r.state === 'retry' && r.f) { const fl = learn(coachHTML(r.f, { rec: target, recKo: x.ko, said: t2 }), 'mini'); bindCompare(fl, saveItem(x, t2)); }
     }
   }
   function goOn(x, k = 'next') {

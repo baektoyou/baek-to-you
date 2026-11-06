@@ -213,6 +213,8 @@ export function capture(opt = {}) {
   const wantRec = !!opt.record && support.rec;
   const manual = !opt.autoStop;
   const targets = (opt.targets || []).filter(Boolean);
+  const lang = opt.lang || 'en-US', ko = /^ko/i.test(lang); // 한국어 입력(즉석 영어 표현)은 영어 보정·문장부호 다듬기 없이 그대로
+  const out = (t, fin = true) => ko ? String(t || '').replace(/\s+/g, ' ').trim() : tidy(fixText(t, targets), { final: fin });
   let committed = opt.prefix || '', session = '', conf = 0, sttError = null, userStop = false, restarts = 0, rapid = 0, sessT0 = 0, endedBy = null;
   let rec, mr, stream, chunks = [], t0 = performance.now(), ended = false, silT;
   let resolve; const result = new Promise(r => (resolve = r));
@@ -224,7 +226,7 @@ export function capture(opt = {}) {
   const finish = () => {
     if (!sttDone || !recDone || ended) return; ended = true; clearTimeout(maxT); clearTimeout(silT);
     setState('done');
-    resolve({ text: tidy(fixText(full(), targets)), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
+    resolve({ text: out(full()), confidence: conf, blob, url: blob ? URL.createObjectURL(blob) : null, durationMs: performance.now() - t0, sttError, recUsed: !!blob, endedBy: endedBy || (userStop ? 'user' : 'browser') });
   };
   const pickAlt = r => {
     if (!targets.length || r.length < 2) return r[0].transcript;
@@ -249,7 +251,7 @@ export function capture(opt = {}) {
   }
   function startStt() {
     try {
-      rec = new SR(); rec.lang = 'en-US'; rec.interimResults = true; rec.continuous = manual; rec.maxAlternatives = targets.length ? 5 : 1;
+      rec = new SR(); rec.lang = lang; rec.interimResults = true; rec.continuous = manual; rec.maxAlternatives = targets.length ? 5 : 1;
       rec.onstart = () => setState('listening');
       rec.onaudiostart = () => setState('listening');
       rec.onresult = e => {
@@ -265,7 +267,7 @@ export function capture(opt = {}) {
         }
         session = acc;
         setState('hearing');
-        opt.onInterim?.(tidy(fixText(full(), targets), { final: false }));
+        opt.onInterim?.(out(full(), false));
         if (!manual) { clearTimeout(silT); if (full()) silT = setTimeout(() => !userStop && stop(), opt.silenceMs || 1600); }
       };
       rec.onerror = e => {

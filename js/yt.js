@@ -25,6 +25,8 @@ export function parseYouTubeId(url) {
   return null;
 }
 export const thumb = id => `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+// 영상 썸네일: 관리자가 바꾼 이미지가 있으면 그것, 없으면 YouTube 기본 썸네일
+export const vThumb = v => v?.thumb || (v?.ytId ? thumb(v.ytId) : '');
 
 // 제목: oEmbed (CORS 허용 시) → noembed → null
 export async function fetchTitle(id) {
@@ -36,8 +38,8 @@ export async function fetchTitle(id) {
 }
 
 export class Player {
-  constructor(el, { onState, onReady, controls = 1, mutedFallback = false } = {}) {
-    this.mutedFallback = mutedFallback;
+  constructor(el, { onState, onReady, controls = 1, mutedFallback = false, blockMs = 3000 } = {}) {
+    this.mutedFallback = mutedFallback; this.blockMs = blockMs;
     this.el = el; this.onState = onState; this.ready = false; this.seg = null; this.loop = false; this._poll = null; this.vid = null;
     this.readyP = loadAPI().then(YT => new Promise(res => {
       if (!YT) { el.innerHTML = '<div class="yt-fail">YouTube를 불러오지 못했어요.<br>네트워크를 확인해주세요.</div>'; return res(false); }
@@ -104,7 +106,7 @@ export class Player {
       if (this.mutedFallback && this.touched && !this.userMuted) { try { this.p.playVideo(); } catch { } this._kickT = setTimeout(() => { if (this.seg && this.state !== 'playing' && this.state !== 'buffering') muteRun(); }, 1500); }
       else if (this.mutedFallback || this.userMuted) muteRun();
       else { this.needTap = true; this.onState?.('blocked'); }
-    }, this.mutedFallback ? 1200 : 3000);
+    }, this.mutedFallback ? 1200 : this.blockMs);
     return done;
   }
   // 사용자 탭 안에서 호출 → 소리와 함께 재생 시작

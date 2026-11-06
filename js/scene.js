@@ -185,8 +185,10 @@ export function conceptOf(v, scene = sceneOf(v), sit = '') {
 // 문장이 3개 이상 있는 영상 중: 지금 시간대와 맞는 장면 + 라이브 영상 + 최근에 통화 안 한 영상 우선
 export function callable(v) { return isLive(v) && D.uttsOf(v.id).filter(u => u.ko && (u.en?.natural || u.en?.easy || u.en?.advanced)).length >= 3; }
 export const matchesSit = (v, k) => (v.sit || []).includes(k) || (sceneOf(v)[k] || 0) >= 3;
-export function pickVideo(now = new Date(), sit = '') {
-  let vids = D.get().videos.filter(callable); if (!vids.length) return null;
+// 음성통화로 쓸 수 있는 영상 (관리자가 ‘영상 관리’에서 지정)
+export const voiceOk = v => !!v?.voice && callable(v);
+export function pickVideo(now = new Date(), sit = '', only = null) {
+  let vids = D.get().videos.filter(callable).filter(v => !only || only(v)); if (!vids.length) return null;
   if (sit) { const m = vids.filter(v => matchesSit(v, sit)); if (m.length) vids = m; }
   const tb = timeBucket(now); const logs = D.get().talkLogs || [];
   const last = id => Math.max(0, ...logs.filter(l => l.videoId === id).map(l => l.at || 0));

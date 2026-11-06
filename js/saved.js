@@ -1,8 +1,8 @@
 // SAVED — 문장 · 표현 · 단어 저장 → 질문에 영어로 대답하며 복습
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
-import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx } from './ui.js';
-import { smartFeedback, aiReplyLine } from './ai.js';
+import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry } from './ui.js';
+import { smartFeedback, aiReplyLine, fixAddr } from './ai.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
 import { avatarStyle } from './scene.js';
@@ -16,7 +16,7 @@ let filter = 'due';
 let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어
 const ST = { new: ['새로 저장', ''], again: ['복습 중', 'warn'], okay: ['어느 정도', 'mid'], mastered: ['복습완료', 'ok'] };
 const SRC = s => s.kind === 'utt' ? '백현이' : '내 문장';
-const enOf = s => s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s));
+const enOf = s => fixAddr(s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s)));
 const enHTML = s => markPattern(enOf(s), s.pattern, esc, s.marks || []);
 const FILTERS = [['due', '오늘', '지금 복습할 차례인 문장'], ['bh', '백현이 문장', '영상에서 저장한 백현이의 문장'], ['mine', '내 문장', '내가 말하고 다듬어서 저장한 문장'], ['done', '복습완료', '복습을 끝낸 문장']];
 
@@ -41,6 +41,7 @@ export function saved(root) {
     ${items.length ? `${!isW && filter !== 'due' && items.length > 1 ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${items.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}
   </div>`;
+  bindLongPress(root); // 문장·표현 속 단어: 짧게 누르면 그 단어, 꾹 누른 채 드래그하면 그 범위를 저장
   $$('[data-f]', root).forEach(b => b.onclick = () => { filter = b.dataset.f; saved(root); });
   $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; saved(root); });
   $('#go', root).onclick = () => review(root, due.map(s => ({ t: 's', id: s.id })).concat(dueW.map(w => ({ t: 'w', id: w.id }))));
@@ -75,7 +76,7 @@ const dueText = srs => srs.due <= Date.now() ? '지금' : relTime(srs.due);
 function itemHTML(s) {
   const link = srcLink(s); const [stL, stC] = ST[s.status] || ST.new;
   return `<article class="sitem ${s.status === 'again' || s.status === 'new' || s.srs.due <= Date.now() ? 'imp' : ''}" data-id="${s.id}">
-    <div class="en s-en">${enHTML(s)}</div>
+    <p class="en s-en lp">${recSentHTML(enOf(s), { hl: [...splitPatterns(s.pattern), ...(s.marks || [])] })}</p>
     ${s.ko ? `<div class="ko s-ko">${esc(s.ko)}</div>` : ''}
     <div class="foot">
       <button class="s-act" data-act="one">${ic('mic')} 복습</button>
@@ -90,7 +91,7 @@ function wordHTML(w) {
   return `<article class="witem" data-id="${w.id}" data-w="1">
     <div class="w-top"><b class="w-text en">${esc(w.text)}</b><span class="s-meta"><em class="${stC}">${stL}</em> · ${esc(dueText(w.srs))}</span></div>
     ${w.ko ? `<p class="w-ko">${esc(w.ko)}</p>` : `<button class="w-addko" data-act="edit">+ 뜻 적기</button>`}
-    ${src ? `<p class="w-src en">${markPattern(enOf(src), '', esc, [w.text, ...patternParts(w.text)])}</p>` : ''}
+    ${src ? `<p class="w-src en lp">${recSentHTML(enOf(src), { hl: [w.text] })}</p>` : ''}
     <div class="foot"><button class="s-act" data-act="make">${ic('mic')} 복습</button>${w.made?.length ? `<span class="s-meta">내가 만든 문장 ${w.made.length}개</span>` : '<span class="grow2"></span>'}
       <button class="mini" data-act="edit" aria-label="수정">${ic('edit')}</button><button class="mini" data-act="del" aria-label="삭제">${ic('trash')}</button></div></article>`;
 }
@@ -187,18 +188,32 @@ function review(root, items) {
   });
   // 입력: 말하기(마이크) 또는 키보드
   const askInput = targets => new Promise(res => { ta.value = ''; fit(); waiting = { res, targets }; });
+  // 백현이 메시지가 끝나면 음성 입력 자동 시작 · 마이크 권한이 막혀 있으면 켜지 않고 안내 (허용하면 그다음부터 자동)
+  let discard = false, userEdit = false;
+  async function autoMic() {
+    if (!S.support.stt || cap || !waiting) return;
+    let st = 'prompt'; try { st = (await navigator.permissions?.query({ name: 'microphone' }))?.state || 'prompt'; } catch { }
+    if (dead || cap || !waiting) return;
+    if (st === 'denied') { toast('마이크를 허용하면 바로 들을게요 · 지금은 마이크 버튼이나 입력창을 써요'); return; }
+    startMic();
+  }
+  // 말하는 중이면 듣기를 취소 (원본 영상을 들을 때 영상 소리가 인식되지 않게)
+  const cancelMic = () => { if (!cap) return; discard = true; cap.stop(); };
   function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
-  ta.oninput = fit;
+  ta.oninput = () => { if (cap) userEdit = true; fit(); };
   function startMic() {
     if (cap || !waiting) { if (!waiting) toast('백현이 메시지를 기다려요'); return; }
     if (!S.support.stt) { ta.focus(); toast('키보드의 받아쓰기(🎤)로 말해도 돼요'); return; }
     pl?.pause();
     micB.classList.add('live'); cp.classList.add('rec'); micB.innerHTML = ic('stop');
-    const c = cap = S.capture({ stt: true, prefix: ta.value.trim(), targets: waiting.targets || [], onInterim: t => { ta.value = t; fit(); } });
+    discard = false; userEdit = false;
+    const c = cap = S.capture({ stt: true, prefix: ta.value.trim(), targets: waiting.targets || [], onInterim: t => { if (!userEdit && !discard) { ta.value = t; fit(); } } });
     fit();
     c.result.then(r => {
       if (cap === c) cap = null;
       micB.classList.remove('live'); cp.classList.remove('rec'); micB.innerHTML = ic('mic');
+      if (discard) { discard = false; if (!userEdit) ta.value = ''; fit(); return; }
+      if (userEdit) { fit(); return; } // 내가 고친 문장은 그대로 두고, 보내기를 누르면 그대로 전송
       if (r.text) ta.value = r.text; else if (r.sttError) toast(S.sttErrorText(r.sttError));
       fit(); if (r.text) doSend();
     });
@@ -238,9 +253,9 @@ function review(root, items) {
     const canPlay = !!(v && v.ytId && u.end > u.start);
     plw.classList.toggle('hide', !canPlay);
     if (canPlay) player().cue(v.ytId, u.start);
-    const play = () => { if (!canPlay) return; player().playSegment(v.ytId, u.start, u.end).catch(() => { }); };
+    const play = () => { if (!canPlay) return; const listening = !!cap; cancelMic(); player().playSegment(v.ytId, u.start, u.end).then(r => { if (r === 'ended' && listening && !dead) autoMic(); }).catch(() => { }); };
     const t0 = typing(); await wait(380); if (dead) return; t0.remove(); lastWho = '';
-    const b = add('bh', `<span class="ko rv-ko2">${esc(u.ko)}</span>${canPlay ? `<button class="rv-play" type="button">${ic('play')}<span>원본 영상 듣기</span><em>${D.fmt(u.start)}–${D.fmt(u.end)}</em></button>` : ''}<span class="rv-ask">이 말, 영어로 해볼래?</span>`);
+    const b = add('bh', `<span class="ko rv-ko2">${esc(u.ko)}</span>${canPlay ? `<button class="rv-play" type="button">${ic('play')}<span>원본 영상 듣기</span><em>${D.fmt(u.start)}–${D.fmt(u.end)}</em></button>` : ''}<span class="rv-ask">영어로 말해볼래?</span>`);
     if (canPlay) $('.rv-play', b).onclick = e => { e.stopPropagation(); play(); };
     await turn(it, x, { target, mode: 'say', targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: x.pattern, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: u.ko, pattern: x.pattern || '' }), rec: () => target, hl: [...splitPatterns(x.pattern), ...(x.marks || [])], save: false });
   }
@@ -259,48 +274,85 @@ function review(root, items) {
     if (dead) return; t0.remove(); lastWho = '';
     lines.push(line.en);
     setLpCtx({ ko: line.ko });
-    add('bh', `<span class="en">${esc(line.en)}</span>${line.ko ? `<span class="rv-sub">${esc(line.ko)}</span>` : ''}<span class="rv-ai">${x.q ? '연습용 메시지' : '<i class="ai-tag">AI</i>연습용으로 만든 메시지 · 실제 발언 아님'}</span>`, 'rvm');
+    const lm = add('bh', `<span class="en lp">${lpHTML(line.en)}</span>${line.ko ? `<span class="rv-sub">${esc(line.ko)}</span>` : ''}`, 'rvm');
+    if (!x.q) lm.querySelector('.m-name')?.insertAdjacentHTML('beforeend', AI_MARK); // AI가 만든 연습 메시지 (✦)
+    bindLongPress(lm);
     // 이번에 쓸 표현 (말풍선 아래 작게)
     th.lastElementChild.querySelector('.m-col').insertAdjacentHTML('beforeend', `<div class="rv-use"><span>이번 표현</span><b class="en">${esc(expr)}</b>${exprKo ? `<small>${esc(exprKo)}</small>` : ''}</div>`);
     scroll();
-    await turn(it, x, { target: '', mode: 'reply', expr, targets: [expr], hint: line.sample ? () => { lastWho = ''; add('bh', `<span class="bub-tag">이렇게도 답할 수 있어</span><span class="en">${esc(line.sample)}</span>`); } : null,
+    await turn(it, x, { target: '', mode: 'reply', expr, targets: [expr], hint: line.sample ? () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">이렇게도 답할 수 있어</span><span class="en lp">${lpHTML(line.sample)}</span>`); bindLongPress(hb); } : null,
       check: said => smartFeedback({ mode: 'answer', said, question: line.en, qko: line.ko, expr, pattern: expr }), rec: (f, said) => f.natural || said, hl: [expr], save: true });
   }
 
-  // ---- 공통: 답하기 → 바로 피드백 → 결과 기록 ----
+  // ---- 공통: 답하기 → 바로 피드백 → (다시 말하기) → 결과 기록 ----
+  const single = items.length === 1; // 복습할 게 하나뿐이면 ‘다음’ 대신 ‘종료’
+  const bhSay = async text => { let n = 0; for (const l of bhLines(text)) { if (dead) return; const t = typing(); await wait(300); if (dead) return; t.remove(); lastWho = n++ ? 'bh' : ''; add('bh', `<span class="ko">${esc(l)}</span>`); } };
   async function turn(it, x, { target, mode, expr = '', targets, hint, check, rec, hl, save }) {
     const isW = it.t === 'w';
     let snap = null, hinted = false;
+    const inp = askInput(targets);
+    const opts = [];
+    if (hint && !hinted) opts.push(['힌트', 'hint', '', { stay: true, tap: () => { hinted = true; hint(); qk.querySelector('[data-q="hint"]')?.remove(); } }]);
+    opts.push(['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]);
+    chips(opts);
+    autoMic();
+    const said = await inp;
+    if (dead) return;
+    if (said && said.skip) { if (!single && !requeued.has(x.id)) { requeued.add(x.id); queue.push(it); } if (!result.again.includes(x.id)) result.again.push(x.id); return next(); }
+    const ty = typing();
+    const f = await check(said); if (dead) return;
+    ty.remove(); lastWho = '';
+    let ok = f.correct;
+    if (mode === 'say' && !f.ai && !ok) { const d = diff(said, target); if (d.keyRecall >= 0.7 && !f.fixes.length) { ok = true; f.feedback = '오 거의 그대로 기억했네!!ㅎㅎ'; } }
+    const recS = rec(f, said);
+    // 백현이 반응 = 일반 말풍선 · 교정 = 학습 영역
+    if (f.feedback) await bhSay(f.feedback); if (dead) return;
+    const makeSave = t => { if (isW) D.updateWord(x.id, { made: [...(D.get().words.find(w => w.id === x.id)?.made || []), { text: t, at: Date.now() }] }); return { kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: f.recKo || '', text: t, before: said, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: '' }; };
+    let el = add('learn', `${cmpHTML(f, { said, rec: recS, recKo: mode === 'reply' ? (f.recKo || '') : '', hl, save })}${mode === 'reply' && expr && !f.usedTarget ? `<p class="rv-tip">다음엔 <b class="en">${esc(expr)}</b>도 넣어서 답해봐</p>` : ''}`, 'wide rvfb'); lastWho = '';
+    bindCompare(el, makeSave);
+    D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text: said });
+    const rateFn = isW ? D.rateWord : D.rate;
+    snap = D.rateSnap(x.id, isW);
+    rateFn(x.id, ok ? 'okay' : 'again');
+    if (!ok && !result.again.includes(x.id)) result.again.push(x.id);
+    if (ok) result.again = result.again.filter(id => id !== x.id);
+    const canRetry = !!recS && canon(recS) !== canon(said);
+    const END = single ? ['종료', 'end', 'line'] : ['다음', 'next', 'line'];
+    // 다시 말하기: 추천 문장을 가리고(블러) 바로 듣기 → 맞으면 칭찬 · 틀리면 짧은 피드백 후 다시 · 인식이 불확실하면 다시
+    let retried = false;
     for (;;) {
-      const inp = askInput(targets);
-      const opts = [];
-      if (hint && !hinted) opts.push(['힌트', 'hint', '', { stay: true, tap: () => { hinted = true; hint(); qk.querySelector('[data-q="hint"]')?.remove(); } }]);
-      opts.push(['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cap?.stop(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]);
-      chips(opts);
-      const said = await inp;
-      if (dead) return;
-      if (said && said.skip) { if (!requeued.has(x.id)) { requeued.add(x.id); queue.push(it); } if (!result.again.includes(x.id)) result.again.push(x.id); return next(); }
-      const ty = typing();
-      const f = await check(said); if (dead) return;
-      ty.remove(); lastWho = '';
-      let ok = f.correct;
-      if (mode === 'say' && !f.ai && !ok) { const d = diff(said, target); if (d.keyRecall >= 0.7 && !f.fixes.length) { ok = true; f.feedback = '오, 거의 그대로 기억했네!'; } }
-      const recS = rec(f, said);
-      const el = add('bh', `${f.feedback ? `<p class="fb-msg">${f.ai ? '<i class="ai-tag">AI</i>' : ''}${esc(f.feedback).replace(/\n/g, '<br>')}</p>` : ''}${cmpHTML(f, { said, rec: recS, hl, save })}${mode === 'reply' && expr && !f.usedTarget ? `<p class="rv-tip">다음엔 <b class="en">${esc(expr)}</b>도 넣어서 답해봐</p>` : ''}`, 'wide rvfb');
-      bindCompare(el, t => { if (isW) D.updateWord(x.id, { made: [...(D.get().words.find(w => w.id === x.id)?.made || []), { text: t, at: Date.now() }] }); return { kind: 'mine', level: 'mine', uttId: isW ? null : x.uttId, ko: f.recKo || '', text: t, before: said, en: { easy: '', natural: t, advanced: '' }, pattern: expr, note: '' }; });
-      D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text: said });
-      const rateFn = isW ? D.rateWord : D.rate;
-      if (snap) D.unrate(x.id, snap, isW); else snap = D.rateSnap(x.id, isW);
-      rateFn(x.id, ok ? 'okay' : 'again');
-      if (ok) {
-        result.again = result.again.filter(id => id !== x.id);
-        const g = await chips([[`어느 정도 알아요 <small>${nextLabel(snap, 'okay')}</small>`, 'okay', 'line'], [`완전히 익혔어요 <small>${nextLabel(snap, 'mastered')}</small>`, 'mastered', 'pri']]); if (dead) return;
+      const list = ok
+        ? [...(canRetry && !retried ? [['다시 말하기', 'retry', 'line']] : []), [`어느 정도 알아요 <small>${nextLabel(snap, 'okay')}</small>`, 'okay', 'line'], [`완전히 익혔어요 <small>${nextLabel(snap, 'mastered')}</small>`, 'mastered', 'pri']]
+        : [['다시 말하기', 'retry', 'pri'], END];
+      const g = await chips(list); if (dead) return;
+      if (g === 'retry') {
+        $$('.dc-rec', el).forEach(r => r.classList.add('blur'));
+        const inp2 = askInput([recS]);
+        chips([['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]]);
+        autoMic();
+        const t2 = await inp2; if (dead) return;
+        $$('.dc-rec', el).forEach(r => r.classList.remove('blur'));
+        if (t2 && t2.skip) { retried = true; continue; }
+        D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review-retry', text: t2 });
+        const ty2 = typing();
+        const r = await checkRetry(t2, recS, { check: s2 => smartFeedback({ mode: 'translate', said: s2, target: recS, ko: f.recKo || (mode === 'say' ? D.utt(x.uttId)?.ko || '' : '') }) });
+        ty2.remove(); lastWho = ''; if (dead) return;
+        await bhSay(r.msg); if (dead) return;
+        if (r.state === 'ok') {
+          retried = true;
+          if (ok) continue; // 처음부터 맞았으면 → 익숙함 고르기
+          await wait(800); if (dead) return; // 칭찬하고 다음으로
+          if (!single && !requeued.has(x.id)) { requeued.add(x.id); queue.push(it); }
+          return next();
+        }
+        if (r.state === 'retry' && r.f) { el = add('learn', cmpHTML(r.f, { said: t2, rec: recS, hl, save: false }), 'wide rvfb mini'); lastWho = ''; bindCompare(el, makeSave); }
+        continue;
+      }
+      if (g === 'okay' || g === 'mastered') {
         if (g === 'mastered') { D.unrate(x.id, snap, isW); rateFn(x.id, 'mastered'); }
         result.ok++; return next();
       }
-      if (!result.again.includes(x.id)) result.again.push(x.id);
-      const g = await chips([['다시 말하기', 'retry', 'pri'], ['다음', 'next', 'line']]); if (dead) return;
-      if (g === 'retry') { lastWho = ''; add('bh', '<span class="ko">한 번 더 해보자 ㅎㅎ</span>'); continue; }
+      if (g === 'end') return summary();
       if (!requeued.has(x.id)) { requeued.add(x.id); queue.push(it); }
       return next();
     }

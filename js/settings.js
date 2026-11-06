@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import { callAI, AI_ERR, aiOn, aiKeys, setAiKeys, PROVIDERS, DEFAULT_MODEL } from './ai.js';
 import * as S from './speech.js';
-import { parseYouTubeId, fetchTitle, thumb, Player } from './yt.js';
+import { parseYouTubeId, fetchTitle, thumb, vThumb, Player } from './yt.js';
 import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
@@ -10,6 +10,14 @@ import * as Y from './sync.js';
 import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, situations, sitLabel, TIMES_SEL, addSituation, removeSituation, addUserPhoto, removePhoto, isLive, autoLive } from './scene.js';
 
 let photosOpen = false;
+// 이미지 줄이기 → JPEG data URL (공용 콘텐츠에 같이 저장되므로 작게)
+async function shrinkImage(file, max = 480) {
+  const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = URL.createObjectURL(file); });
+  const k = Math.min(1, max / Math.max(img.naturalWidth, img.naturalHeight));
+  const c = document.createElement('canvas'); c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+  c.getContext('2d').drawImage(img, 0, 0, c.width, c.height); URL.revokeObjectURL(img.src);
+  return c.toDataURL('image/jpeg', 0.8);
+}
 const thumbStyle = p => `background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%`;
 let vtab = 'chat'; // 영상 목록: chat | call
 let vmore = false;
@@ -32,7 +40,7 @@ export function settings(root) {
       const chat = db.videos.filter(v => !isLive(v)), callV = db.videos.filter(isLive), list = vtab === 'call' ? callV : chat;
       const shown = [...list].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 5);
       return `<div class="view-sw"><button data-vt="chat" class="${vtab === 'chat' ? 'on' : ''}">CHAT <em>${chat.length}</em></button><button data-vt="call" class="${vtab === 'call' ? 'on' : ''}">CALL <em>${callV.length}</em></button></div>
-      ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
+      ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
         ${list.length > shown.length ? `<a class="li more" href="#/settings/videos/${vtab}"><span class="grow">전체 ${list.length}개 보기</span>${ic('next')}</a>` : ''}</div>`
         : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
     })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}` : ''}
@@ -336,7 +344,7 @@ export function videoListAll(root, tab = 'call') {
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>${tab === 'call' ? 'CALL' : 'CHAT'} 영상 · ${all.length}</h2><span class="icon-sp"></span></header>
     <div class="view-sw"><a href="#/settings/videos/chat" class="${tab === 'chat' ? 'on' : ''}">CHAT</a><a href="#/settings/videos/call" class="${tab === 'call' ? 'on' : ''}">CALL</a></div>
-    ${all.length ? `<div class="list">${all.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${thumb(v.ytId)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
+    ${all.length ? `<div class="list">${all.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
   </div>`;
 }
 
@@ -348,6 +356,7 @@ export function videoEditor(root, vid) {
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>영상 관리</h2><a class="icon-btn" href="#/video/${v.id}" aria-label="학습하기">${ic('play')}</a></header>
     <div class="player" id="pl"></div>
     <div class="row title-row"><input class="input grow" id="ttl" value="${esc(v.title)}" aria-label="영상 제목"></div>
+    <section class="scene-card thumb-card" id="thc"></section>
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
@@ -363,6 +372,21 @@ export function videoEditor(root, vid) {
   const pl = new Player($('#pl', root), { onReady: () => autoTitle(pl.title()), onState: s => s === 'cued' && autoTitle(pl.title()) }); pl.cue(v.ytId);
   if (!v.title || v.title === 'YouTube 영상') fetchTitle(v.ytId).then(autoTitle);
   const reload = () => { pl.destroy(); videoEditor(root, vid); };
+  // ----- 썸네일 (관리자만 · CHAT 목록·CALL 더보기·음성통화 프로필에 사용) -----
+  const thc = $('#thc', root);
+  const drawThumb = () => {
+    const cur = D.video(vid);
+    thc.innerHTML = `<span class="label">영상 썸네일</span>
+      <div class="th-row mt8"><span class="th-img" style="background-image:url('${vThumb(cur)}')"></span><div class="grow"><b>${cur.thumb ? '직접 바꾼 썸네일' : 'YouTube 기본 썸네일'}</b><small>CHAT 목록 · CALL 더보기 · 음성통화 화면에 보여요</small></div></div>
+      <div class="row gap6 mt8"><label class="btn sm soft">${ic('upload')} 이미지 바꾸기<input type="file" id="thf" accept="image/*" class="hide"></label>${cur.thumb ? `<button class="btn sm soft" id="thr">${ic('refresh')} 기본으로</button>` : ''}</div>`;
+    $('#thf', thc).onchange = async e => {
+      const file = e.target.files?.[0]; if (!file) return;
+      try { D.updateVideo(vid, { thumb: await shrinkImage(file, 480) }); toast('썸네일을 바꿨어요'); } catch { toast('이미지를 읽지 못했어요'); }
+      drawThumb();
+    };
+    $('#thr', thc) && ($('#thr', thc).onclick = () => { D.updateVideo(vid, { thumb: '' }); toast('YouTube 기본 썸네일로 돌렸어요'); drawThumb(); });
+  };
+  drawThumb();
   // ----- TALK 통화 설정: 장면 분석 · 메모 · 사진 -----
   const scn = $('#scn', root);
   const drawScene = () => {
@@ -372,12 +396,17 @@ export function videoEditor(root, vid) {
     const shown = sel.length ? sel : auto;
     scn.innerHTML = `<span class="label">영상 종류</span>
       <div class="seg kind-seg mt8">${[['live', '라이브 · CALL'], ['video', '일반 영상 · CHAT']].map(([k, l]) => `<button data-kind="${k}" class="${(live ? 'live' : 'video') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
-      ${live ? `<div class="scene-sec"><div class="row between"><span class="label">상황 · 시간대</span><button class="link-sm" id="sitedit">${ic('edit')} 고르기</button></div>
+      ${live ? `<div class="scene-sec"><span class="label">통화 방식</span>
+        <label class="switch mt8"><span><b>음성통화로도 쓰기</b><small>음성통화에서는 영상은 숨기고 소리만 · 가운데 원에 이 영상 썸네일이 보여요</small></span><input type="checkbox" id="vvoice" ${cur.voice ? 'checked' : ''}><i></i></label></div>
+      <div class="scene-sec"><span class="label">통화 설명 (더보기에 보이는 한 줄)</span><input class="input mt8" id="vdesc" value="${esc(cur.desc || '')}" placeholder="${esc(conceptOf(cur))}" maxlength="40"></div>
+      <div class="scene-sec"><div class="row between"><span class="label">상황 · 시간대</span><button class="link-sm" id="sitedit">${ic('edit')} 고르기</button></div>
         <div class="sit-row wrap mt8">${shown.length ? shown.map(k => `<span class="sit ${sel.length ? 'on' : 'auto'}">${esc(sitLabel(k) || TAG_KO[k] || k)}</span>`).join('') : '<span class="tiny muted">아직 없어요 · 고르기를 눌러 정해주세요</span>'}</div>
         ${!sel.length && shown.length ? '<p class="tiny muted mt8">점선은 대본으로 추정한 상황이에요</p>' : ''}</div>
       <div class="scene-sec"><span class="label">전화 올 때 사진</span>
         ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 CHAT에만 보여요.</p>'}`;
     $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); });
+    $('#vvoice', scn) && ($('#vvoice', scn).onchange = e => { D.updateVideo(vid, { voice: e.target.checked }); toast(e.target.checked ? '음성통화에도 나와요' : '영상통화에서만 나와요'); });
+    $('#vdesc', scn) && ($('#vdesc', scn).onchange = e => D.updateVideo(vid, { desc: e.target.value.trim() }));
     $('#sitedit', scn) && ($('#sitedit', scn).onclick = () => sitSheet(vid, drawScene));
     $('#phchg', scn) && ($('#phchg', scn).onclick = () => {
       const cur2 = D.video(vid);
