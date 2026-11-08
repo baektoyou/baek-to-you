@@ -1,10 +1,12 @@
-// 즉석 영어 표현 — 하고 싶은 말을 한국어로(음성·텍스트) → 바로 자연스러운 영어 문장
-// · CALL 페이지의 독립 기능 (CHAT·CALL 대화 흐름과 상관없이 필요할 때 실행) · CHAT 첫 화면에서도 바로 들어올 수 있어요
+// 백현아 도와줘 (예전 ‘즉석 영어 표현’) — 하고 싶은 말을 한국어로(음성·텍스트) → 바로 자연스러운 영어 문장
+// · CHAT 첫 화면(문장·학습한 문장·오늘 복습 아래)에서 들어오는 독립 기능 (CHAT·CALL 대화 흐름과 상관없음)
 // · 영어 문장 · 한국어 뜻 · 발음 듣기(기기 음성) · 따라 말하기 · 안 보고 다시 말하기(블러)
 // · 번역은 AI(SETTINGS › AI 키)가 있어야 해요 — 없으면 가짜 결과를 만들지 않고 안내만
 import * as D from './store.js';
 import * as S from './speech.js';
-import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry } from './ui.js';
+import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, AI_MARK } from './ui.js';
+import { avatarStyle } from './scene.js';
+import { BH_PROFILE } from './video.js';
 import { aiExpress, aiOn, smartFeedback } from './ai.js';
 
 const KEY = () => 'baek-to-you:express:' + D.accountKey();
@@ -14,13 +16,13 @@ const pushHist = x => { try { localStorage.setItem(KEY(), JSON.stringify([x, ...
 export function express(root) {
   let dead = false, cap = null, cur = null, tts = null;
   root.innerHTML = `<div class="screen express">
-    <header class="top"><a class="icon-btn" href="#/talk" id="exb" aria-label="뒤로">${ic('back')}</a><h2>즉석 영어 표현</h2><span class="icon-btn ghost"></span></header>
-    <p class="ex-lead">하고 싶은 말을 한국어로 말하거나 적어봐요<br><small>바로 자연스러운 영어로 바꿔줄게요</small></p>
+    <header class="top"><a class="icon-btn" href="#/video" id="exb" aria-label="뒤로">${ic('back')}</a><h2>백현아 도와줘</h2><span class="icon-btn ghost"></span></header>
+    <div class="ex-hero"><span class="ex-av" style="${avatarStyle(BH_PROFILE, 44)}"></span><p class="ex-lead"><b>나한테 말해봐아~~ㅎㅎ</b><small>내가 영어로 바꿔주께!!</small></p></div>
     <div class="ex-in">
-      <textarea id="exk" rows="2" placeholder="예) 오늘 너무 피곤해서 일찍 잘 거야" autocapitalize="off" spellcheck="false"></textarea>
+      <textarea id="exk" rows="2" placeholder="예) 나한테 언제나 큰 힘과 원동력이 되어주는 나의 사랑들아" autocapitalize="off" spellcheck="false"></textarea>
       <div class="ex-row">
         <button class="ex-mic" id="exm" aria-label="한국어로 말하기">${ic('mic')}<span>말하기</span></button>
-        <button class="btn sm" id="exg">${ic('sparkle')} 영어로</button>
+        <button class="btn sm" id="exg">${ic('pup')} 영어로</button>
       </div>
     </div>
     <div id="exo"></div>
@@ -61,13 +63,12 @@ export function express(root) {
   function show(x) {
     stopAll();
     const saved = !!D.findSavedByText(x.en);
+    // 순서: 자연스러운 영어 문장(가장 크게) → 이렇게도 말할 수 있어(필요할 때만) → 백현이 멘트(말풍선) → 따라/안 보고 말하기
     out.innerHTML = `<div class="ex-card">
-      <p class="ex-src">${esc(x.src)}</p>
       <div class="ex-main"><p class="ex-en en lp" id="exen">${lpHTML(x.en)}</p>
         <div class="ex-btns"><button class="ex-ib" id="exl" aria-label="발음 듣기">${ic('speaker')}</button><button class="ex-ib sv ${saved ? 'on' : ''}" id="exs" aria-label="문장 저장">${ic('bookmark')}</button></div></div>
-      ${x.ko && x.ko.replace(/[\s.,!?~]/g, '') !== String(x.src || '').replace(/[\s.,!?~]/g, '') ? `<p class="ex-ko">${esc(x.ko)}</p>` : ''}
-      ${x.alt ? `<p class="ex-alt"><span>이렇게도</span><b class="en lp">${lpHTML(x.alt)}</b></p>` : ''}
-      ${x.tip ? `<p class="ex-tip">${esc(x.tip)}</p>` : ''}
+      ${x.alt ? `<p class="ex-alt"><span>이렇게도 말할 수 있어</span><b class="en lp">${lpHTML(x.alt)}</b></p>` : ''}
+      ${bhLines(x.bh || x.tip).length ? `<div class="ex-bh"><span class="ex-bav" style="${avatarStyle(BH_PROFILE, 30)}"></span><div class="ex-bcol"><span class="ex-bn">백현이${AI_MARK}</span>${bhLines(x.bh || x.tip).map(l => `<p class="ex-bub">${esc(l)}</p>`).join('')}</div></div>` : ''}
       <div class="ex-prac"><button class="btn sm soft" id="exr">${ic('mic')} 따라 말하기</button><button class="btn sm" id="exq">${ic('eye')} 안 보고 말하기</button></div>
       <div id="exp"></div>
     </div>`;
@@ -94,7 +95,7 @@ export function express(root) {
         const rr = await checkRetry(r.text, x.en, { check: s => smartFeedback({ mode: 'translate', said: s, target: x.en, ko: x.src }) }); if (dead) return;
         card.classList.remove('blur');
         D.addAttempt({ uttId: null, step: blur ? 'express-recall' : 'express-read', text: r.text });
-        res.innerHTML = `<div class="ex-res ${rr.state}"><p class="ex-msg">${bhLines(rr.msg).map(esc).join('<br>')}</p>${rr.state === 'ok' ? '' : cmpHTML(rr.f || { natural: x.en, fixes: [] }, { said: r.text, rec: x.en, save: false })}</div>`;
+        res.innerHTML = `<div class="ex-res ${rr.state}"><p class="ex-acc">${rr.state === 'unsure' ? '' : `<em class="acc-b ${rr.score >= 85 ? 'hi' : ''}">${rr.score}%</em>`}<span class="en">${esc(r.text)}</span></p><p class="ex-msg">${bhLines(rr.msg).map(esc).join('<br>')}</p></div>`;
         bindCompare(res);
       });
     };

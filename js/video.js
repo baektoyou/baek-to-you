@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { vThumb as thumbOf, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx, bhLines, AI_MARK, checkRetry } from './ui.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx, bhLines, AI_MARK, checkRetry, brSent } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
@@ -23,35 +23,86 @@ export function videoList(root) {
   const vids = db.videos.filter(v => !isLive(v)); // 라이브 영상은 CALL 전용
   const due = D.dueList().length;
   root.innerHTML = `<div class="screen">
-    <header class="top">${WORDMARK}${D.canEdit() ? `<a class="icon-btn" href="#/settings" aria-label="영상 추가">${ic('plus')}</a>` : ''}</header>
-    <a class="ex-entry" href="#/express"><span class="ex-ic">${ic('sparkle')}</span><span class="grow"><b>즉석 영어 표현</b><small>하고 싶은 말을 한국어로 → 바로 영어로</small></span>${ic('next')}</a>
+    <header class="top">${WORDMARK}</header>
     <div class="stats-strip">
       <div><b>${db.utts.filter(u => vids.some(v => v.id === u.videoId)).length}</b><span>문장</span></div>
       <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
       <a href="#/saved"><b class="${due ? 'accent' : ''}">${due}</b><span>오늘 복습</span></a>
     </div>
+    <a class="ex-entry" href="#/express"><span class="ex-ic">${ic('pup')}</span><span class="grow"><b>백현아 도와줘</b><small>어떤 말이 궁금해!?</small></span>${ic('next')}</a>
     ${vids.length ? `<div class="sec-title label">VIDEOS · ${vids.length}</div><div class="vgrid two">${vids.map(v => {
       const us = D.uttsOf(v.id); const done = us.filter(u => db.progress[u.id]?.steps?.check).length;
       return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumbOf(v)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>
-      <div class="vmeta"><b>${esc(v.title)}</b><span class="cnt">${done}/${us.length}</span></div></a>`;
+      <div class="vmeta"><b class="v-title">${esc(v.title)}</b><span class="cnt">${done}/${us.length}</span></div></a>`;
     }).join('')}</div>`
       : `<div class="empty"><b>아직 영상이 없어요</b>${D.canEdit() ? `<p>백현이 YouTube 영상을 추가해보세요</p><a class="btn" href="#/settings">${ic('plus')} 영상 추가</a>` : '<p>곧 영상이 올라올 거예요</p>'}</div>`}
   </div>`;
 }
 
+// ---------- 미리 만들어 두는 플레이어 ----------
+// 영상 화면에서 플레이어를 미리 준비해 두고(화면 전환에도 살아 있게 body에 붙임), 문장을 누르는 순간(사용자 동작 안에서) 재생 시작
+// → CHAT으로 들어가자마자 소리와 함께 바로 재생 (iPhone 자동 재생 제한 대응)
+let warm = null;
+function warmUp(v, slot, z = 5) {
+  if (!warm || warm.vid !== v.id) {
+    dropWarm();
+    const host = h('<div class="warm-pl"><div class="player clean"></div></div>'); document.body.appendChild(host);
+    const pl = new Player(host.firstChild, { controls: 0, blockMs: 1200, onState: (...a) => warm?.on?.(...a) });
+    warm = { vid: v.id, host, pl, on: null, slot: null, raf: 0, start: null };
+    pl.cue(v.ytId, D.uttsOf(v.id)[0]?.start || 0);
+  }
+  warm.host.style.zIndex = z; pin(slot); return warm;
+}
+function pin(slot) {
+  const W = warm; W.slot = slot; cancelAnimationFrame(W.raf);
+  const tick = () => {
+    if (warm !== W || W.slot !== slot) return;
+    if (!slot.isConnected) { W.host.style.visibility = 'hidden'; return; }
+    const r = slot.getBoundingClientRect();
+    const topLim = W.host.style.zIndex < 20 ? ($('.top')?.getBoundingClientRect().bottom || 0) : 0, botLim = W.host.style.zIndex < 20 ? ($('.tabbar')?.getBoundingClientRect().top || innerHeight) : innerHeight;
+    const ct = Math.max(0, topLim - r.top), cb = Math.max(0, r.bottom - botLim);
+    Object.assign(W.host.style, { visibility: ct + cb >= r.height ? 'hidden' : 'visible', top: r.top + 'px', left: r.left + 'px', width: r.width + 'px', height: r.height + 'px', clipPath: ct || cb ? `inset(${ct}px 0 ${cb}px 0)` : '' });
+    W.raf = requestAnimationFrame(tick);
+  };
+  tick();
+}
+export function dropWarm() { if (!warm) return; cancelAnimationFrame(warm.raf); warm.pl.destroy(); warm.host.remove(); warm = null; }
+// 다음 화면이 같은 영상(영상 화면·CHAT)이면 플레이어 유지
+const keepWarm = vid => { const m = location.hash.match(/^#\/(video|study)\/([^/?]+)/); if (!m) return false; return m[1] === 'video' ? m[2] === vid : D.utt(m[2])?.videoId === vid; };
+
+// 이어서 말하기: 마지막으로 하던 문장 (끝냈으면 그다음 문장)
+export function resumeOf(vid) {
+  const us = D.uttsOf(vid); if (!us.length) return null;
+  const r = (D.get().settings.chatResume || {})[vid];
+  if (r) { const i = us.findIndex(u => u.id === r.u); if (i >= 0) return r.done ? (us[i + 1] ? { u: us[i + 1], i: i + 1, cont: true } : null) : { u: us[i], i, cont: true }; }
+  const p = D.get().progress; let last = -1; us.forEach((u, i) => { if (p[u.id]?.steps?.check || p[u.id]?.steps?.speak) last = i; });
+  return last >= 0 && us[last + 1] ? { u: us[last + 1], i: last + 1, cont: true } : null;
+}
+const setResume = (vid, u, done) => { const all = { ...(D.get().settings.chatResume || {}) }; all[vid] = { u, done, at: Date.now() }; D.setSetting('chatResume', all); };
+
 export function videoDetail(root, vid) {
   const v = D.video(vid); if (!v) { location.hash = '#/video'; return; }
   const us = D.uttsOf(vid), db = D.get();
+  const rs = resumeOf(vid);
+  const title1 = String(v.title || '').split('\n')[0];
   root.innerHTML = `<div class="screen">
-    <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(v.title)}</h2>${D.canEdit() ? `<a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a>` : '<span class="icon-btn ghost"></span>'}</header>
-    <div class="vthumb hero-thumb" style="background-image:url('${thumbOf(v)}')"></div>
+    <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(title1)}</h2>${D.canEdit() ? `<a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a>` : '<span class="icon-btn ghost"></span>'}</header>
+    <div class="vthumb hero-thumb hero-pl" id="hero" style="background-image:url('${thumbOf(v)}')"></div>
+    ${String(v.title || '').includes('\n') ? `<p class="vd-title">${esc(v.title)}</p>` : ''}
+    ${us.length ? `<button class="resume-btn" id="resume">${ic('play')}<span class="grow"><b>${rs ? '이어서 말하기' : '처음부터 말하기'}</b><small>${rs ? `${rs.i + 1}번째 문장부터 · ${esc(rs.u.ko)}` : `1번째 문장부터 · ${esc(us[0].ko)}`}</small></span>${ic('next')}</button>` : ''}
     <div class="row between sub-row"><span class="label">SENTENCES · ${us.length}</span><a class="link-sm" href="${ytLink(v.ytId)}" target="_blank" rel="noopener">${ic('external')} YouTube</a></div>
     ${us.length ? `<div class="ulist">${us.map(u => {
       const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => stepDone(st, s)).length;
-      return `<a class="uitem" href="#/study/${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div>
+      return `<a class="uitem" href="#/study/${u.id}" data-u="${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div>
       <div class="dots">${STEPS.map(s => `<i class="${stepDone(st, s) ? 'on' : ''}"></i>`).join('')}</div></div>${n === STEPS.length ? `<span class="done-badge">${ic('check')}</span>` : D.isSavedUtt(u.id) ? `<span class="mark-saved">${ic('bookmark')}</span>` : ''}</a>`;
     }).join('')}</div>` : `<div class="empty"><b>등록된 문장이 없어요</b>${D.canEdit() ? `<p>영상 관리에서 JSON으로 문장을 넣어주세요</p><a class="btn" href="#/settings/video/${v.id}">문장 넣기</a>` : '<p>문장이 준비되면 여기에 보여요</p>'}</div>`}
   </div>`;
+  const W = warmUp(v, $('#hero', root), 5);
+  // 문장을 누르는 순간 재생 시작 (사용자 동작 안) → CHAT 화면으로
+  const go = u => { D.markStep(u.id, 'listen'); W.start = { id: u.id, p: W.pl.playSegment(v.ytId, u.start, u.end) }; location.hash = `#/study/${u.id}`; };
+  $$('[data-u]', root).forEach(a => a.onclick = e => { e.preventDefault(); const u = D.utt(a.dataset.u); if (u) go(u); });
+  $('#resume', root) && ($('#resume', root).onclick = () => go(rs ? rs.u : us[0]));
+  return () => { if (!keepWarm(vid)) dropWarm(); };
 }
 
 // ---------- CHAT: 백현이랑 카톡하듯 한 문장씩 ----------
@@ -73,7 +124,7 @@ export function study(root, uttId) {
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
       <button class="cp-mic" id="cpm" aria-label="말하기">${ic('mic')}</button>
-      <button class="cp-q" id="cpq" aria-label="AI에게 영어 질문하기">${ic('sparkle')}</button>
+      <button class="cp-q" id="cpq" aria-label="AI에게 영어 질문하기">${ic('pup')}</button>
       <textarea id="cpt" rows="1" placeholder="영어로 말하거나 입력해요" autocapitalize="sentences" spellcheck="false"></textarea>
       <button class="cp-send" id="cps" aria-label="보내기">${ic('send')}</button>
     </div>
@@ -86,14 +137,18 @@ export function study(root, uttId) {
   const drawSnd = () => { sndt.innerHTML = ic(soundOn ? 'volume' : 'mute'); sndt.classList.toggle('off', !soundOn); sndt.classList.toggle('wait', soundOn && waitTap); sndt.setAttribute('aria-pressed', soundOn ? 'true' : 'false'); };
   // 자동 재생이 막히면 음소거로 바꾸지 않고 ‘탭해서 재생’ → 누르는 순간(사용자 동작) 소리와 함께 처음부터 재생
   const sndp = $('#sndp', root);
-  const pl = new Player($('#pl', root), { controls: 0, blockMs: 1200, onState: st => { if (st === 'muted' || st === 'blocked') { waitTap = true; drawSnd(); if (st === 'blocked') sndp.classList.remove('hide'); } if (st === 'unmuted' || st === 'unblocked' || (st === 'playing' && !pl?.mutedAuto)) { waitTap = false; drawSnd(); sndp.classList.add('hide'); } } });
+  const onSt = st => { if (st === 'muted' || st === 'blocked') { waitTap = true; drawSnd(); if (st === 'blocked') sndp.classList.remove('hide'); } if (st === 'unmuted' || st === 'unblocked' || (st === 'playing' && !pl?.mutedAuto)) { waitTap = false; drawSnd(); sndp.classList.add('hide'); } };
+  // 영상 화면에서 미리 준비한 플레이어를 이어서 사용 (문장을 누른 순간 이미 재생 시작)
+  const W = warmUp(v, $('#pl', root), 25); const pl = W.pl; W.on = onSt;
+  const warmStart = W.start?.id === u.id ? W.start : null; W.start = null;
+  if (pl.needTap) onSt('blocked');
   sndp.onclick = () => { pl.unmute(); sndp.classList.add('hide'); };
   pl.userMuted = !soundOn; drawSnd();
   sndt.onclick = e => { e.stopPropagation(); soundOn = !soundOn; D.setSetting('chatSound', soundOn); pl.setUserMuted(!soundOn); waitTap = false; drawSnd(); toast(soundOn ? '백현이 목소리 켜짐' : '백현이 목소리 꺼짐'); };
   // 소리 없이 자동재생됐으면 화면 어디든 처음 터치할 때 소리 켜기 (그다음부터는 계속 소리와 함께)
   const unmute = e => { if (e?.target?.closest?.('#sndt')) return; pl.unmute(); };
   root.addEventListener('pointerdown', unmute, { capture: true });
-  pl.cue(v.ytId, u.start);
+  if (!warmStart) pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
   const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
   const wait = ms => new Promise(r => setTimeout(r, ms));
@@ -110,7 +165,7 @@ export function study(root, uttId) {
   async function bh(html, cls) { const t = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(320); if (dead) return h('<div></div>'); t.remove(); lastWho = ''; return add('bh', html, cls); }
   const me = t => add('me', `<span class="en">${esc(t)}</span>`);
   // 백현이 반응 = 짧은 메시지를 연속으로 (AI가 만든 말 · 이름 옆 ✦)
-  async function bhSay(text, cls = '') { const ls = bhLines(text); let last = null; for (const l of ls) { if (dead) return last; const t = add('ai', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(last ? 420 : 260); if (dead) return last; t.remove(); lastWho = last ? 'ai' : ''; last = add('ai', `<span class="ko">${esc(l)}</span>`, `bhl ${cls}`); } return last; }
+  async function bhSay(text, cls = '') { const ls = bhLines(text); let last = null; for (const l of ls) { if (dead) return last; const t = add('ai', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing'); await wait(last ? 420 : 260); if (dead) return last; t.remove(); lastWho = last ? 'ai' : ''; last = add('ai', `<span class="ko">${brSent(l)}</span>`, `bhl ${cls}`); } return last; }
   // 영어 교정·설명 = 말풍선과 따로 보이는 학습 영역
   const learn = (html, cls = '') => { const el = add('learn', html, `wide ${cls}`); lastWho = ''; return el; };
   const sys = t => { lastWho = ''; th.appendChild(h(`<p class="m-sys">${t}</p>`)); scroll(); };
@@ -134,21 +189,27 @@ export function study(root, uttId) {
   const askInput = (placeholder = '영어로 말하거나 입력해요', targets = []) => new Promise(res => { soon = false; if (early != null) { const t = early; early = null; return res(t); } ta.placeholder = placeholder; if (!cap) ta.value = ''; fit(); waiting = { res, targets }; });
   function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
   // 말하는 중에 내가 글자를 고치면 인식 결과로 덮어쓰지 않고, 고친 문장 그대로 보냄
-  let userEdit = false;
-  ta.oninput = () => { if (cap) userEdit = true; fit(); };
+  // 잘못 들린 부분을 지우고 다시 말하면 → 지운 자리(커서 위치)부터 이어서 입력
+  let userEdit = false, caret = null;
+  const keepCaret = () => { if (!cap) caret = [ta.selectionStart, ta.selectionEnd]; };
+  ta.oninput = () => { if (cap) userEdit = true; else keepCaret(); fit(); };
+  ['keyup', 'click', 'select', 'blur'].forEach(ev => ta.addEventListener(ev, keepCaret));
   function startMic(targets = waiting?.targets || []) {
     if (cap) return;
     userEdit = false;
     if (!S.support.stt) { ta.focus(); toast('키보드의 받아쓰기(🎤)로 말해도 돼요'); return; }
     if (pl.playing) pl.pause();
     micB.classList.add('live'); cp.classList.add('rec'); micB.innerHTML = ic('stop');
-    const prefix = ta.value.trim();
-    const c = cap = S.capture({ stt: true, prefix, targets, onInterim: t => { if (!userEdit) { ta.value = t; fit(); } } });
+    const val = ta.value, at = caret && caret[0] < val.trim().length ? caret : null;
+    const prefix = (at ? val.slice(0, at[0]) : val).trim(), suffix = at ? val.slice(at[1]).trim() : '';
+    const join = t => [t, suffix].filter(Boolean).join(' ');
+    caret = null;
+    const c = cap = S.capture({ stt: true, prefix, targets, onInterim: t => { if (!userEdit) { ta.value = join(t); fit(); } } });
     fit();
     c.result.then(r => {
       if (cap === c) cap = null;
       micB.classList.remove('live'); cp.classList.remove('rec'); micB.innerHTML = ic('mic');
-      if (userEdit) { /* 고친 글자 유지 */ } else if (r.text) ta.value = r.text; else if (r.sttError && !sendAfter) toast(S.sttErrorText(r.sttError));
+      if (userEdit) { /* 고친 글자 유지 */ } else if (r.text) ta.value = join(r.text); else if (r.sttError && !sendAfter) toast(S.sttErrorText(r.sttError));
       fit();
       if (sendAfter) { sendAfter = false; doSend(); }
     });
@@ -191,13 +252,13 @@ export function study(root, uttId) {
   const accBadge = (el, a) => { const b = $('.m-bub', el); b && b.insertAdjacentHTML('beforeend', `<em class="acc-b ${a >= 85 ? 'hi' : ''}">${a}%</em>`); };
 
   async function run(x) {
-    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; setLpCtx({ ko: x.ko }); ta.placeholder = '영어로 말하거나 입력해요';
+    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; setLpCtx({ ko: x.ko }); setResume(v.id, x.id, false); ta.placeholder = '영어로 말하거나 입력해요';
     $('#cvi', root).textContent = `${i + 1} / ${list.length}`;
     if (location.hash !== `#/study/${x.id}`) history.replaceState(null, '', `#/study/${x.id}`);
     if (th.children.length) sys(`${i + 1} / ${list.length}`);
     // 재생과 동시에 한국어 대사
     if (pending?.u === x) pending = null; else playU(x);
-    lastWho = ''; const kb = add('bh', `<span class="ko">${esc(ko)}</span>`);
+    lastWho = ''; const kb = add('bh', `<span class="ko">${brSent(ko)}</span>`);
     kb.classList.add('replay'); kb.onclick = () => { if (!cap) playU(x); }; // 멘트 누르면 그 장면 바로 재생
     onEnded = y => { if (y === x) addChip(['다시 듣기', 'replay', 'line', { tap: () => playU(x), stay: true }]); };
     await chips([['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [target] }]], { replay: true }); if (dead) return;
@@ -205,39 +266,42 @@ export function study(root, uttId) {
     D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
     const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
     const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    // 백현이 반응(일반 말풍선) → 영어 교정·설명(학습 영역)
+    // 백현이 반응(교정 설명 포함 · 일반 말풍선) → 학습 카드
     if (f.feedback) await bhSay(f.feedback); if (dead) return;
-    const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, said }));
+    const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, patternKo: x.patternKo, said }));
     bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
     const check = s2 => smartFeedback({ mode: 'translate', said: s2, target, ko: x.ko, pattern: x.pattern });
-    // 교정 후 다시 말하기(정답 블러) · 보면서 따라 말하기 · 다음
+    // 보면서 따라 말하기(정확도 %) → 안 보고 말하기(블러 · 정확도 % + 백현이 멘트) → 맞으면 칭찬하고 다음
     let read = false;
     for (;;) {
-      const k = await chips([['다시 말하기', 'retry', 'pri', { mic: true, targets: [target], tap: () => th.classList.add('veil') }], ...(read ? [] : [['보면서 따라 말하기', 'read', 'line', { mic: true, targets: [target] }]]), NEXT(x)]); if (dead) return;
+      const k = await chips(read
+        ? [['안 보고 말하기', 'recall', 'pri', { mic: true, targets: [target], tap: () => th.classList.add('veil') }], NEXT(x)]
+        : [['보면서 따라 말하기', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
       if (k === 'read') {
         read = true;
-        const re = await bh(`<span class="bub-tag">보면서 따라 말해봐</span><span class="en big lp">${lpHTML(target)}</span>`); bindLongPress(re); if (dead) return;
+        const re = await bh(`<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(target)}</span><span class="say-sub">${esc(x.ko)}</span>`); bindLongPress(re); if (dead) return;
         const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
         D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
         accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
         continue;
       }
-      if (k !== 'retry') return goOn(x, k);
-      // 다시 말하기: 추천 문장은 가린 채 바로 녹음 (마이크는 칩을 누르는 순간 켜짐)
+      if (k !== 'recall') { setResume(v.id, x.id, true); return goOn(x, k); }
+      // 안 보고 말하기: 영어는 가리고(블러) 한국어 자막만 · 마이크는 칩을 누르는 순간 켜짐
       $$('.msg2', th).forEach(m => m.classList.remove('keep'));
-      const t2 = await askInput('안 보고 다시 말해봐요', [target]); if (dead) { th.classList.remove('veil'); return; }
+      lastWho = ''; add('bh', '<span class="ko">이번엔 안보고 해볼까?!</span>');
+      const t2 = await askInput('안 보고 말해봐요', [target]); if (dead) { th.classList.remove('veil'); return; }
       D.addAttempt({ uttId: x.id, step: 'recall', text: t2 });
       const ty2 = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing keep');
       const r = await checkRetry(t2, target, { ko, check }); ty2.remove(); lastWho = ''; if (dead) return;
       th.classList.remove('veil');
-      await bhSay(r.msg);  if (dead) return;
+      if (r.state !== 'unsure') accBadge([...$$('.msg2.me', th)].pop(), r.score);
+      await bhSay(r.state === 'retry' ? r.msg.split('\n').join(' ') : r.msg); if (dead) return;
       if (r.state === 'ok') { // 칭찬하고 다음 대화로
-        D.markStep(x.id, 'recall');
+        D.markStep(x.id, 'recall'); setResume(v.id, x.id, true);
         const nx = nextOf(x);
         if (nx) { await wait(900); if (dead) return; return goOn(x, 'next'); }
         const k2 = await chips([NEXT(x)]); if (dead) return; return goOn(x, k2);
       }
-      if (r.state === 'retry' && r.f) { const fl = learn(coachHTML(r.f, { rec: target, recKo: x.ko, said: t2 }), 'mini'); bindCompare(fl, saveItem(x, t2)); }
     }
   }
   function goOn(x, k = 'next') {
@@ -246,6 +310,7 @@ export function study(root, uttId) {
     if (!pending) pending = { u: nx, p: playU(nx) };
     run(nx);
   }
+  if (warmStart) pending = { u, p: warmStart.p.then(r => { if (r === 'ended') onEnded?.(u); return r; }) };
   run(u);
-  return () => { dead = true; cap?.stop(); pl.destroy(); root.removeEventListener('pointerdown', unmute, { capture: true }); document.body.classList.remove('no-tab'); };
+  return () => { dead = true; cap?.stop(); W.on = null; pl.stop(); if (!keepWarm(v.id)) dropWarm(); root.removeEventListener('pointerdown', unmute, { capture: true }); document.body.classList.remove('no-tab'); };
 }

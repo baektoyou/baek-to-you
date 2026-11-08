@@ -37,7 +37,7 @@ function route(keepScroll) {
   switch (p[0]) {
     case 'talk': case 'speak': tab = 'talk'; cleanup = speak(root); break;
     case 'saved': saved(root); break;
-    case 'express': tab = 'talk'; cleanup = express(root); break; // 즉석 영어 표현 (CALL의 독립 기능)
+    case 'express': tab = 'video'; cleanup = express(root); break; // 백현아 도와줘 (CHAT 첫 화면에서 들어감)
     case 'privacy': tab = 'settings'; privacy(root); break;
     case 'settings':
       // 영상·문장 편집 화면은 관리자만 (주소로 직접 들어와도 막음 · 서버 보안 규칙도 같은 기준)
@@ -48,7 +48,7 @@ function route(keepScroll) {
       else cleanup = settings(root);
       break;
     case 'study': tab = 'video'; cleanup = study(root, p[1]); break;
-    case 'video': if (p[1]) videoDetail(root, p[1]); else videoList(root); break;
+    case 'video': if (p[1]) cleanup = videoDetail(root, p[1]); else videoList(root); break;
     default: tab = 'video'; videoList(root);
   }
   curTab = tab; renderTabs(tab);

@@ -187,27 +187,20 @@ export function callable(v) { return isLive(v) && D.uttsOf(v.id).filter(u => u.k
 export const matchesSit = (v, k) => (v.sit || []).includes(k) || (sceneOf(v)[k] || 0) >= 3;
 // 음성통화로 쓸 수 있는 영상 (관리자가 ‘영상 관리’에서 지정)
 export const voiceOk = v => !!v?.voice && callable(v);
+// 랜덤 전화: 지금 시간대에 맞는 영상만 (관리자가 고른 시간대 우선 · 없으면 대본으로 추정한 시간대)
+// · 지금 시간대 영상이 하나도 없을 때만 시간대가 정해지지 않은 영상 → 그래도 없으면 전체
+export const timesOf = v => { const set = (v.sit || []).filter(k => TIMES.includes(k)); if (set.length) return set; const t = timeOfScene(sceneOf({ ...v, sit: [] })); return t ? [t] : []; };
 export function pickVideo(now = new Date(), sit = '', only = null) {
-  let vids = D.get().videos.filter(callable).filter(v => !only || only(v)); if (!vids.length) return null;
-  if (sit) { const m = vids.filter(v => matchesSit(v, sit)); if (m.length) vids = m; }
+  const vids = D.get().videos.filter(callable).filter(v => !only || only(v)); if (!vids.length) return null;
   const tb = timeBucket(now); const logs = D.get().talkLogs || [];
+  const exact = vids.filter(v => timesOf(v).includes(tb)), free = vids.filter(v => !timesOf(v).length);
+  const pool = exact.length ? exact : free.length ? free : vids;
   const last = id => Math.max(0, ...logs.filter(l => l.videoId === id).map(l => l.at || 0));
-  const scored = vids.map(v => {
-    const s = sceneOf(v); const t = timeOfScene(s);
-    let sc = 0;
-    if (t === tb) sc += 4; else if (t && (tb === 'night' && t === 'evening' || tb === 'evening' && t === 'night')) sc += 1.5;
-    if ((tb === 'night' || tb === 'dawn') && s.bed) sc += 2;
-    if (t && (tb === 'dawn' && t === 'night' || tb === 'night' && t === 'dawn')) sc += 2;
-    if ((tb === 'day' || tb === 'evening') && s.eat) sc += 1;
-    const ago = Date.now() - last(v.id);
-    if (ago < 864e5) sc -= 3; else if (ago < 3 * 864e5) sc -= 1;
-    return { v, sc };
-  }).sort((a, b) => b.sc - a.sc);
-  // 지금 시간대에 어울리는 후보들 중에서 랜덤 (점수가 높을수록 잘 뽑힘)
-  const pool = scored.filter(x => x.sc >= scored[0].sc - 2.5);
-  const w = pool.map(x => Math.exp((x.sc - scored[0].sc) / 1.5)); let r = Math.random() * w.reduce((a, b) => a + b, 0);
-  for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) return pool[i].v; }
-  return pool[0].v;
+  // 최근에 통화한 영상은 덜 나오게
+  const w = pool.map(v => { const ago = Date.now() - last(v.id); return ago < 864e5 ? 0.25 : ago < 3 * 864e5 ? 0.6 : 1; });
+  let r = Math.random() * w.reduce((a, b) => a + b, 0);
+  for (let i = 0; i < pool.length; i++) { r -= w[i]; if (r <= 0) return pool[i]; }
+  return pool[0];
 }
 
 // ---------- 사진 매칭: 영상 장면과 가장 비슷한 사진 ----------

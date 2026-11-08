@@ -52,6 +52,8 @@ const P = {
   link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
   mute: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/>',
   volume: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+  // 강아지 아이콘 (AI 관련 표시 공통)
+  pup: '<path d="M7 9.8C7 7 9.2 5.2 12 5.2S17 7 17 9.8v3.4c0 3-2.2 5.3-5 5.3s-5-2.3-5-5.3z"/><path class="fl" d="M8.2 6.2C6.3 5.4 4 6.3 4 9.2c0 2.6 1 5 2.4 5.3 1 .2 1.4-1.8 1-4.4zM15.8 6.2c1.9-.8 4.2.1 4.2 3 0 2.6-1 5-2.4 5.3-1 .2-1.4-1.8-1-4.4z"/><path d="M10 11.2h.01M14 11.2h.01" stroke-width="2.4"/><path class="fl" d="M11 13.5c0-.4.4-.7 1-.7s1 .3 1 .7-.5.8-1 .8-1-.4-1-.8z"/><path d="M12 14.3v.6M10.8 15.5c.4.3.8.3 1.2 0 .4.3.8.3 1.2 0"/>',
   sparkle: '<path d="M12 4l1.8 4.6L18.5 10l-4.7 1.6L12 16l-1.8-4.4L5.5 10l4.7-1.4z"/>',
   loop: '<path d="M17 2l3 3-3 3M3 11V9a4 4 0 0 1 4-4h13M7 22l-3-3 3-3M21 13v2a4 4 0 0 1-4 4H4"/>',
   external: '<path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
@@ -333,7 +335,9 @@ export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x
 
 // ---------- 문장 속 단어: 길게 누르면 단어 저장 ----------
 const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
-export const lpHTML = t => String(t || '').split(/\s+/).filter(Boolean).map(w => wspan(w)).join(' ');
+// 문장이 바뀌면 새 줄 (짧은 글은 한 줄 그대로)
+export const lpHTML = t => { const ws = String(t || '').split(/\s+/).filter(Boolean); const long = String(t || '').length > 42; return ws.map((w, i) => wspan(w) + (i === ws.length - 1 ? '' : long && /[.!?]["')]?$/.test(w) && /^[A-Z"(]/.test(ws[i + 1]) ? '<br>' : ' ')).join(''); };
+export const brSent = t => { t = String(t || '').trim(); return t.length > 34 ? esc(t).replace(/([.!?]+|[ㅎㅋㅜ]{2,})\s+(?=\S)/g, '$1<br>') : esc(t); };
 // 문장에서 단어·표현 저장: 단어를 꾹 누른 채(0.3초) 옆으로 드래그해서 범위 선택 → ‘저장’
 // · 저장할 때 문장 속 뜻(한국어)을 AI가 같이 넣어줌 (AI 없으면 뜻은 비워두고 문장을 메모로)
 let lpCtx = {};
@@ -479,113 +483,85 @@ export function recSentHTML(sent, { chg = [], chgIdx = null, hl = [] } = {}) {
 }
 // 저장/저장 취소가 생기면 화면 속 추천 문장의 ‘저장한 표현’ 밑줄을 다시 그림
 window.addEventListener('b2u:words', () => $$('.dc-rec p[data-rs]').forEach(p => { try { const o = JSON.parse(p.dataset.rs); p.innerHTML = recSentHTML(o.s, o); p.closest('.dc')?.querySelector('.dc-key')?.classList.toggle('hide', !p.querySelector('.svd') || !p.querySelector('.chg')); } catch { } }));
-// AI 비교가 없을 때(규칙 피드백): 문법 규칙으로 고친 문장(natural)과만 비교 · 다른 표현은 틀렸다고 표시하지 않음
-function localCmp(said, rec, f) {
-  const base = f.natural || '';
-  if (base) {
-    const d = diffWords(said, base);
-    if (d.sim >= 0.45) {
-      const mine = []; d.ops.forEach((o, i) => {
-        if (o.op === 'same') mine.push({ t: o.a, k: 'ok' });
-        else if (o.op === 'del') mine.push({ t: o.a, k: d.ops[i + 1]?.op === 'add' || d.ops[i - 1]?.op === 'add' ? 'wrong' : 'extra' });
-        else mine.push({ t: o.b, k: 'add' });
-      });
-      const same = String(rec).trim() === base.trim();
-      const idx = []; let j = 0; d.ops.forEach(o => { if (o.op === 'del') return; if (o.op === 'add') idx.push(j); j++; });
-      return { mine, marks: [], idx: same ? idx : [], reason: (f.fixes || [])[0]?.why || '' };
-    }
-  }
-  const low = said.toLowerCase(), bad = [];
-  (f.fixes || []).forEach(x => { const i = low.indexOf(String(x.wrong).toLowerCase()); if (i >= 0) bad.push([i, i + x.wrong.length, x.right]); });
-  let pos = 0;
-  const mine = said.split(/\s+/).filter(Boolean).map(w => { const st = low.indexOf(w.toLowerCase(), pos); pos = st + w.length; const b = bad.find(([a, b]) => st < b && st + w.length > a); return { t: w, k: b ? 'wrong' : 'ok', to: '' }; });
-  return { mine, marks: [], idx: [], reason: (f.fixes || [])[0]?.why || '' };
-}
-// 틀린 조각 + 바로 옆 추가 조각 → “− 틀린 → + 바꿀 말” 한 쌍으로 · 바꿀 말을 모르면 교정 목록(fixes)에서 찾기
-function pairPieces(mine, fixes = []) {
-  const out = [];
-  for (let i = 0; i < mine.length; i++) {
-    const x = { ...mine[i] };
-    if (x.k === 'wrong' && !x.to) {
-      const nx = mine[i + 1];
-      if (nx && nx.k === 'add') { x.to = nx.t; i++; }
-      else { const fx = fixes.find(f => String(f.wrong).toLowerCase().split(/\s+/).includes(nw(x.t))); if (fx && fx.wrong.split(/\s+/).length === 1) x.to = fx.right; }
-    } else if (x.k === 'add' && mine[i + 1]?.k === 'wrong' && !mine[i + 1].to) { out.push({ ...mine[i + 1], to: x.t }); i++; continue; }
-    out.push(x);
-  }
-  // 여러 단어가 같은 바꿀 말을 가리키면 (fixes 매칭) 마지막 단어에만 표시
-  return out;
-}
-const minusHTML = t => `<span class="dc-del"><i>−</i><s>${esc(t)}</s></span>`;
-const plusHTML = t => `<span class="dc-add"><i>+</i>${esc(t)}</span>`;
-// opt.note: 설명 한 줄 (교정 이유 + 뉘앙스를 합친 것)
-export function cmpHTML(f, { said = '', rec = '', recKo = '', hl = [], save = true, note = null } = {}) {
+// 학습 카드 공통: 내 문장(말한 그대로 + 옆에 한국어 뜻) → 추천 문장(고친·빠뜨린 부분 하이라이트 · 저장한 표현 밑줄) + 한국어 → 추천 표현(항상 펼침)
+// 교정 설명은 카드에 없고 백현이 한국어 멘트(f.feedback)로
+export function cmpHTML(f, { said = '', rec = '', recKo = '', saidKo = '', hl = [], save = true } = {}) {
   said = String(said || '').trim(); rec = String(rec || '').trim();
   const canon = t => normalize(t).replace(/\s+/g, ' ');
   if (!rec && !said) return '';
-  const sameAsMine = !rec || canon(rec) === canon(said);
-  const c = sameAsMine ? null : (f?.cmp || (f ? localCmp(said, rec, f) : null));
-  const changed = c && c.mine.some(x => x.k !== 'ok');
-  const meHTML = c ? pairPieces(c.mine, f?.fixes).map(x => x.k === 'add' ? plusHTML(x.t) : x.k === 'ok' ? esc(x.t) : x.k === 'wrong' && x.to ? `${minusHTML(x.t)}<span class="dc-arw">→</span>${plusHTML(x.to)}` : minusHTML(x.t)).join(' ') : esc(said);
+  const same = !rec || canon(rec) === canon(said);
   const sent = rec || said;
-  const reason = note != null ? note : sameAsMine ? '' : (c?.reason || '');
-  const rs = { s: sent, chg: changed ? (c.marks || []) : [], chgIdx: changed ? c.idx : null, hl };
+  const c = same ? null : (f?.cmp || (f ? localMarks(said, rec, f) : null));
+  const rs = { s: sent, chg: c?.marks || [], chgIdx: c?.idx || null, hl };
   const body = recSentHTML(sent, rs);
+  const mko = saidKo || f?.saidKo || '';
   return `<div class="dc">
-    ${said && !sameAsMine ? `<p class="dc-me en"><span class="dc-l">내 문장</span>${meHTML}</p>` : ''}
+    ${said && !same ? `<p class="dc-me"><span class="dc-l">내 문장</span><span class="en">${esc(said)}</span>${mko ? `<span class="dc-mko">${esc(mko)}</span>` : ''}</p>` : ''}
     <div class="dc-rec"><div class="dc-b"><p class="en lp" data-rs="${esc(JSON.stringify(rs))}">${body}</p>${recKo ? `<p class="dc-ko">${esc(recKo)}</p>` : ''}</div>${save ? `<button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button>` : ''}</div>
     <p class="dc-key ${body.includes('chg') && body.includes('svd') ? '' : 'hide'}"><span class="k-chg">고친 부분</span><span class="k-svd">저장한 표현</span></p>
-    ${reason ? `<p class="dc-why">${esc(reason).replace(/\n/g, '<br>')}</p>` : sameAsMine && said ? `<p class="dc-why ok">${ic('check')} 내 문장 그대로 자연스러워요</p>` : ''}
   </div>`;
 }
-// 교정 이유 + 뉘앙스 설명을 한 줄로 (같은 말 반복 없이)
-function noteOf(f, said, rec) {
-  const canon = t => normalize(t).replace(/\s+/g, ' ');
-  const same = !rec || canon(rec) === canon(said);
-  const parts = [same ? '' : (f.cmp?.reason || (f.fixes || [])[0]?.why || ''), ...String(f.why || '').split('\n')].map(x => x.trim()).filter(Boolean);
-  const out = [];
-  parts.forEach(p => { const k = p.replace(/[^가-힣a-z]/gi, ''); if (!out.some(o => { const ok = o.replace(/[^가-힣a-z]/gi, ''); return ok.includes(k.slice(0, 10)) || k.includes(ok.slice(0, 10)); })) out.push(p); });
-  return out.slice(0, 2).join('\n');
+// AI가 없을 때: 규칙으로 고친 문장(natural)과 비교해서 추천 문장 속 바뀐 단어만 표시
+function localMarks(said, rec, f) {
+  const base = f.natural || '';
+  if (!base || String(rec).trim() !== base.trim()) return { marks: [], idx: null };
+  const d = diffWords(said, base); if (d.sim < 0.45) return { marks: [], idx: null };
+  const idx = []; let j = 0; d.ops.forEach(o => { if (o.op === 'del') return; if (o.op === 'add') idx.push(j); j++; });
+  return { marks: [], idx };
 }
 // 백현이 반응: 짧은 메시지 여러 개 (줄마다 말풍선 하나)
 export const bhLines = t => String(t || '').split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 3);
-// AI가 만든 말 표시 (작은 ✦ · 실제 발언 아님)
-export const AI_MARK = `<i class="ai-mk" title="AI가 만든 말이에요 · 실제 발언 아님" aria-label="AI가 만든 말">${ic('sparkle')}</i>`;
-// 학습 카드 (CHAT·CALL 공통): 내 문장 → 추천 영어 문장 + 한국어 뜻 → 짧은 교정 설명 → 추천 표현(접힘)
-// 백현이 반응(f.feedback)은 카드 밖의 일반 말풍선으로 따로 보여줌
-export function coachHTML(f, { rec = '', recKo = '', pattern = '', said = '' } = {}) {
+// AI가 만든 말 표시 (작은 강아지 · 실제 영상 대사와 구분)
+export const AI_MARK = `<i class="ai-mk" title="AI가 만든 말이에요 · 실제 영상 대사 아님" aria-label="AI가 만든 말">${ic('pup')}</i>`;
+const xsHTML = xs => xs.length ? `<div class="kx">${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : '';
+// 학습 카드 (CHAT·CALL 공통) — 백현이 반응(f.feedback)은 카드 밖의 일반 말풍선
+export function coachHTML(f, { rec = '', recKo = '', pattern = '', patternKo = '', said = '' } = {}) {
   if (!f) return '';
   const sent = rec || f.natural || '';
   const ko = recKo || f.recKo || '';
-  const xs = (f.xs || []).length ? f.xs : pattern ? splitPat(pattern).map(t => ({ text: t, ko: '', use: '' })) : [];
+  // 추천 표현: 뜻이 있는 것만 (영어만 덩그러니 보이지 않게)
+  const xs = ((f.xs || []).length ? f.xs : pattern && patternKo ? splitPat(pattern).slice(0, 1).map(t => ({ text: t, ko: patternKo, use: '' })) : []).filter(x => x.ko);
   return `<div class="fb2 coach learn">
-    ${sent || said ? cmpHTML(f, { said, rec: sent, recKo: ko, note: noteOf(f, said, sent) }) : ''}
-    ${xs.length ? `<details class="kx-fold"><summary>추천 표현 <em>${xs.length}</em></summary><div class="kx">${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div></details>` : ''}
+    ${sent || said ? cmpHTML(f, { said, rec: sent, recKo: ko }) : ''}
+    ${xsHTML(xs)}
   </div>`;
 }
 const splitPat = p => String(p || '').split(',').map(x => x.trim()).filter(Boolean).slice(0, 2);
 
-// ---------- 교정 후 다시 말하기 (CHAT · CALL · SAVED 공통 판정) ----------
-// 추천 문장을 가린 채(블러) 다시 말하기 → ok(칭찬하고 다음) · retry(짧은 피드백 후 다시) · unsure(인식이 불확실 → 틀렸다고 하지 않고 다시)
-export const PRAISE = ['오 완벽해!!ㅎㅎ', '뭐야 완전 잘하잖아ㅋㅋㅋ', '이제 이 문장 네 거다!!', '와 진짜 자연스럽다..ㅎㅎ', '역시 우리 에리!!', '나보다 잘하는 거 아냐?ㅋㅋㅋ', '좋아좋아!! 완전 그거야', '오 한 번에?! 대박!!'];
-export const UNSURE = ['앗 잘 안 들렸어ㅠㅠ\n한 번만 더 말해줄래?', '음.. 내가 잘 못 들은 것 같아!\n다시 한 번만!', '어 중간에 끊겼나봐ㅠㅠ\n한 번 더!'];
+// ---------- 안 보고 말하기 (CHAT · CALL · SAVED 공통 판정 + 정확도 %) ----------
+// ok(칭찬하고 다음) · retry(어디가 아쉬웠는지 짧게 → 다시) · unsure(인식이 불확실 → 틀렸다고 하지 않고 다시)
+export const PRAISE = ['오오~~~ 잘했는데?!ㅎㅎ', '뭐야아 잘하잖아ㅋㅋㅋㅋㅋ', '오~~~ 이제 완전 알겠네!!', '이야아 진짜 잘한다ㅎㅎㅎㅎㅎ', '역시 우리 에리❤️', '나보다 잘하는거 아냐?!ㅋㅋㅋㅋㅋ', '좋아좋아!! 딱 그거야!ㅎㅎ', '오 한 번에?! 대박인데!!! ❤️'];
+export const UNSURE = ['어어?! 잘 안들렸어ㅜㅜ\n한번만 더 말해줄래..?', '음.. 내가 잘 못들었나봐ㅎㅎ\n다시 한번만!!', '어?! 중간에 끊겼나봐ㅜㅜ\n다시 해주라아..ㅎㅎ'];
 export const pickOne = a => a[Math.floor(Math.random() * a.length)];
 const nWords = t => String(t || '').trim().split(/\s+/).filter(Boolean).length;
+const josa = w => /[aeiouy]$/i.test(w) ? '가' : '이'; // 영어 단어 뒤 조사 (대충 발음 기준)
+// 어디가 아쉬웠는지: 빠진 단어 · 바뀐 단어 (규칙 · AI 없을 때)
+export function missText(said, target) {
+  const d = diffWords(said, target), miss = [], swap = [];
+  d.ops.forEach((o, i) => { if (o.op === 'add' && /[a-z]/i.test(o.b)) { const p = d.ops[i - 1]; if (p?.op === 'del') swap.push([p.a, o.b]); else miss.push(o.b); } });
+  const clean = w => String(w).replace(/^[^\w']+|[^\w']+$/g, '');
+  if (swap.length) { const [a, b] = swap[0]; return `${clean(a)} 말고 ${clean(b)}!!`; }
+  const m = miss.map(clean).filter(w => w.length > 1 && !/^(a|an|the|to|so|just|really)$/i.test(w)).slice(0, 2);
+  if (m.length) return `${m.join('랑 ')}${josa(m[m.length - 1])} 빠졌어!`;
+  return '';
+}
 export async function checkRetry(said, target, { ko = '', check } = {}) {
   said = String(said || '').trim();
-  if (!said || said.length < 2) return { state: 'unsure', msg: pickOne(UNSURE) };
+  if (!said || said.length < 2) return { state: 'unsure', msg: pickOne(UNSURE), score: 0 };
   const d = diff(said, target), sc = d.score;
   const canon = t => normalize(t).replace(/\s+/g, ' ');
   if (canon(said) === canon(target) || (sc >= 90 && (d.keyRecall ?? 1) >= 0.95)) return { state: 'ok', msg: pickOne(PRAISE), score: sc };
   // 말이 너무 짧게 들어왔으면(중간에 끊김 등) 단정하지 않음
   if (nWords(said) < Math.max(2, nWords(target) * 0.45)) return { state: 'unsure', msg: pickOne(UNSURE), score: sc };
   const f = await (check ? check(said) : null);
+  const why = missText(said, target);
   if (f) {
     if ((f.correct && !f.fixes?.length && sc >= 55) || sc >= 85) return { state: 'ok', msg: pickOne(PRAISE), f, score: sc };
     if (f.asr?.length && !f.fixes?.length && sc >= 50) return { state: 'unsure', msg: pickOne(UNSURE), f, score: sc };
-    return { state: 'retry', msg: f.correct ? '뜻은 맞는데!!\n이번엔 위 문장 그대로 말해볼까?ㅎㅎ' : (f.feedback || '아깝다ㅠㅠ 한 번만 더!'), f, score: sc };
+    if (f.correct) return { state: 'retry', msg: `오 뜻은 맞는데?!... ${why}\n이번엔 아까 그 문장으로 해보자!ㅎㅎ`.replace(/\.\.\. \n/, '...\n'), f, score: sc };
+    return { state: 'retry', msg: f.ai && f.feedback ? f.feedback : `힝... ㅜㅜ ${why}\n한번만 더 해보자!!`.replace('ㅜㅜ \n', 'ㅜㅜ\n'), f, score: sc };
   }
-  return sc >= 75 ? { state: 'ok', msg: pickOne(PRAISE), score: sc } : { state: 'retry', msg: '아깝다ㅠㅠ\n한 번만 더 해보자!', score: sc };
+  return sc >= 75 ? { state: 'ok', msg: pickOne(PRAISE), score: sc } : { state: 'retry', msg: `힝... ㅜㅜ ${why}\n한번만 더 해보자!!`.replace('ㅜㅜ \n', 'ㅜㅜ\n'), score: sc };
 }
 // AI 답변 (영어 질문하기)
 export function aiAnswerHTML(r) {

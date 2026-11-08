@@ -114,7 +114,6 @@ export function speak(root) {
       </div>` : D.canEdit() ? `<a class="btn sm soft mt12" href="#/settings">${ic('plus')} 영상 추가하기</a>` : ''}
     </section>
     <div class="modes">
-      <a class="mode" href="#/express"><span class="mode-ic">${ic('sparkle')}</span><span class="grow"><b>즉석 영어 표현</b><small>하고 싶은 말을 한국어로 → 바로 영어로</small></span>${ic('next')}</a>
       <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 대화하기</b>${ic('next')}</button>
     </div>
     <section class="call-log">
@@ -139,18 +138,11 @@ export function speak(root) {
 }
 // 더보기: 통화 콘텐츠를 썸네일 · 제목 · 간단한 설명으로 · 상황으로 거르기
 function contentSheet(root, vids) {
-  const sits = situations().filter(([k]) => vids.some(v => matchesSit(v, k)));
-  let f = '';
-  const sh = sheet(`<h3>누구랑 통화할까?</h3>${sits.length > 1 ? `<div class="sit-row ct-sits" id="csits"></div>` : ''}<div class="ct-list" id="clist"></div>`);
-  const draw = () => {
-    const list = vids.filter(v => !f || matchesSit(v, f));
-    if ($('#csits', sh)) { $('#csits', sh).innerHTML = [['', '전체'], ...sits].map(([k, l]) => `<button class="sit ${f === k ? 'on' : ''}" data-cs="${k}">${esc(l)}</button>`).join(''); $$('[data-cs]', sh).forEach(b => b.onclick = () => { f = b.dataset.cs; draw(); }); }
-    $('#clist', sh).innerHTML = list.map(v => `<div class="ct-item"><span class="ct-th" style="background-image:url('${vThumb(v)}')"></span>
-      <div class="ct-meta"><b>${esc(v.title)}</b><small>${esc(v.desc || conceptOf(v))}</small></div>
-      <div class="ct-ib">${voiceOk(v) ? `<button data-vc="${v.id}" data-voice="1" aria-label="음성통화">${ic('phoneF')}</button>` : ''}<button class="vid" data-vc="${v.id}" aria-label="영상통화">${ic('cam')}</button></div></div>`).join('');
-    $$('[data-vc]', sh).forEach(b => b.onclick = () => { unlock(); sh.close(); call(root, 'call', D.video(b.dataset.vc), { voice: !!b.dataset.voice }); });
-  };
-  draw();
+  const sh = sheet(`<h3>나랑 통화할래?! ㅎㅎ</h3><div class="ct-list" id="clist"></div>`);
+  $('#clist', sh).innerHTML = vids.map(v => `<div class="ct-item"><span class="ct-th" style="background-image:url('${vThumb(v)}')"></span>
+    <div class="ct-meta"><b>${esc(String(v.title || '').split('\n')[0])}</b><small>${esc(v.desc || conceptOf(v))}</small></div>
+    <div class="ct-ib">${voiceOk(v) ? `<button data-vc="${v.id}" data-voice="1" aria-label="음성통화">${ic('phoneF')}</button>` : ''}<button class="vid" data-vc="${v.id}" aria-label="영상통화">${ic('cam')}</button></div></div>`).join('');
+  $$('[data-vc]', sh).forEach(b => b.onclick = () => { unlock(); sh.close(); call(root, 'call', D.video(b.dataset.vc), { voice: !!b.dataset.voice }); });
 }
 // 달력: 통화한 날에 점
 function calSheet(cur, pick) {
@@ -202,10 +194,10 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   const list = mode === 'call' && v ? callTurns(v) : [];
   // 새 전화는 영상 속 랜덤 위치에서 시작 (이어서 하기는 그 위치부터) · 최소 3문장은 남게
   if (start == null) start = mode === 'call' && list.length > 1 ? Math.floor(Math.random() * Math.max(1, list.length - 2)) : 0;
-  const vth = v ? vThumb(v) : '';
+  // 음성통화 화면: 전화 올 때 사진(영상 관리에서 고른 사진)을 가운데 원에 · 영상 썸네일은 쓰지 않음
   root.innerHTML = `<div class="vcall fill ${voice ? 'voice' : ''}">
     <div class="vc-stage"><div class="vc-ambient"></div><div class="vc-video" id="vv"><div id="vp"></div></div><div class="vc-grad"></div>
-      ${voice ? `<div class="vc-voice"><div class="vv-bg" style="background-image:url('${vth}')"></div><span class="vv-orb"><span class="orb-waves"><i></i><i></i><i></i></span><span class="vv-pic" style="background-image:url('${vth}')"></span></span></div>` : ''}
+      ${voice ? `<div class="vc-voice"><div class="vv-bg" style="background-image:url('${ph.p.src}')"></div><span class="vv-orb"><span class="orb-waves"><i></i><i></i><i></i></span><span class="vv-pic" style="${avatarStyle(ph.p, 132)}"></span></span></div>` : ''}
       <div class="vc-wait" id="vwait"><span class="vw-dots"><i></i><i></i><i></i></span></div></div>
     <header class="vc-head"><b>${NAME}</b><span class="vc-time" id="vtm">연결 중…</span>${voice ? '<span class="vc-kind">음성통화</span>' : ''}</header>
     <span class="vc-prog" id="vprog"></span>
@@ -218,14 +210,14 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
       <p class="vc-status" id="vst"></p>
       <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어에 대해 물어봐요 (AI)" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
       <div class="vc-ctrl">
-        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="AI에게 영어 질문">${ic('sparkle')}</button><span>질문</span></div>
+        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="AI에게 영어 질문">${ic('pup')}</button><span>질문</span></div>
         <div class="vc-c"><button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg><span class="mic-ic">${ic('micF')}</span><span class="stop-ic">${ic('stop')}</span></button><em id="vsec"></em></div>
         <div class="vc-c"><button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button><span>종료</span></div>
       </div></div>
     <div class="vc-panel" id="vpanel"></div>
     <div class="vc-bye hide" id="vbye"><p>${NAME}와 통화 종료</p></div>
     <div class="ring2" id="ring">
-      ${voice ? `<div class="ring-photo vring" style="--th:url('${vth}')"><span class="vv-pic" style="background-image:url('${vth}')"></span></div>` : '<div class="ring-photo" id="rphoto"></div>'}<div class="ring-shade"></div>
+      <div class="ring-photo" id="rphoto"></div><div class="ring-shade"></div>
       <div class="ring-top"><span class="ring-kind">${ic(voice ? 'phoneF' : 'cam')} ${me.name ? `${esc(me.name)}에게 ` : ''}${voice ? '음성통화' : '영상통화'}</span><h2 class="ring-name">${NAME}</h2>${concept ? `<p class="ring-concept">${esc(concept)}</p>` : ''}</div>
       <div class="ring-acts"><div><button class="r-no" id="dec" aria-label="거절">${ic('phoneoff')}</button><span>거절</span></div>
         <div><button class="r-ok" id="acc" aria-label="받기"><span class="ring-waves"><i></i><i></i><i></i></span>${ic('phoneF')}</button><span>받기</span></div></div>
@@ -234,8 +226,8 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   const $v = s => $(s, root);
   const unmuteAll = () => pl?.unmute?.();
   root.addEventListener('pointerdown', unmuteAll, { capture: true });
-  let unPhoto = voice ? null : mountPhoto($v('#rphoto'), ph.p, { focusY: 0.42 });
-  if (!voice) rememberPhoto(ph.p.id);
+  let unPhoto = mountPhoto($v('#rphoto'), ph.p, { focusY: 0.42 });
+  rememberPhoto(ph.p.id);
   startRing();
   let callPos = start, stopped = false, dead = false, endTurn = null, skipTurn = null, typed = null, t0 = 0, timer = null, accepted = false, pending = null;
   const vv = $v('#vv');
@@ -300,7 +292,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   const acts = (items = []) => { const el = $v('#vacts'); el.innerHTML = items.map(([l, k]) => `<button class="vc-act" data-a="${k}">${l}</button>`).join(''); return el; };
 
   // 내 차례: 마이크 또는 키보드 → {text, sec, skipped}
-  function turn({ limit = 0, auto = false, label = '영어로 말해볼까?', hint = null, ambient = false, onText = null } = {}) {
+  function turn({ limit = 0, auto = false, label = '영어로 한번 말해볼까?ㅎㅎ', hint = null, ambient = false, onText = null } = {}) {
     return new Promise(resolve => {
       status(label);
       const mic = $v('#vmic'), rg = $('.ring-svg circle', mic), secEl = $v('#vsec'), hb = $v('#vhint');
@@ -352,7 +344,6 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   const hideFb = () => { fb.classList.add('hide'); fb.innerHTML = ''; $v('.vc-low').classList.remove('fbon'); };
   const saveMine = (u, before) => t => ({ kind: 'mine', level: 'mine', uttId: u?.ids?.[0] || u?.id || null, ko: u?.ko || '', text: t, before: before || '', en: { easy: '', natural: t, advanced: '' }, pattern: u?.pattern || '' });
   // 카드: 버튼을 누를 때까지 기다림 (자동으로 안 넘어감) · 왼쪽 = 연습, 오른쪽 = 다음(작게)
-  // 'retry'(다시 말하기)는 카드를 닫지 않고 추천 문장만 블러 → 안 보고 다시 말하기
   function card(html, btns, save) {
     return new Promise(res => {
       fb.innerHTML = `<div class="fbc ${html ? '' : 'bare'}">${html}<div class="fbc-btns">${btns.map(([k, l, cls]) => `<button class="${cls === 'nx' ? 'nx-btn' : cls === 'line' ? 'btn sm soft' : 'btn sm'}" data-k="${k}">${l}</button>`).join('')}</div></div>`;
@@ -370,8 +361,10 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
     tg.classList.remove('hide'); sayCard(tg, { en: target, pattern, mode: 'read' });
     const a = await turn({ label: '보면서 따라 말해요' }); log('sp-practice', a, uttId);
     tg.classList.add('hide'); tg.innerHTML = '';
-    return stopped ? 'stop' : a.skipped ? 'next' : 'ok';
+    return { k: stopped ? 'stop' : a.skipped ? 'next' : 'ok', text: a.text || '' };
   }
+  // 내 말풍선에 정확도 %
+  const accMe = n => { const m = [...$$('.vm.me', chat)].pop(); const p = m && $('p', m); p && !$('.acc-b', p) && p.insertAdjacentHTML('beforeend', ` <em class="acc-b ${n >= 85 ? 'hi' : ''}">${n}%</em>`); };
 
   // ----- 1. 백현이랑 전화하기: 듣고 번역해서 말하기 -----
   // 내 영어 → 백현이 반응(채팅 말풍선) → 학습 카드(내 문장 · 추천 문장 · 뜻 · 짧은 설명 · 추천 표현 접힘)
@@ -381,28 +374,33 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
       const u = list[i], target = natOf(u), nx = list[i + 1]; callPos = i; progress(`${i + 1} / ${list.length}`);
       await say(u); if (stopped) return;
       say2('baek', u.ko, u); curLine = { ko: u.ko, en: target }; setLpCtx(curLine);
-      const r = await turn({ label: '영어로 바꿔 말해볼까?', hint: { en: target, pattern: u.pattern, keywords: u.keywords } }); log('sp-call', r, u.id); if (stopped) return;
+      const r = await turn({ label: '영어로 한번 말해볼까?ㅎㅎ', hint: { en: target, pattern: u.pattern, keywords: u.keywords } }); log('sp-call', r, u.id); if (stopped) return;
       if (r.skipped || !r.text) { if (!stopped) callPos = i + 1; continue; }
       status('다듬는 중…');
       let f = await smartFeedback({ mode: 'translate', said: r.text, target, ko: u.ko, pattern: u.pattern }); if (stopped) return;
       status(''); await bhChat(f.feedback); if (stopped) return;
-      let said = r.text, read = false;
+      const said = r.text;
       const save = saveMine(u, r.text);
       const check = t => smartFeedback({ mode: 'translate', said: t, target, ko: u.ko, pattern: u.pattern });
+      // 피드백 카드 → [보면서 따라 말하기 · 다음] → 정확도 % → [안 보고 말하기 · 다음] → 정확도 % + 백현이 멘트 하나 → 맞으면 다음 대사
+      let stage = 'fb';
       for (;;) {
-        const k = await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern, said }),
-          [['retry', '다시 말하기', ''], ...(read ? [] : [['read', '보면서 따라 말하기', 'line']]), NX(nx, nx ? '다음' : '마치기')], save);
+        const k = stage === 'fb'
+          ? await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern, said }), [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save)
+          : await card('', [['recall', '안 보고 말하기', ''], NX(nx, nx ? '다음' : '마치기')]);
         if (stopped) return;
         if (k === 'next') break;
-        if (k === 'read') { read = true; const k2 = await readAlong(target, { uttId: u.ids[0], pattern: u.pattern }); if (k2 === 'stop') return; continue; }
-        // 다시 말하기: 카드는 그대로 두고 추천 문장만 블러 · 마이크 바로 켜짐
-        const b = await turn({ label: '안 보고 다시 말해봐' }); log('sp-retry', b, u.ids[0]); if (stopped) return;
-        if (b.skipped) { hideFb(); break; }
+        if (k === 'read') { const a = await readAlong(target, { uttId: u.ids[0], pattern: u.pattern }); if (a.k === 'stop') return; if (a.text) { accMe(diff(a.text, target).score); D.markStep(u.ids[0], 'read'); } stage = 'recall'; continue; }
+        // 안 보고 말하기: 한국어만 보고 말하기
+        const tg = $v('#vtg'); tg.classList.remove('hide'); sayCard(tg, { ko: u.ko, en: target, pattern: u.pattern, mode: 'recall' });
+        const b = await turn({ label: '이번엔 안보고 해보자!!' }); log('sp-retry', b, u.ids[0]); tg.classList.add('hide'); tg.innerHTML = ''; if (stopped) return;
+        if (b.skipped) break;
         status('확인하는 중…');
         const rr = await checkRetry(b.text, target, { ko: u.ko, check }); if (stopped) return;
-        hideFb(); status(''); await bhChat(rr.msg); if (stopped) return;
+        status(''); if (rr.state !== 'unsure') accMe(rr.score);
+        await bhChat(rr.msg.split('\n').join(' ')); if (stopped) return; // 멘트 하나
         if (rr.state === 'ok') { D.markStep(u.ids[0], 'recall'); await wait(700); if (stopped) return; if (nx) startClip(nx); break; }
-        if (rr.state === 'retry' && rr.f) { f = rr.f; said = b.text; }
+        stage = 'recall';
       }
       if (!stopped) callPos = i + 1;
     }

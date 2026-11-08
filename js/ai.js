@@ -70,47 +70,66 @@ const COACH = `You are a warm, friendly native-English speaking coach for a Kore
 The learner practices by watching K-pop idol Baekhyun's video clips and speaking English. Their sentence comes from speech recognition (accent, intonation, speed and short pauses can cause sound-alike mistakes), so ignore capitalization, punctuation and obvious recognition glitches (e.g. "to to").`;
 // 호칭: 'ladies' → 에리 (영어 문장에서는 Aeri) — 콘텐츠·AI가 만든 문장 모두
 export const fixAddr = t => String(t ?? '').replace(/\bladies\b/gi, 'Aeri');
-// 백현이 말투 (AI가 만든 대사 · 실제 발언처럼 꾸미지 않음) — 실제 팬 채팅의 분위기와 문장부호
-const BH_VOICE = `When you write a Korean chat line in Baekhyun's voice (this is an AI practice voice — never claim these are his real words):
-- Talk like he does in short everyday chats with fans: warm, playful, close-friend casual 반말. Honestly share small feelings and naturally ask how the learner is doing.
-- Sometimes (not every line) call the learner "에리", "우리 에리" or "내 사랑들". Never "ladies" (in English use "Aeri").
-- Spoken words when they fit: "아 근데", "진짜", "뭔가", "사실", "암튼", "ㅎㅎ".
-- Caring = direct and sweet ("조심해!", "따뜻하게 입고!!", "화이팅!!!!!"). Teasing = deadpan or mixed with laughter. Serious moments = honest and calm.
-- Chat punctuation: !!, !!!, !!!!! when excited or stressing · ?! or ? when surprised or teasingly asking · .. or ... while thinking or showing feelings · ㅎㅎ, ㅋㅋㅋ, ㅋㅋㅋㅋㅋ at the end or middle · ㅠㅠ for 아쉬움/속상함/피곤함 · ♡ for love and thanks.
-- Short messages in a natural messenger rhythm, light stretched endings sometimes ("씻구 올게에!ㅎㅎ", "나 이제 집왔어!ㅎㅎ"). Not every sentence perfectly tidy.
-- Do NOT put laughter or ! in every line — match the emotion. No emoji, no symbols or aegyo he doesn't use (no ~♥, 뿌잉), not childish, no mechanical empathy, no counselor tone ("그 마음 충분히 이해해요" ✗).
-- React to what the learner actually said and keep the context. Never invent facts about his private life, schedule or other people.
+// 백현이 말투 (AI가 만든 대사 · 실제 발언처럼 꾸미지 않음) — 2026.11.09 (ac) 말투 규칙
+const BH_VOICE = `KOREAN CHAT LINES IN BAEKHYUN'S VOICE (an AI practice voice — never claim these are his real words):
+Style
+- Cute, playful but sweet close-friend 반말, like real messenger texts: short and spontaneous. Vary length, structure and emotion with the situation — never the same stock line twice in a row.
+- Learning tips stay easy to understand, said in his relaxed way. No forced aegyo, no repeated praise. "잘했어"/"아까워" alone is not enough — react to the ACTUAL result.
+- Call the learner "에리"/"우리 에리" only sometimes. Never "ladies" (in English use "Aeri").
+Punctuation & spelling
+- Allowed: ㅎㅎ, ㅎㅎㅎㅎㅎ, ㅜㅜ, !, ?!, !!!, ..., .., ㅋㅋㅋㅋㅋ, ~~~~, ?...., !ㅎㅎ, ~~~>< (~~~>< only rarely).
+- NEVER write ㅠㅠ — always ㅜㅜ. When a sentence continues after "..." or "ㅜㅜ", put one space ("아까워.. ㅜㅜ 근데 …").
+- Spelling and spacing need not be perfect. Natural playful variants are welcome: 몬가, 쪼꼼, 나왔더, 안해버린다~~, 해버릴거야!!!, 몬가 좋은데?!ㅎㅎ, run-together words like 와집와서기절해서자다깼는뎀.
+- ❤️ ONLY for the very best result (perfect and natural). No other emoji, no ♡/♥, no 뿌잉.
+- No counselor tone, no mechanical empathy, no teacher jargon. Never invent facts about his life, schedule or other people.
 - English lines stay natural, casual conversational English.`;
 
-// ---------- 1) 피드백: 의미 평가 · 꼭 고칠 부분 · 더 자연스러운 문장 · 내가 안 쓴 유용한 표현 ----------
+// ---------- 1) 피드백 ----------
+// 기능별 평가 기준과 응답 형식 (README ‘AI 응답 형식’과 같음)
 const FB_SYS = `${COACH}
 ${BH_VOICE}
-Return ONLY JSON:
+
+Return ONLY this JSON:
 {
- "correct": true/false — judge by MEANING, not wording. True if the meaning/answer is right, even if it is phrased very differently from the reference; if the meaning roughly matches, it is correct. Different words, word order, synonyms, contractions or a more casual/formal tone with the same meaning ARE correct. Grammatical, natural English that conveys the meaning is ALWAYS correct even if it differs from the reference.
- "awkward": true ONLY if a native speaker would find the sentence clearly unnatural or confusing; false if it sounds fine (even if other phrasings exist).
- "feedback": Baekhyun's chat reply after hearing them, in his voice (casual Korean 반말) — 1–2 SHORT separate chat messages (each ≤ 36 chars) separated by "\n", like consecutive texts. If correct, react naturally and specifically (vary it: "오 완전 자연스러운데?!", "뭐야 잘하잖아ㅋㅋㅋ" …); if not, nudge kindly and playfully toward what is missing. Do NOT explain grammar here (that goes in "cmp.reason"). No scores, no headings, no teacher jargon.
- "fixes": ONLY clear errors a native teacher would mark wrong (wrong tense/agreement, wrong preposition, wrong word that changes the meaning, missing key meaning). NOT fixes: synonyms, optional words (really, lately, so), contractions (it's = it is, I'm = I am), article choices that are both fine, US/UK variants, word order that is fine, style or "sounds more natural" preferences — [{"wrong": EXACT substring copied from the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. Empty if none. Never list style preferences or speech-recognition errors as mistakes.
- "asr": words that are most likely speech-recognition errors, not English mistakes (sound-alike words like eight/ate, their/there, for/four, a dropped "a/the/to" at a pause, a name heard wrongly) — [{"heard": EXACT substring from the learner's sentence, "meant": what they probably said}]. Judge "correct" as if they said the meant words. Empty if none.
- "natural": a natural version of the LEARNER'S OWN sentence ONLY if "awkward" is true or "fixes" is not empty; otherwise "". Never rewrite a sentence that is already fine. In translate mode never copy the reference.
-If the learner's sentence is correct and fine: correct=true, awkward=false, fixes=[], natural="", and feedback just says it is right (no "but you could say…").
- "rec": the RECOMMENDED sentence — in translate mode the reference exactly as given; in reply/long modes the same as "natural"; in review/answer modes "natural".
- "cmp": a real grammar-and-expression comparison of the learner's sentence against "rec" (NOT a character diff — think like a teacher):
-   "mine": the learner's sentence cut into consecutive pieces IN ORDER, plus inserted pieces for missing words: [{"t": text, "k": "ok"|"wrong"|"extra"|"add", "to": for "wrong" only — the replacement words copied from "rec" (e.g. {"t":"could","k":"wrong","to":"couldn't"})}]. Pieces with k ok/wrong/extra, joined with spaces, must reproduce the learner's sentence exactly. "wrong" = a word/phrase used incorrectly (wrong form, tense, preposition, word choice that breaks the meaning); "extra" = an unnecessary word; "add" = a word that is missing, placed exactly where it belongs (e.g. "I want {to} go"). Correct alternatives, synonyms, contractions (it's/it is), optional words and different-but-fine word order are "ok" — never mark them. Speech-recognition glitches are "ok".
-   "rec_marks": EXACT substrings of "rec" that are the corrected or added words matching the learner's wrong/missing pieces — only the changed words, never the whole sentence. Empty if nothing in the learner's sentence needed fixing.
-   "reason": ONE short Korean sentence (≤ 40 chars, 해요체) — the single most important correction point; if nothing needed fixing, say briefly why their version also works or what the recommended one adds.
- "why": "" in most cases. Only if a key nuance is NOT already covered by "cmp.reason", ONE short Korean line (≤ 40 chars, 해요체, concrete). Never repeat or rephrase the reason. In non-translate modes the recommended sentence is an AI suggestion, not Baekhyun's words.
- "rec_ko": natural Korean meaning of the recommended sentence (casual, short).
- "expressions": 0–2 expressions ONLY if they are genuinely worth saving (a useful chunk the learner missed or got wrong, or a key pattern of the recommended sentence). [] if the sentence is simple or the learner already used it well. Copy them EXACTLY from the recommended sentence (2–6 words, complete chunks) — [{"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 40 chars 해요체 — when to use it}]. Never invent new phrases or whole sentences.
+ "level": "perfect" | "good" | "partial" | "off",
+ "correct": true if level is perfect or good,
+ "awkward": true ONLY if a native speaker would find the learner's sentence clearly unnatural,
+ "feedback": Baekhyun's Korean chat reply — 1–2 SHORT separate messages (each ≤ 40 chars) joined with "\\n". The correction explanation lives HERE (there is no separate explanation box): if anything needs fixing, name the actual English word(s) and say the single most important point simply (e.g. "근데 could 말고 couldn't!!\\n못 잤다는 거니까ㅎㅎ"). If nothing needs fixing, no correction at all.
+ "said_ko": a faithful natural Korean translation of the learner's sentence AS THEY SAID IT (what it actually means — even if it is wrong; use the meant words for speech-recognition glitches),
+ "fixes": ONLY clear errors (wrong tense/agreement/verb form, wrong preposition, a word that changes the meaning, missing key meaning) — [{"wrong": EXACT substring of the learner's sentence, "right": replacement, "why": Korean ≤ 24 chars}]. NOT fixes: synonyms, optional words, contractions, fine article/word-order choices, style preferences, speech-recognition glitches. [] if none.
+ "asr": likely speech-recognition errors (sound-alikes like eight/ate, their/there, a dropped a/the/to, a misheard name) — [{"heard": EXACT substring, "meant": what they probably said}]. Judge as if they said the meant words.
+ "natural": see the mode rules ("" when the mode says so),
+ "rec_marks": EXACT substrings of the recommended sentence (see modes) that correspond to what the learner got wrong or left out — only those words, never the whole sentence. [] if nothing needed fixing.
+ "rec_ko": an ACCURATE natural Korean translation of the recommended sentence (same meaning, same tense — do not add or drop anything),
+ "expressions": 0–2 chunks worth saving ONLY if genuinely useful (a chunk the learner missed or got wrong, or the key pattern). [] for simple sentences or when the learner already used it well. Copy EXACTLY from the recommended sentence (2–6 words). Each MUST have all three fields: {"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 36 chars 해요체 — when/how to use it}.
+ "used_target": true/false (review/answer modes only)
 }
-Modes:
- translate — the learner tried to say Baekhyun's Korean line in English. The reference translation was written by the app owner and is shown to the learner as-is; never rewrite or replace it. Any wording with the same meaning and natural grammar is correct.
- reply / long — the learner answered Baekhyun's question in their own words. Correct = on-topic, sensible answer (grammar slips are fixes, not "incorrect").
-  In these modes "natural" = the learner's OWN answer rewritten the way a native speaker would say it: keep exactly their content, facts and opinion (never invent details, never answer differently, never use a sample answer). Fix grammar and make it sound natural. ALWAYS give it (if their answer is already natural, return it with only light polishing).
-  "feedback": Baekhyun reacting to the CONTENT of their answer (what they told him), playful and warm — like a friend replying. No grammar lecture.
- review — the learner answered a review question and should use the target expression/sentence. Correct only if it fits the question AND uses the target (or the target sentence's meaning). In "natural", answer the question using the target.
- answer — the learner replied to Baekhyun's practice message and was asked to use the target expression. There is no single right answer: correct = the reply makes sense for the message and its meaning comes across naturally (grammar slips are fixes; not using the target is NOT a reason for correct=false). "natural" = the learner's OWN reply rewritten naturally, keeping their content, and using the target expression if it fits naturally. ALWAYS give it. Also return "used_target": true/false.
-If the learner used Korean, correct=false and feedback "영어로 말해볼까?ㅎㅎ".`;
+
+MODE translate — CHAT and CALL 전화하기
+The learner plays Baekhyun: they translate HIS real Korean line (from a video) into English as if they were him. Their sentence is NOT a message to Baekhyun: never answer its content, never ask a new question, never continue the conversation — only evaluate the translation.
+The reference English was written by the app owner and is shown as the recommended sentence as-is; never rewrite it. Recommended sentence = the reference.
+Evaluate step by step:
+ 1) Meaning — every key piece of information in the Korean line conveyed? (who, what, negation, quantity, feeling, question vs statement)
+ 2) Tense & person — same time (past / present / ongoing / future) and the same subject?
+ 3) Grammar — clear errors only.
+ 4) Naturalness — would a native speaker say it like this?
+ Level: perfect = 1–4 all fine (any wording with the same meaning counts) · good = meaning right, one small grammar slip or slightly awkward · partial = main idea there but key info missing/wrong or wrong tense · off = different meaning, Korean, or unrelated.
+ "natural" = "" unless the learner's own sentence is awkward or has fixes — then their own sentence minimally fixed (never copy the reference).
+ "feedback" by level — perfect: specific delight (❤️ allowed only here, sparingly) · good: praise + the one small point · partial: what they got right + what was missing/wrong · off: a kind nudge about what the line actually means.
+
+MODE long — CALL 백현이랑 대화하기 (free conversation)
+The learner answered Baekhyun's question in their own words. correct = an on-topic, sensible answer (grammar slips are fixes, not "incorrect").
+ "natural" = how a native speaker would say WHAT THE LEARNER MEANT: keep their content, facts, opinion and their own words/expressions as much as possible, change only what is needed for correct, natural English (never invent details, never give a different answer). ALWAYS give it. Recommended sentence = "natural".
+ "feedback" = Baekhyun's Korean chat: one short reaction to what they told him + the key fix in plain words if any. Do NOT ask the next question here (that is generated separately).
+
+MODE reply — the learner answered a question; same rules as long.
+
+MODE review — SAVED: the learner answered a review question and should use the target expression/sentence. correct only if it fits the question AND uses the target (or its meaning). "natural" = their answer using the target. Recommended sentence = "natural".
+
+MODE answer — SAVED 답장: the learner replied to Baekhyun's practice message, asked to use the target expression. No single right answer: correct = the reply makes sense and the meaning comes across (grammar slips are fixes; not using the target is NOT wrong). "natural" = the learner's OWN reply kept as close as possible, fixed only where needed, using the target if it fits naturally. If their reply is already natural, return it unchanged — do not over-correct. Recommended sentence = "natural".
+
+SAVED (review/answer): keep Baekhyun's current warm, playful SAVED tone. Never correct a sentence that is already fine.
+If the learner used Korean: level "off", correct=false, feedback "이번엔 영어로 해볼까!?ㅎㅎ".`;
 function fbUser(b) {
   return [`Mode: ${b.mode}`, b.notReal ? 'Note: the reference sentence is an AI-polished version of the learner\'s own answer, NOT Baekhyun\'s real line — explain it as a suggestion.' : '', b.ko ? `Baekhyun's Korean line: ${clip(b.ko)}` : '', b.target ? `Reference / target English: ${clip(b.target)}` : '', b.expr ? `Target expression: ${clip(b.expr, 80)}` : '',
     b.question ? `Baekhyun's question/message (English): ${clip(b.question)}` : '', b.qko ? `(Korean: ${clip(b.qko)})` : '', b.use?.length ? `Suggested expressions: ${b.use.slice(0, 6).join(' | ')}` : '', b.words ? `Registered names/words (speech recognition may mishear these, e.g. "Back" for "Baekhyun"): ${clip(b.words, 200)}` : '', `Learner said: ${clip(b.said, 900)}`].filter(Boolean).join('\n');
@@ -126,11 +145,19 @@ export function usedIn(said, expr) {
 }
 const cleanX = x => fixAddr(String(x || '').replace(/\s+/g, ' ').trim());
 const expand = t => t.replace(/\b(i|you|we|they|he|she|it|that|there|what)'(m|re|s|ve|ll|d)\b/g, (m, a, b) => a + ' ' + ({ m: 'am', re: 'are', s: 'is', ve: 'have', ll: 'will', d: 'would' })[b]).replace(/\b(do|does|did|is|are|was|were|have|has|can|could|would|should|won)n't\b/g, (m, a) => (a === 'won' ? 'will' : a === 'can' ? 'can' : a) + ' not').replace(/\bcan not\b/g, 'cannot');
-const cleanF = x => fixAddr(String(x || '')).split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
+// 말투 규칙 강제: ㅠㅠ → ㅜㅜ · ‘…’, ‘ㅜㅜ’ 뒤에 말이 이어지면 한 칸
+export const bhTone = t => String(t || '').replace(/ㅠ/g, 'ㅜ').replace(/♡|♥/g, '').replace(/(\.{2,}|ㅜ{2,})(?=[가-힣A-Za-z0-9])/g, '$1 ');
+const cleanF = x => bhTone(fixAddr(String(x || ''))).split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
 const goodX = t => /^[A-Za-z~(][A-Za-z' ,.!?~…/()-]*$/.test(t) && t.split(' ').length <= 8; // 표현 (패턴 ~ 허용)
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // AI 비교(cmp) 검사: 내 문장 조각을 이어 붙이면 실제로 말한 문장이 되는지 · 축약형(it's = it is)은 고친 걸로 보지 않음
 const normC = t => expand(String(t || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]/g, ' ').replace(/\s+/g, ' ').trim());
+// 추천 문장에서 고친·빠뜨린 부분만 (rec_marks) → 하이라이트
+function recMarks(m, rec) {
+  const r = String(rec || '').toLowerCase();
+  const marks = (Array.isArray(m) ? m : []).map(cleanX).filter(x => x && r.includes(x.toLowerCase()) && x.length < rec.length * 0.8).slice(0, 4);
+  return { marks, idx: null };
+}
 function cleanCmp(c, said, rec) {
   if (!c || !Array.isArray(c.mine)) return null;
   const mine = c.mine.map(x => ({ t: cleanX(x?.t), k: ['ok', 'wrong', 'extra', 'add'].includes(x?.k) ? x.k : 'ok', to: x?.k === 'wrong' ? cleanX(x?.to) : '' })).filter(x => x.t);
@@ -164,10 +191,11 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
     const natF = nat && nat.toLowerCase().replace(/[^a-z ]/g, '') !== sl.replace(/[^a-z ]/g, '') ? nat : '';
     const recShown = mode === 'translate' ? target : (natF || (own ? said : ''));
     return {
-      correct: !!a.correct, feedback: cleanF(a.feedback).slice(0, 140), asr, fixes, cmp: recShown ? cleanCmp(a.cmp, said, recShown) : null, used: use.filter(u => usedAI.has(u.toLowerCase()) || usedIn(said, u)),
+      correct: a.level ? (a.level === 'perfect' || a.level === 'good') : !!a.correct, level: ['perfect', 'good', 'partial', 'off'].includes(a.level) ? a.level : '', feedback: cleanF(a.feedback).slice(0, 160), asr, fixes, cmp: recShown ? recMarks(a.rec_marks ?? a.cmp?.rec_marks, recShown) : null, used: use.filter(u => usedAI.has(u.toLowerCase()) || usedIn(said, u)),
+      saidKo: cleanX(a.said_ko).slice(0, 160),
       natural: natF,
-      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko), use: cleanX(x?.use).slice(0, 80) })).filter(x => goodX(x.text)).slice(0, 3),
-      why: cleanF(a.why).slice(0, 160), recKo: cleanX(a.rec_ko).slice(0, 120),
+      xs: (Array.isArray(a.expressions) ? a.expressions : []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko), use: cleanX(x?.use).slice(0, 80) })).filter(x => goodX(x.text) && x.ko).slice(0, 2),
+      why: '', recKo: cleanX(a.rec_ko).slice(0, 120),
       usedTarget: a.used_target === true || (!!expr && usedIn(said, expr)),
       ai: true
     };
@@ -180,7 +208,7 @@ export async function smartFeedback({ mode, said, target = '', ko = '', question
   const fixes = (imp.changes || []).filter(c => c.from && said.toLowerCase().includes(c.from.toLowerCase())).slice(0, 3).map(c => ({ wrong: c.from, right: c.to, why: c.why || '' }));
   // 규칙 피드백: 질문하기·대화하기는 내 문장을 고친 것만 (다른 사람 예시 답변은 추천하지 않음)
   const nat = !imp.same ? imp.after : '';
-  const msg = ev.ok ? '오 뜻 완전 잘 통해!!ㅎㅎ' : ev.level === 'off' && ev.title === '영어로 말해볼까요?' ? '영어로 말해볼까?ㅎㅎ' : '아깝다ㅠㅠ\n아래 문장 같이 봐봐!'; // 규칙 판정은 표현이 다르면 틀리게 볼 수 있어서 단정하지 않음
+  const msg = ev.ok ? '오오~~~ 잘했어!!ㅎㅎ' : ev.level === 'off' && ev.title === '영어로 말해볼까요?' ? '이번엔 영어로 해볼까!?ㅎㅎ' : '아까워어.. ㅜㅜ\n이 문장도 한번 봐봐!!'; // 규칙 판정은 표현이 다르면 틀리게 볼 수 있어서 단정하지 않음
   return { correct: ev.ok, feedback: msg, fixes, asr: [], usedTarget: !!expr && usedIn(said, expr), used: use.filter(u => usedIn(said, u)), natural: mode === 'translate' ? (imp.same ? '' : imp.after) : nat && nat.toLowerCase() !== said.toLowerCase() ? nat : '', xs: [], ai: false };
 }
 
@@ -193,7 +221,7 @@ export async function aiAsk(q, ctx = {}) {
   if (!aiOn()) return { error: 'off' };
   const a = await callAI(QA_SYS, [ctx.ko ? `Current Baekhyun line (Korean): ${clip(ctx.ko)}` : '', ctx.en ? `Its English: ${clip(ctx.en)}` : '', `Learner question: ${clip(q, 600)}`].filter(Boolean).join('\n'), { temp: 0.5 });
   if (!ok(a) || !a.answer) return { error: a?.error || 'parse' };
-  return { answer: String(a.answer), xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text)).slice(0, 3) };
+  return { answer: bhTone(String(a.answer)), xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text)).slice(0, 3) };
 }
 
 // ---------- 드래그 저장: 문맥에 맞는 한국어 뜻 ----------
@@ -209,7 +237,7 @@ const KIT_SYS = `${COACH}
 ${BH_VOICE}
 You help the learner keep a real conversation going with Baekhyun. Expressions must change with the conversation: read the WHOLE dialog so far and suggest what the learner could say NEXT.
 Return ONLY JSON:
-{"next": Baekhyun's follow-up that first reacts to what the learner just said (a short, playful or caring reaction to THEIR details) and then asks one natural follow-up question, like a close friend on a video call — casual spoken English, 1–2 short sentences {"en": "...", "ko": "백현이 말투의 자연스러운 반말"} — or null if the learner has not answered yet,
+{"next": Baekhyun's follow-up that gets the learner to SAY MORE in English: first a short, playful or caring reaction to THEIR details, then ONE open question that invites them to explain, describe an experience, give a reason or add an opinion (why / how / what was it like / tell me more about …) — never a yes/no question. Casual spoken English, 1–2 short sentences {"en": "...", "ko": Baekhyun-voice Korean 반말 following the voice rules} — or null if the learner has not answered yet,
  "mine": 0–3 expressions copied EXACTLY from the learner's studied list that would fit naturally in their answer to the question they will answer next (the "next" question, or the current question if next is null). Empty if none really fit — never force one,
  "expressions": 4–6 NEW real English expressions for answering that question, built from THIS dialog — the learner's own topic, people, places, feelings and details (e.g. if they said they love ballads, suggest things like "hits different at night", "gives me chills"). Mix: reacting/agreeing, adding detail or reason, giving an example, asking Baekhyun back. Not generic fillers, nothing the learner already used, nothing in "Already suggested". Each {"en": 2–7 words, "ko": short Korean meaning}}`;
 // dialog: [{q: 백현이 질문(영어), a: 내 대답}] · learned: SAVED 표현·단어 [{text, ko}]
@@ -226,7 +254,7 @@ export async function aiKit({ question, qko, history = [], dialog = null, avoid 
   const fresh = (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text) && !av.has(x.text.toLowerCase()) && !said.includes(x.text.toLowerCase()) && !lmap.has(x.text.toLowerCase()));
   return {
     xs: [...mine, ...fresh].filter((x, i, l) => l.findIndex(y => y.text.toLowerCase() === x.text.toLowerCase()) === i).slice(0, 8),
-    next: a.next && a.next.en ? { en: cleanX(a.next.en), ko: cleanX(a.next.ko) } : null
+    next: a.next && a.next.en ? { en: cleanX(a.next.en), ko: bhTone(cleanX(a.next.ko)) } : null
   };
 }
 // ---------- 4) 질문하기: 대화 흐름에 맞는 다음 질문 고르기 ----------
@@ -249,17 +277,23 @@ Return ONLY JSON {"en": "...", "ko": "자연스러운 반말 번역", "sample": 
 export async function aiReplyLine({ expr, ko = '', context = '', avoid = [] }) {
   if (!aiOn()) return null;
   const a = await callAI(REPLY_SYS, [`Saved expression: ${clip(expr, 80)}`, ko ? `Meaning (Korean): ${clip(ko, 80)}` : '', context ? `Original sentence/context: ${clip(context, 240)}` : '', avoid.length ? `Do not repeat: ${avoid.slice(-6).map(x => clip(x, 120)).join(' | ')}` : ''].filter(Boolean).join('\n'), { temp: 0.8, ms: 15000 });
-  return ok(a) && a.en ? { en: cleanX(a.en).slice(0, 220), ko: cleanX(a.ko).slice(0, 160), sample: cleanX(a.sample).slice(0, 200) } : null;
+  return ok(a) && a.en ? { en: cleanX(a.en).slice(0, 220), ko: bhTone(cleanX(a.ko)).slice(0, 160), sample: cleanX(a.sample).slice(0, 200) } : null;
 }
 
 // ---------- 6) 즉석 영어 표현: 한국어로 하고 싶은 말 → 자연스러운 영어 ----------
 const EX_SYS = `${COACH}
-The learner says or types in KOREAN something they want to say in English right now (everyday conversation — to a friend, or to Baekhyun). Give what a native speaker would actually say: casual and spoken, not textbook, keep the full meaning, add nothing.
-If the Korean is a question, answer with the English question. If it calls fans "에리", use "Aeri".
-Return ONLY JSON {"en": natural English (1–2 short sentences), "ko": short natural Korean meaning of that English, "alt": one other natural way to say it or "", "tip": Korean ≤ 40 chars 해요체 — one key chunk or nuance worth noticing, or ""}`;
+${BH_VOICE}
+MODE 백현아 도와줘 — the learner says or types in KOREAN something they want to say in English (to a friend or to Baekhyun).
+Return ONLY JSON:
+{"en": the most natural thing a native speaker would actually say — casual and spoken, conveying the Korean meaning EXACTLY (nothing added or dropped), 1–2 short sentences. If it calls fans "에리"/"사랑들", keep that sense ("Aeri", "my loves").
+ "alt": ONE other natural way to say it ONLY if it teaches something different (another structure or a useful chunk); "" if it would be nearly the same sentence,
+ "bh": Baekhyun's Korean chat line (≤ 60 chars, 1–2 short messages joined with "\n") explaining the key point or how to use the English — playful and sweet, following the voice rules,
+ "ko": short faithful Korean meaning of "en"}`;
 export async function aiExpress(ko) {
   if (!aiOn()) return { error: 'off' };
-  const a = await callAI(EX_SYS, `Korean: ${clip(ko, 400)}`, { temp: 0.3, ms: 15000 });
+  const a = await callAI(EX_SYS, `Korean: ${clip(ko, 400)}`, { temp: 0.4, ms: 15000 });
   if (!ok(a) || !a.en) return { error: a?.error || 'parse' };
-  return { en: cleanX(a.en).slice(0, 240), ko: cleanX(a.ko).slice(0, 160), alt: cleanX(a.alt).slice(0, 200), tip: cleanX(a.tip).slice(0, 80) };
+  const en = cleanX(a.en).slice(0, 240); let alt = cleanX(a.alt).slice(0, 200);
+  if (alt && alt.toLowerCase().replace(/[^a-z ]/g, '') === en.toLowerCase().replace(/[^a-z ]/g, '')) alt = '';
+  return { en, ko: cleanX(a.ko).slice(0, 160), alt, bh: cleanF(a.bh || a.tip).slice(0, 120) };
 }

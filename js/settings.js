@@ -7,7 +7,7 @@ import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
 import * as Y from './sync.js';
-import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, situations, sitLabel, TIMES_SEL, addSituation, removeSituation, addUserPhoto, removePhoto, isLive, autoLive } from './scene.js';
+import { allPhotos, pickPhoto, sceneOf, topTags, conceptOf, TAG_KO, situations, sitLabel, TIMES_SEL, addSituation, removeSituation, addUserPhoto, removePhoto, isLive, autoLive, timeOfScene } from './scene.js';
 
 let photosOpen = false;
 // 이미지 줄이기 → JPEG data URL (공용 콘텐츠에 같이 저장되므로 작게)
@@ -27,8 +27,6 @@ export function settings(root) {
   root.innerHTML = `<div class="screen">
     <header class="top"><h1 class="page-title">Settings</h1></header>
     <section class="prof-card" id="prof"></section>
-    <div class="sec-title label">ACCOUNT</div>
-    <section class="sync-card" id="sync"></section>
     ${edit ? `<section class="add-card">
       <span class="label">ADD VIDEO</span>
       <div class="url-row"><input class="input" id="url" type="url" placeholder="YouTube 링크 붙여넣기" autocomplete="off" autocapitalize="off" spellcheck="false">
@@ -46,19 +44,12 @@ export function settings(root) {
     })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}` : ''}
 
 
-    <div class="sec-title label">SPEECH RECOGNITION</div>
-    <div class="card stack">
-      <div class="row between"><b class="set-b">인식 언어</b><span class="small muted">영어 (미국)</span></div>
-      <label class="switch"><span><b>말하기 시작하면 영상 자동 일시정지</b><small>CHAT에서 마이크를 누르면 영상을 멈춰요</small></span><input type="checkbox" id="ap" ${st.autoPause !== false ? 'checked' : ''}><i></i></label>
-      <label class="switch"><span><b>CHAT 백현이 목소리 자동 재생</b><small>대사가 오면 바로 소리와 함께 재생 · CHAT 위쪽 스피커로도 켜고 끌 수 있어요</small></span><input type="checkbox" id="chs" ${st.chatSound !== false ? 'checked' : ''}><i></i></label>
-    </div>
     ${edit ? `<div class="sec-title label">음성 인식 단어 · 관리자</div>
     <div class="card stack"><div id="sttw"></div>
       <p class="tiny muted">등록한 단어만 보정해요 · 모든 사용자 공통. 비슷하게 들린 말(예: Back)은 이름 자리일 때만 바꾸고, ‘come back’ 같은 일반 영어는 그대로 둬요.</p></div>` : ''}
 
     ${edit ? `<div class="sec-title label">통화 사진 · ${allPhotos().length}</div>
     <div class="card"><div class="photo-grid manage" id="phg"></div>
-      <label class="btn sm soft block mt12">${ic('plus')} 사진 추가<input type="file" id="phadd" accept="image/*" class="hide"></label>
       <p class="tiny muted mt8">${D.isAdmin() ? '추가한 사진은 모든 사용자에게 공유돼요.' : '추가한 사진은 이 기기에만 저장돼요.'}</p></div>` : ''}
 
     <div class="sec-title label">AI</div>
@@ -77,6 +68,9 @@ export function settings(root) {
       <button class="li" id="rst"><div class="ic danger">${ic('trash')}</div><div class="grow"><b>내 학습 데이터 초기화</b><small>SAVED·단어·진도·기록 · 영상과 문장은 그대로</small></div></button>
       <a class="li" href="#/privacy"><div class="ic">${ic('info')}</div><div class="grow"><b>개인정보 처리방침 · 저작권 안내</b></div>${ic('next')}</a>
     </div>
+
+    <div class="sec-title label">ACCOUNT</div>
+    <section class="sync-card" id="sync"></section>
 
     <details class="adv help"><summary>YouTube 재생 · Premium · 소리</summary><div class="stack yt-info">
       <ul class="small bullets">
@@ -136,8 +130,6 @@ export function settings(root) {
 
 
   // 인식
-  $('#chs', root).onchange = e => D.setSetting('chatSound', e.target.checked);
-  $('#ap', root).onchange = e => D.setSetting('autoPause', e.target.checked);
   $('#aion', root).onchange = e => D.setSetting('aiOn', e.target.checked);
   const drawAI = () => {
     const p = D.get().settings.aiProvider === 'openai' ? 'openai' : 'gemini', k = aiKeys();
@@ -170,14 +162,15 @@ export function settings(root) {
   // ----- 통화 사진 관리 -----
   const drawPhotos = () => {
     const all = allPhotos(); const more = all.length > 8 && !photosOpen;
-    $('#phg', root).innerHTML = (more ? all.slice(0, 7) : all).map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('')
-      + (more ? `<button class="pg-more" id="phmore">+${all.length - 7}<small>전체 보기</small></button>` : '');
+    $('#phg', root).innerHTML = `<label class="pg-add" aria-label="사진 추가">${ic('plus')}<span>사진 추가</span><input type="file" id="phadd" accept="image/*" class="hide"></label>` + (more ? all.slice(0, 6) : all).map(p => `<div class="pg" style="background-image:url('${p.src}');background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%">${p.mine ? '<i class="pg-mine">내 사진</i>' : ''}<button class="pg-del" data-del="${p.id}" aria-label="사진 삭제">${ic('x')}</button></div>`).join('')
+      + (more ? `<button class="pg-more" id="phmore">+${all.length - 6}<small>전체 보기</small></button>` : photosOpen && all.length > 8 ? `<button class="pg-more" id="phless">${ic('x')}<small>닫기</small></button>` : '');
     $('#phmore', root) && ($('#phmore', root).onclick = () => { photosOpen = true; drawPhotos(); });
+    $('#phless', root) && ($('#phless', root).onclick = () => { photosOpen = false; drawPhotos(); $('#phg', root).scrollIntoView({ block: 'nearest', behavior: 'smooth' }); });
+    $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
     $$('[data-del]', root).forEach(b => b.onclick = async () => { if (allPhotos().length <= 1) return toast('사진은 1장 이상 있어야 해요'); if (await confirmSheet('이 사진을 지울까요?', '삭제')) { await removePhoto(b.dataset.del); settings(root); } });
   };
   if (edit) {
   drawPhotos();
-  $('#phadd', root).onchange = e => { const f = e.target.files[0]; e.target.value = ''; if (f) photoSheet(f, () => settings(root)); };
   }
   // 음성 인식 단어 (관리자) — 추가·수정·삭제
   const drawWords = () => {
@@ -316,15 +309,23 @@ function deleteAccountSheet() {
 }
 
 // ---------- 내 프로필: 이름(백현이가 부르는 이름) · 사진 ----------
+// 프로필: 사진을 누르면 사진 바꾸기 · 이름을 누르면 바로 고치기
 function mountProfile(el) {
   const draw = () => {
     const p = D.profile();
     el.innerHTML = `<label class="prof-av" aria-label="프로필 사진 바꾸기">${p.photo ? `<img src="${p.photo}" alt="">` : `<span>${ic('heart')}</span>`}<i>${ic('edit')}</i><input type="file" accept="image/*" id="pfile" class="hide"></label>
-      <div class="grow"><span class="label">MY PROFILE</span><input class="input prof-name" id="pname" value="${esc(p.name)}" placeholder="백현이가 불러줄 이름" maxlength="12" autocomplete="nickname"></div>
-      ${p.photo ? `<button class="mini" id="pdel" aria-label="사진 지우기">${ic('x')}</button>` : ''}`;
-    $('#pname', el).onchange = e => { D.setProfile({ name: e.target.value.trim() }); toast(e.target.value.trim() ? `‘${D.callName()}’ 하고 불러줄게요` : '이름을 지웠어요'); };
+      <div class="prof-txt"><span class="label">MY PROFILE</span>
+        <button class="prof-name-btn" id="pnb">${p.name ? esc(p.name) : '<em>이름을 정해줘</em>'}${ic('edit')}</button>
+        <small>백현이가 불러줄 이름</small></div>`;
     $('#pfile', el).onchange = async e => { const f = e.target.files[0]; e.target.value = ''; if (!f) return; try { D.setProfile({ photo: await squareThumb(f, 240) }); draw(); toast('사진을 바꿨어요'); } catch { toast('사진을 불러오지 못했어요'); } };
-    $('#pdel', el) && ($('#pdel', el).onclick = () => { D.setProfile({ photo: '' }); draw(); });
+    $('#pnb', el).onclick = () => {
+      const b = $('#pnb', el);
+      b.outerHTML = `<input class="prof-name-in" id="pni" value="${esc(p.name)}" placeholder="이름" maxlength="12" autocomplete="nickname" enterkeyhint="done">`;
+      const inp = $('#pni', el); inp.focus(); inp.select();
+      let done = false;
+      const fin = () => { if (done) return; done = true; const n = inp.value.trim(); if (n !== p.name) { D.setProfile({ name: n }); toast(n ? `‘${D.callName()}’ 하고 불러줄게요` : '이름을 지웠어요'); } draw(); };
+      inp.onblur = fin; inp.onkeydown = e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); inp.blur(); } if (e.key === 'Escape') { done = true; draw(); } };
+    };
   };
   draw();
 }
@@ -355,7 +356,7 @@ export function videoEditor(root, vid) {
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>영상 관리</h2><a class="icon-btn" href="#/video/${v.id}" aria-label="학습하기">${ic('play')}</a></header>
     <div class="player" id="pl"></div>
-    <div class="row title-row"><input class="input grow" id="ttl" value="${esc(v.title)}" aria-label="영상 제목"></div>
+    <div class="row title-row"><textarea class="input grow ttl-in" id="ttl" rows="1" aria-label="영상 제목 (Enter로 줄바꿈)">${esc(v.title)}</textarea></div>
     <section class="scene-card thumb-card" id="thc"></section>
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
@@ -363,21 +364,43 @@ export function videoEditor(root, vid) {
       <button class="btn sm" id="rep-j">${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
     </div>
-    ${us.length ? `<div class="ulist">${us.map(u => `<a class="uitem" href="#/settings/utt/${v.id}/${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div>${ic('edit')}</a>`).join('')}</div>`
+    ${us.length ? `<div class="ulist" id="ul">${us.map(u => `<div class="uitem ued" data-ue="${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow ue-body"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div></div>`).join('')}</div>`
       : `<div class="note">‘JSON으로 교체’에서 Claude용 프롬프트를 복사해 문장을 한 번에 넣어보세요.</div>`}
     <button class="btn line block danger-line" id="delv">${ic('trash')} 이 영상 삭제</button>
   </div>`;
   // 제목 자동: 비어 있거나 기본값이면 YouTube에서 가져와서 채움
-  const autoTitle = t => { if (!t) return; const cur = D.video(vid); if (cur && (!cur.title || cur.title === 'YouTube 영상')) { D.updateVideo(vid, { title: t }); const i = $('#ttl', root); if (i) i.value = t; } };
+  const autoTitle = t => { if (!t) return; const cur = D.video(vid); if (cur && (!cur.title || cur.title === 'YouTube 영상')) { D.updateVideo(vid, { title: t }); const i = $('#ttl', root); if (i) { i.value = t; i.oninput?.(); } } };
   const pl = new Player($('#pl', root), { onReady: () => autoTitle(pl.title()), onState: s => s === 'cued' && autoTitle(pl.title()) }); pl.cue(v.ytId);
   if (!v.title || v.title === 'YouTube 영상') fetchTitle(v.ytId).then(autoTitle);
   const reload = () => { pl.destroy(); videoEditor(root, vid); };
+  // 문장: 누르면 그 자리에서 바로 수정 (시간·패턴 등은 ‘자세히’)
+  $$('[data-ue]', root).forEach(row => row.onclick = e => {
+    if (row.classList.contains('editing') || e.target.closest('button,textarea')) return;
+    $$('.ued.editing', root).forEach(r => r.close?.());
+    const u = D.utt(row.dataset.ue); if (!u) return;
+    const body = $('.ue-body', row), old = body.innerHTML;
+    row.classList.add('editing');
+    body.innerHTML = `<textarea class="textarea ue-ko" rows="2" aria-label="한국어 발화">${esc(u.ko)}</textarea><textarea class="textarea en ue-en" rows="2" aria-label="영어 추천 문장">${esc(u.en.natural || u.en.easy || u.en.advanced || '')}</textarea>
+      <div class="row gap6 ue-acts"><button class="btn xs" data-ua="save">저장</button><button class="btn xs soft" data-ua="play">${ic('play')} 듣기</button><button class="btn xs soft" data-ua="cancel">취소</button><a class="link-sm" href="#/settings/utt/${v.id}/${u.id}">자세히</a></div>`;
+    $$('textarea', body).forEach(t => { const fit = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }; fit(); t.oninput = fit; });
+    $('.ue-ko', body).focus();
+    row.close = () => { row.classList.remove('editing'); body.innerHTML = old; row.close = null; };
+    $('[data-ua="cancel"]', body).onclick = () => row.close();
+    $('[data-ua="play"]', body).onclick = () => pl.playSegment(v.ytId, u.start, u.end);
+    $('[data-ua="save"]', body).onclick = () => {
+      const ko = $('.ue-ko', body).value.trim(), nat = $('.ue-en', body).value.trim();
+      if (!ko || !nat) return toast('한국어와 영어를 모두 적어주세요');
+      D.upsertUtt({ ...u, ko, en: { ...u.en, natural: nat } });
+      row.classList.remove('editing'); row.close = null;
+      body.innerHTML = `<div class="ko">${esc(ko)}</div><div class="small muted en u-en">${esc(nat)}</div>`; toast('저장했어요');
+    };
+  });
   // ----- 썸네일 (관리자만 · CHAT 목록·CALL 더보기·음성통화 프로필에 사용) -----
   const thc = $('#thc', root);
   const drawThumb = () => {
     const cur = D.video(vid);
     thc.innerHTML = `<span class="label">영상 썸네일</span>
-      <div class="th-row mt8"><span class="th-img" style="background-image:url('${vThumb(cur)}')"></span><div class="grow"><b>${cur.thumb ? '직접 바꾼 썸네일' : 'YouTube 기본 썸네일'}</b><small>CHAT 목록 · CALL 더보기 · 음성통화 화면에 보여요</small></div></div>
+      <div class="th-row mt8"><span class="th-img" style="background-image:url('${vThumb(cur)}')"></span><div class="grow"><b>${cur.thumb ? '직접 바꾼 썸네일' : 'YouTube 기본 썸네일'}</b><small>CHAT 목록 · CALL 더보기에 보여요</small></div></div>
       <div class="row gap6 mt8"><label class="btn sm soft">${ic('upload')} 이미지 바꾸기<input type="file" id="thf" accept="image/*" class="hide"></label>${cur.thumb ? `<button class="btn sm soft" id="thr">${ic('refresh')} 기본으로</button>` : ''}</div>`;
     $('#thf', thc).onchange = async e => {
       const file = e.target.files?.[0]; if (!file) return;
@@ -391,23 +414,25 @@ export function videoEditor(root, vid) {
   const scn = $('#scn', root);
   const drawScene = () => {
     const cur = D.video(vid); const sel = cur.sit || []; const live = isLive(cur);
+    const times = sel.filter(k => TIMES_SEL.some(([t]) => t === k)), autoT = timeOfScene(sceneOf({ ...cur, sit: [] }));
     const auto = topTags(sceneOf({ ...cur, sit: [] }), 8).filter(t => situations().some(([k]) => k === t) || TIMES_SEL.some(([k]) => k === t));
     const ap = pickPhoto({ ...cur, photo: '' });
     const shown = sel.length ? sel : auto;
     scn.innerHTML = `<span class="label">영상 종류</span>
       <div class="seg kind-seg mt8">${[['live', '라이브 · CALL'], ['video', '일반 영상 · CHAT']].map(([k, l]) => `<button data-kind="${k}" class="${(live ? 'live' : 'video') === k ? 'on' : ''}">${l}</button>`).join('')}</div>
       ${live ? `<div class="scene-sec"><span class="label">통화 방식</span>
-        <label class="switch mt8"><span><b>음성통화로도 쓰기</b><small>음성통화에서는 영상은 숨기고 소리만 · 가운데 원에 이 영상 썸네일이 보여요</small></span><input type="checkbox" id="vvoice" ${cur.voice ? 'checked' : ''}><i></i></label></div>
+        <label class="switch mt8"><span><b>음성통화</b></span><input type="checkbox" id="vvoice" ${cur.voice ? 'checked' : ''}><i></i></label></div>
       <div class="scene-sec"><span class="label">통화 설명 (더보기에 보이는 한 줄)</span><input class="input mt8" id="vdesc" value="${esc(cur.desc || '')}" placeholder="${esc(conceptOf(cur))}" maxlength="40"></div>
-      <div class="scene-sec"><div class="row between"><span class="label">상황 · 시간대</span><button class="link-sm" id="sitedit">${ic('edit')} 고르기</button></div>
-        <div class="sit-row wrap mt8">${shown.length ? shown.map(k => `<span class="sit ${sel.length ? 'on' : 'auto'}">${esc(sitLabel(k) || TAG_KO[k] || k)}</span>`).join('') : '<span class="tiny muted">아직 없어요 · 고르기를 눌러 정해주세요</span>'}</div>
-        ${!sel.length && shown.length ? '<p class="tiny muted mt8">점선은 대본으로 추정한 상황이에요</p>' : ''}</div>
+      <div class="scene-sec"><span class="label">시간대</span>
+        <div class="sit-row wrap mt8">${TIMES_SEL.map(([k, l]) => `<button class="sit ${times.includes(k) ? 'on' : !times.length && autoT === k ? 'auto' : ''}" data-tm="${k}">${esc(l)}</button>`).join('')}</div>
+        <p class="tiny muted mt8">${times.length ? '고른 시간대에 전화하면 이 영상이 먼저 나와요' : autoT ? '점선은 대본으로 추정한 시간대예요 · 눌러서 정해주세요' : '정하지 않으면 아무 시간대에나 나와요'}</p></div>
       <div class="scene-sec"><span class="label">전화 올 때 사진</span>
         ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 CHAT에만 보여요.</p>'}`;
     $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); });
     $('#vvoice', scn) && ($('#vvoice', scn).onchange = e => { D.updateVideo(vid, { voice: e.target.checked }); toast(e.target.checked ? '음성통화에도 나와요' : '영상통화에서만 나와요'); });
     $('#vdesc', scn) && ($('#vdesc', scn).onchange = e => D.updateVideo(vid, { desc: e.target.value.trim() }));
-    $('#sitedit', scn) && ($('#sitedit', scn).onclick = () => sitSheet(vid, drawScene));
+    // 시간대만 (상황은 고르지 않음): 눌러서 켜고 끄기
+    $$('[data-tm]', scn).forEach(b => b.onclick = () => { const now = new Set(D.video(vid).sit || []); now.has(b.dataset.tm) ? now.delete(b.dataset.tm) : now.add(b.dataset.tm); D.updateVideo(vid, { sit: [...now].filter(k => TIMES_SEL.some(([t]) => t === k)) }); drawScene(); });
     $('#phchg', scn) && ($('#phchg', scn).onclick = () => {
       const cur2 = D.video(vid);
       const sh = sheet(`<h3>전화 올 때 사진</h3><div class="photo-grid four"><button class="pg-auto ${cur2.photo ? '' : 'on'}" data-ph="">자동</button>${allPhotos().map(p => `<button class="pg ${cur2.photo === p.id ? 'on' : ''}" data-ph="${p.id}" style="${thumbStyle(p)}" aria-label="사진"></button>`).join('')}</div>`);
@@ -415,7 +440,10 @@ export function videoEditor(root, vid) {
     });
   };
   drawScene();
-  $('#ttl', root).onchange = e => D.updateVideo(v.id, { title: e.target.value.trim() || v.title });
+  // 제목: Enter = 줄바꿈 (CHAT에서도 그대로 보임) · 바깥을 누르면 저장
+  const ttl = $('#ttl', root); const fitT = () => { ttl.style.height = 'auto'; ttl.style.height = ttl.scrollHeight + 'px'; }; fitT();
+  ttl.oninput = fitT;
+  ttl.onchange = e => D.updateVideo(v.id, { title: e.target.value.replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim() || v.title });
   $('#delv', root).onclick = async () => { if (await confirmSheet('영상과 등록된 문장을 모두 삭제할까요?', '영상 삭제', 'SAVED에 저장한 표현은 남아요.')) { pl.destroy(); D.deleteVideo(v.id); toast('영상을 삭제했어요'); location.hash = '#/settings'; } };
   $('#cpj', root).onclick = async () => {
     const json = exportUtts(v.id);

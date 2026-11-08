@@ -238,6 +238,10 @@ function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d
 // 예전 4단계 채점 호환
 export function grade(id, q) { rate(id, q === 0 ? 'again' : q === 3 ? 'mastered' : 'okay'); }
 export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due));
+// 오늘 복습: 오늘 안에 복습할 차례가 오는 것까지 전부 (복습 중 빠지는 문장이 없게)
+const endOfToday = () => startOfDay(Date.now()) + 864e5 - 1;
+export const dueTodayList = () => { const e = endOfToday(); return db.saved.filter(s => s.srs.due <= e).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due)); };
+export const dueTodayWords = () => { const e = endOfToday(); return db.words.filter(w => w.srs.due <= e); };
 export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
 export function setSetting(k, v) { if (CONTENT_SETTINGS.includes(k) && !gate(k)) return; db.settings[k] = v; save(); }
