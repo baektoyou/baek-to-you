@@ -4,7 +4,7 @@
 // · 번역은 AI(SETTINGS › AI 키)가 있어야 해요 — 없으면 가짜 결과를 만들지 않고 안내만
 import * as D from './store.js';
 import * as S from './speech.js';
-import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, AI_MARK } from './ui.js';
+import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, balHTML } from './ui.js';
 import { avatarStyle } from './scene.js';
 import { BH_PROFILE } from './video.js';
 import { aiExpress, aiOn, smartFeedback } from './ai.js';
@@ -22,7 +22,7 @@ export function express(root) {
       <textarea id="exk" rows="2" placeholder="예) 나한테 언제나 큰 힘과 원동력이 되어주는 나의 사랑들아" autocapitalize="off" spellcheck="false"></textarea>
       <div class="ex-row">
         <button class="ex-mic" id="exm" aria-label="한국어로 말하기">${ic('mic')}<span>말하기</span></button>
-        <button class="btn sm" id="exg">${ic('pup')} 영어로</button>
+        <button class="btn sm" id="exg">영어로</button>
       </div>
     </div>
     <div id="exo"></div>
@@ -65,11 +65,9 @@ export function express(root) {
     const saved = !!D.findSavedByText(x.en);
     // 순서: 자연스러운 영어 문장(가장 크게) → 이렇게도 말할 수 있어(필요할 때만) → 백현이 멘트(말풍선) → 따라/안 보고 말하기
     out.innerHTML = `<div class="ex-card">
-      <div class="ex-main"><p class="ex-en en lp" id="exen">${lpHTML(x.en)}</p>
-        <div class="ex-btns"><button class="ex-ib" id="exl" aria-label="발음 듣기">${ic('speaker')}</button><button class="ex-ib sv ${saved ? 'on' : ''}" id="exs" aria-label="문장 저장">${ic('bookmark')}</button></div></div>
-      ${x.alt ? `<p class="ex-alt"><span>이렇게도 말할 수 있어</span><b class="en lp">${lpHTML(x.alt)}</b></p>` : ''}
-      ${bhLines(x.bh || x.tip).length ? `<div class="ex-bh"><span class="ex-bav" style="${avatarStyle(BH_PROFILE, 30)}"></span><div class="ex-bcol"><span class="ex-bn">백현이${AI_MARK}</span>${bhLines(x.bh || x.tip).map(l => `<p class="ex-bub">${esc(l)}</p>`).join('')}</div></div>` : ''}
-      <div class="ex-prac"><button class="btn sm soft" id="exr">${ic('mic')} 따라 말하기</button><button class="btn sm" id="exq">${ic('eye')} 안 보고 말하기</button></div>
+      <p class="ex-en en lp" id="exen">${balHTML(x.en)}</p>
+      ${bhLines(x.bh || x.tip).length ? `<div class="ex-bh">${bhLines(x.bh || x.tip).map(l => `<p class="ex-bub">${esc(l)}</p>`).join('')}</div>` : ''}
+      <div class="ex-prac"><button class="ex-ib" id="exl" aria-label="발음 듣기">${ic('speaker')}</button><button class="ex-ib sv ${saved ? 'on' : ''}" id="exs" aria-label="문장 저장">${ic('bookmark')}</button><button class="btn sm soft" id="exr">${ic('mic')} 따라 말하기</button><button class="btn sm" id="exq">${ic('eye')} 안 보고 말하기</button></div>
       <div id="exp"></div>
     </div>`;
     bindLongPress(out);
@@ -77,8 +75,8 @@ export function express(root) {
     $('#exl', out).onclick = () => { tts?.stop(); if (!S.support.tts) { toast('이 기기에서는 음성 재생을 지원하지 않아요'); return; } const ws = $$('.w', enEl); tts = S.speak(x.en, { onWord: i => ws.forEach((w, k) => w.classList.toggle('on', k === i)), onEnd: () => ws.forEach(w => w.classList.remove('on')) }); };
     $('#exs', out).onclick = e => {
       const ex = D.findSavedByText(x.en);
-      if (ex) { D.deleteSaved(ex.id); e.currentTarget.classList.remove('on'); toast('저장을 취소했어요'); }
-      else { D.saveExpr({ kind: 'mine', level: 'mine', ko: x.ko || x.src, text: x.en, before: '', en: { easy: '', natural: x.en, advanced: '' }, pattern: '' }); e.currentTarget.classList.add('on'); toast('SAVED에 저장했어요'); }
+      if (ex) { D.deleteSaved(ex.id); e.currentTarget.classList.remove('on'); toast('저장 취소했어!'); }
+      else { D.saveExpr({ kind: 'mine', level: 'mine', ko: x.ko || x.src, text: x.en, before: '', en: { easy: '', natural: x.en, advanced: '' }, pattern: '' }); e.currentTarget.classList.add('on'); toast('SAVED에 저장했어!ㅎㅎ'); }
     };
     const practice = blur => {
       if (cap) { cap.stop(); return; }

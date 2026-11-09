@@ -152,7 +152,7 @@ export function questionFor({ expr = '', sentence = '', pattern = '', ko = '', n
   if (note && /\?\s*$/.test(note)) return HANGUL.test(note) ? { en: '', ko: note } : { en: note, ko: '' };
   const topics = detectTopics(`${expr} ${sentence}`);
   if (topics.length) return { en: appQuestion(topics, new Set()), ko: '' };
-  const G = ['How was your day?', 'What did you do today?', 'What are you doing these days?', 'Tell me about something fun you did recently.'];
+  const G = ['How was your day?', 'What did you do today?', 'What are you doing these days?', 'What fun thing did you do recently?'];
   const h = [...(expr + sentence)].reduce((a, c) => a + c.charCodeAt(0), 0);
   return { en: G[h % G.length], ko: '' };
 }

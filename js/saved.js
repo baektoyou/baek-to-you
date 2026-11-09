@@ -203,6 +203,7 @@ function review(root, items) {
   const cancelMic = () => { if (!cap) return; discard = true; cap.stop(); };
   function fit() { ta.style.height = 'auto'; ta.style.height = Math.min(120, ta.scrollHeight) + 'px'; sendB.classList.toggle('on', !!ta.value.trim() || !!cap); }
   ta.oninput = () => { if (cap) userEdit = true; fit(); };
+  ['focus', 'pointerdown'].forEach(ev => ta.addEventListener(ev, () => { if (cap) userEdit = true; }));
   function startMic() {
     if (cap || !waiting) { if (!waiting) toast('백현이 메시지를 기다려요'); return; }
     if (!S.support.stt) { ta.focus(); toast('키보드의 받아쓰기(🎤)로 말해도 돼요'); return; }
@@ -327,12 +328,13 @@ function review(root, items) {
         : [['안 보고 말하기', 'retry', 'pri'], END];
       const g = await chips(list, true); if (dead) return;
       if (g === 'retry') {
-        $$('.dc-rec', el).forEach(r => r.classList.add('blur'));
+        // 안 보고 말하기: 추천 문장 + 내 채팅 + 백현이 채팅 속 영어까지 전부 가리기
+        $$('.dc-rec', el).forEach(r => r.classList.add('blur')); th.classList.add('veil'); $$('.msg2', th).forEach(m => m.classList.remove('keep'));
         const inp2 = askInput([recS]);
         chips([['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]]);
         autoMic();
         const t2 = await inp2; if (dead) return;
-        $$('.dc-rec', el).forEach(r => r.classList.remove('blur'));
+        $$('.dc-rec', el).forEach(r => r.classList.remove('blur')); th.classList.remove('veil');
         if (t2 && t2.skip) { recalled = true; continue; }
         D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review-retry', text: t2 });
         const ty2 = typing();

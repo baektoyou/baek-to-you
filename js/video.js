@@ -29,7 +29,7 @@ export function videoList(root) {
       <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
       <a href="#/saved"><b class="${due ? 'accent' : ''}">${due}</b><span>오늘 복습</span></a>
     </div>
-    <a class="ex-entry" href="#/express"><span class="ex-ic">${ic('pup')}</span><span class="grow"><b>백현아 도와줘</b><small>어떤 말이 궁금해!?</small></span>${ic('next')}</a>
+    <a class="ex-entry" href="#/express"><span class="grow"><b>백현아 도와줘</b><small>어떤 말이 궁금해!?</small></span>${ic('next')}</a>
     ${vids.length ? `<div class="sec-title label">VIDEOS · ${vids.length}</div><div class="vgrid two">${vids.map(v => {
       const us = D.uttsOf(v.id); const done = us.filter(u => db.progress[u.id]?.steps?.check).length;
       return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumbOf(v)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>
@@ -124,7 +124,7 @@ export function study(root, uttId) {
     <div class="quick" id="qk"></div>
     <div class="composer on" id="cp">
       <button class="cp-mic" id="cpm" aria-label="말하기">${ic('mic')}</button>
-      <button class="cp-q" id="cpq" aria-label="AI에게 영어 질문하기">${ic('pup')}</button>
+      <button class="cp-q" id="cpq" aria-label="AI에게 영어 질문하기">${ic('chat')}</button>
       <textarea id="cpt" rows="1" placeholder="영어로 말하거나 입력해요" autocapitalize="sentences" spellcheck="false"></textarea>
       <button class="cp-send" id="cps" aria-label="보내기">${ic('send')}</button>
     </div>
@@ -150,7 +150,12 @@ export function study(root, uttId) {
   root.addEventListener('pointerdown', unmute, { capture: true });
   if (!warmStart) pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
-  const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
+  // 새 채팅이 올라오면 항상 맨 아래로 (내가 위로 올려 보는 중이 아니면 높이가 바뀔 때도 따라감)
+  let follow = true;
+  const scroll = () => { follow = true; requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' })); };
+  th.addEventListener('scroll', () => { follow = th.scrollHeight - th.scrollTop - th.clientHeight < 90; }, { passive: true });
+  const pinBottom = () => { if (follow) th.scrollTop = th.scrollHeight; };
+  try { const ro = new ResizeObserver(pinBottom); ro.observe(th); new MutationObserver(() => requestAnimationFrame(pinBottom)).observe(th, { childList: true, subtree: true, characterData: true }); } catch { }
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
   // ----- 말풍선 -----
@@ -194,6 +199,8 @@ export function study(root, uttId) {
   const keepCaret = () => { if (!cap) caret = [ta.selectionStart, ta.selectionEnd]; };
   ta.oninput = () => { if (cap) userEdit = true; else keepCaret(); fit(); };
   ['keyup', 'click', 'select', 'blur'].forEach(ev => ta.addEventListener(ev, keepCaret));
+  // 말하는 중에 입력창을 누르면 → 받아쓰기를 멈춰 두고 마음대로 고치기 · 마이크(멈춤)를 누르면 고친 문장 그대로
+  ['focus', 'pointerdown'].forEach(ev => ta.addEventListener(ev, () => { if (cap) userEdit = true; }));
   function startMic(targets = waiting?.targets || []) {
     if (cap) return;
     userEdit = false;

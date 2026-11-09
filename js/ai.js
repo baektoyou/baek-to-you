@@ -101,7 +101,7 @@ Return ONLY this JSON:
  "natural": see the mode rules ("" when the mode says so),
  "rec_marks": EXACT substrings of the recommended sentence (see modes) that correspond to what the learner got wrong or left out — only those words, never the whole sentence. [] if nothing needed fixing.
  "rec_ko": an ACCURATE natural Korean translation of the recommended sentence (same meaning, same tense — do not add or drop anything),
- "expressions": 0–2 chunks worth saving ONLY if genuinely useful (a chunk the learner missed or got wrong, or the key pattern). [] for simple sentences or when the learner already used it well. Copy EXACTLY from the recommended sentence (2–6 words). Each MUST have all three fields: {"en": "...", "ko": Korean meaning in this context, "use": Korean ≤ 36 chars 해요체 — when/how to use it}.
+ "expressions": 0–2 chunks worth saving ONLY if genuinely useful (a chunk the learner missed or got wrong, or the key pattern). [] for simple sentences or when the learner already used it well. Copy EXACTLY from the recommended sentence (2–6 words). Each MUST have all three fields: {"en": "...", "ko": Korean meaning in this context, "use": Baekhyun-voice casual Korean 반말 ≤ 36 chars — when/how to use it (e.g. "요즘 얘기할 때 딱이야!")} — never 존댓말/해요체.
  "used_target": true/false (review/answer modes only)
 }
 
@@ -270,14 +270,24 @@ export async function aiPickNext(history, cands) {
 const REPLY_SYS = `${COACH}
 ${BH_VOICE}
 The learner saved an English expression and wants to practice using it by replying to Baekhyun in a chat.
-Write ONE short chat message from Baekhyun (casual spoken English, 1–2 short sentences) that the learner can naturally reply to WITH the saved expression.
+Write ONE short chat message from Baekhyun that ASKS THE LEARNER A QUESTION (casual spoken English, 1–2 short sentences, MUST end with "?") — a question whose most natural answer uses the saved expression.
+Check before answering: write the sample reply first in your head — it must answer the question directly AND contain the expression naturally (same meaning and grammar as the expression). If the expression would feel forced in the answer, change the question.
 Analyse the expression's meaning, grammar and the original context first, then pick an everyday situation where replying with it would feel natural (e.g. "can't wait to" → he mentions something coming up and asks what the learner is looking forward to).
 Never force it: no quiz-like or awkward questions ("Use X in a sentence", "What does X mean?"), never mention the expression itself, no made-up facts about his real life.
-Return ONLY JSON {"en": "...", "ko": "자연스러운 반말 번역", "sample": a natural example reply that uses the expression (for hints)}`;
+Return ONLY JSON {"en": the question, "ko": "자연스러운 반말 번역", "sample": a natural reply that answers the question and contains the expression exactly}`;
 export async function aiReplyLine({ expr, ko = '', context = '', avoid = [] }) {
   if (!aiOn()) return null;
-  const a = await callAI(REPLY_SYS, [`Saved expression: ${clip(expr, 80)}`, ko ? `Meaning (Korean): ${clip(ko, 80)}` : '', context ? `Original sentence/context: ${clip(context, 240)}` : '', avoid.length ? `Do not repeat: ${avoid.slice(-6).map(x => clip(x, 120)).join(' | ')}` : ''].filter(Boolean).join('\n'), { temp: 0.8, ms: 15000 });
-  return ok(a) && a.en ? { en: cleanX(a.en).slice(0, 220), ko: bhTone(cleanX(a.ko)).slice(0, 160), sample: cleanX(a.sample).slice(0, 200) } : null;
+  const user = [`Saved expression: ${clip(expr, 80)}`, ko ? `Meaning (Korean): ${clip(ko, 80)}` : '', context ? `Original sentence/context: ${clip(context, 240)}` : '', avoid.length ? `Do not repeat: ${avoid.slice(-6).map(x => clip(x, 120)).join(' | ')}` : ''].filter(Boolean).join('\n');
+  // 질문인지 · 예시 답에 표현이 들어가는지 확인 → 아니면 한 번 더
+  const core = String(expr).toLowerCase().split(/~|\.\.\.|…|\(|\bsomething\b|\bsomeone\b|\bsb\b|\bsth\b/)[0].replace(/[^a-z' ]/g, '').trim();
+  for (let t = 0; t < 2; t++) {
+    const a = await callAI(REPLY_SYS, user + (t ? '\nYour last try was not a direct question or the sample did not use the expression. Fix that.' : ''), { temp: t ? 0.5 : 0.8, ms: 15000 });
+    if (!ok(a) || !a.en) continue;
+    const en = cleanX(a.en).slice(0, 220), sample = cleanX(a.sample).slice(0, 200);
+    if (!/\?\s*$/.test(en) || (core && !sample.toLowerCase().includes(core.split(' ').slice(0, 2).join(' ')))) continue;
+    return { en, ko: bhTone(cleanX(a.ko)).slice(0, 160), sample };
+  }
+  return null;
 }
 
 // ---------- 6) 즉석 영어 표현: 한국어로 하고 싶은 말 → 자연스러운 영어 ----------
@@ -286,14 +296,12 @@ ${BH_VOICE}
 MODE 백현아 도와줘 — the learner says or types in KOREAN something they want to say in English (to a friend or to Baekhyun).
 Return ONLY JSON:
 {"en": the most natural thing a native speaker would actually say — casual and spoken, conveying the Korean meaning EXACTLY (nothing added or dropped), 1–2 short sentences. If it calls fans "에리"/"사랑들", keep that sense ("Aeri", "my loves").
- "alt": ONE other natural way to say it ONLY if it teaches something different (another structure or a useful chunk); "" if it would be nearly the same sentence,
  "bh": Baekhyun's Korean chat line (≤ 60 chars, 1–2 short messages joined with "\n") explaining the key point or how to use the English — playful and sweet, following the voice rules,
  "ko": short faithful Korean meaning of "en"}`;
 export async function aiExpress(ko) {
   if (!aiOn()) return { error: 'off' };
   const a = await callAI(EX_SYS, `Korean: ${clip(ko, 400)}`, { temp: 0.4, ms: 15000 });
   if (!ok(a) || !a.en) return { error: a?.error || 'parse' };
-  const en = cleanX(a.en).slice(0, 240); let alt = cleanX(a.alt).slice(0, 200);
-  if (alt && alt.toLowerCase().replace(/[^a-z ]/g, '') === en.toLowerCase().replace(/[^a-z ]/g, '')) alt = '';
-  return { en, ko: cleanX(a.ko).slice(0, 160), alt, bh: cleanF(a.bh || a.tip).slice(0, 120) };
+  const en = cleanX(a.en).slice(0, 240);
+  return { en, ko: cleanX(a.ko).slice(0, 160), alt: '', bh: cleanF(a.bh || a.tip).slice(0, 120) };
 }

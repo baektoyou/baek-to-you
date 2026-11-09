@@ -284,8 +284,8 @@ export function saveToggle(btn, text, make, { word = false, onChange } = {}) {
   btn.onclick = e => {
     e.stopPropagation();
     const ex = find();
-    if (ex) { word ? D.deleteWord(ex.id) : D.deleteSaved(ex.id); btn.classList.remove('on'); toast('저장을 취소했어요'); }
-    else { word ? D.saveWord(make()) : D.saveExpr(make()); btn.classList.add('on'); toast('저장했어요'); }
+    if (ex) { word ? D.deleteWord(ex.id) : D.deleteSaved(ex.id); btn.classList.remove('on'); toast('저장 취소했어!'); }
+    else { word ? D.saveWord(make()) : D.saveExpr(make()); btn.classList.add('on'); toast('저장했어!ㅎㅎ'); }
     onChange?.(!ex); window.dispatchEvent(new CustomEvent('b2u:words'));
   };
 }
@@ -337,6 +337,25 @@ export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x
 const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
 // 문장이 바뀌면 새 줄 (짧은 글은 한 줄 그대로)
 export const lpHTML = t => { const ws = String(t || '').split(/\s+/).filter(Boolean); const long = String(t || '').length > 42; return ws.map((w, i) => wspan(w) + (i === ws.length - 1 ? '' : long && /[.!?]["')]?$/.test(w) && /^[A-Z"(]/.test(ws[i + 1]) ? '<br>' : ' ')).join(''); };
+// 긴 영어 한 문장을 보기 좋게 두 줄로: 가운데쯤의 끊기 좋은 곳(how/that/because/to… 앞, 쉼표 뒤)에서 줄바꿈
+const BRK = /^(how|what|why|when|where|who|which|that|because|so|but|and|or|if|to|for|with|about|than|until|before|after|while|since|like|without)$/i;
+export function balHTML(t, wrap = wspan, max = 24) {
+  const ws = String(t || '').split(/\s+/).filter(Boolean); const len = ws.join(' ').length;
+  if (len <= max || ws.length < 4) return ws.map(w => wrap(w)).join(' ');
+  // 문장이 여러 개면 문장마다 줄바꿈
+  if (ws.some((w, i) => i < ws.length - 1 && /[.!?]["')]?$/.test(w))) return ws.map((w, i) => wrap(w) + (i === ws.length - 1 ? '' : /[.!?]["')]?$/.test(w) ? '<br>' : ' ')).join('');
+  // 한 문장: 줄 수를 정하고, 줄마다 비슷한 길이가 되도록 끊기 좋은 곳(how/that/to… 앞, 쉼표 뒤)에서 끊기
+  const n = Math.ceil(len / max), ends = []; let acc = 0; ws.forEach(w => { acc += w.length + 1; ends.push(acc); });
+  const brk = new Set(); let from = 0;
+  for (let k = 1; k < n; k++) {
+    const goal = len * k / n; let best = -1, bs = 1e9;
+    for (let i = from; i < ws.length - 1; i++) { const d = Math.abs(ends[i] - goal); const pen = /,$/.test(ws[i]) ? 0 : BRK.test(ws[i + 1].replace(/[^a-z']/gi, '')) ? 1 : 7; const sc = d + pen; if (sc < bs) { bs = sc; best = i; } }
+    if (best >= 0) { brk.add(best); from = best + 1; }
+  }
+  return ws.map((w, i) => wrap(w) + (i === ws.length - 1 ? '' : brk.has(i) ? '<br>' : ' ')).join('');
+}
+// 문장이 바뀌면 줄바꿈 (영어·한국어 공통 · 평문)
+export const sentBr = t => esc(String(t || '').trim()).replace(/([.!?]+["')]?|[ㅎㅋㅜ]{2,})\s+(?=[A-Z가-힣"(])/g, '$1<br>');
 export const brSent = t => { t = String(t || '').trim(); return t.length > 34 ? esc(t).replace(/([.!?]+|[ㅎㅋㅜ]{2,})\s+(?=\S)/g, '$1<br>') : esc(t); };
 // 문장에서 단어·표현 저장: 단어를 꾹 누른 채(0.3초) 옆으로 드래그해서 범위 선택 → ‘저장’
 // · 저장할 때 문장 속 뜻(한국어)을 AI가 같이 넣어줌 (AI 없으면 뜻은 비워두고 문장을 메모로)
@@ -364,10 +383,10 @@ function showPill(box, sel) {
     const { item } = D.saveWord({ text, kind: text.includes(' ') ? 'expr' : 'word', note: sentence }); window.dispatchEvent(new CustomEvent('b2u:words'));
     if (!text.includes(' ')) mark(true);
     navigator.vibrate?.(12);
-    toast(`‘${text}’ 저장 · 뜻 찾는 중…`);
+    toast(`‘${text}’ 저장! 뜻 찾는 중…`);
     const ko = await aiGloss({ phrase: text, sentence, ko: lpCtx.ko || '' });
-    if (ko && item) { D.updateWord(item.id, { ko }); toast(`‘${text}’ = ${ko} · 저장했어요`); }
-    else toast(`‘${text}’ 저장했어요${item && !ko ? ' · 뜻은 SAVED에서 적을 수 있어요' : ''}`);
+    if (ko && item) { D.updateWord(item.id, { ko }); toast(`‘${text}’ = ${ko} · 저장했어!`); }
+    else toast(`‘${text}’ 저장했어!${item && !ko ? ' · 뜻은 SAVED에서 적어줘' : ''}`);
   };
 }
 export function bindLongPress(el) {
@@ -494,9 +513,8 @@ export function cmpHTML(f, { said = '', rec = '', recKo = '', saidKo = '', hl = 
   const c = same ? null : (f?.cmp || (f ? localMarks(said, rec, f) : null));
   const rs = { s: sent, chg: c?.marks || [], chgIdx: c?.idx || null, hl };
   const body = recSentHTML(sent, rs);
-  const mko = saidKo || f?.saidKo || '';
   return `<div class="dc">
-    ${said && !same ? `<p class="dc-me"><span class="dc-l">내 문장</span><span class="en">${esc(said)}</span>${mko ? `<span class="dc-mko">${esc(mko)}</span>` : ''}</p>` : ''}
+    ${said && !same ? `<p class="dc-me"><span class="dc-l">내 문장</span><span class="en">${esc(said)}</span></p>` : ''}
     <div class="dc-rec"><div class="dc-b"><p class="en lp" data-rs="${esc(JSON.stringify(rs))}">${body}</p>${recKo ? `<p class="dc-ko">${esc(recKo)}</p>` : ''}</div>${save ? `<button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button>` : ''}</div>
     <p class="dc-key ${body.includes('chg') && body.includes('svd') ? '' : 'hide'}"><span class="k-chg">고친 부분</span><span class="k-svd">저장한 표현</span></p>
   </div>`;
@@ -512,7 +530,7 @@ function localMarks(said, rec, f) {
 // 백현이 반응: 짧은 메시지 여러 개 (줄마다 말풍선 하나)
 export const bhLines = t => String(t || '').split(/\n+/).map(x => x.trim()).filter(Boolean).slice(0, 3);
 // AI가 만든 말 표시 (작은 강아지 · 실제 영상 대사와 구분)
-export const AI_MARK = `<i class="ai-mk" title="AI가 만든 말이에요 · 실제 영상 대사 아님" aria-label="AI가 만든 말">${ic('pup')}</i>`;
+export const AI_MARK = ''; // 강아지 표시 삭제 (ac2)
 const xsHTML = xs => xs.length ? `<div class="kx">${xs.map(x => `<button class="kx-i" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" data-note="${esc(x.use || '')}"><span class="kx-t"><b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</span>${x.use ? `<span class="kx-u">${esc(x.use)}</span>` : ''}<i class="kx-add" aria-label="표현 저장">${ic('plus')}${ic('check')}</i></button>`).join('')}</div>` : '';
 // 학습 카드 (CHAT·CALL 공통) — 백현이 반응(f.feedback)은 카드 밖의 일반 말풍선
 export function coachHTML(f, { rec = '', recKo = '', pattern = '', patternKo = '', said = '' } = {}) {

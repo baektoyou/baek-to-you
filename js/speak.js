@@ -3,7 +3,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry, sentBr } from './ui.js';
 import { diff } from './compare.js';
 import { smartFeedback, aiAsk, aiKit } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
@@ -210,7 +210,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
       <p class="vc-status" id="vst"></p>
       <form class="vc-input hide" id="vin"><input id="vint" placeholder="영어에 대해 물어봐요 (AI)" autocomplete="off" autocapitalize="sentences" spellcheck="false"><button type="submit" aria-label="보내기">${ic('send')}</button></form>
       <div class="vc-ctrl">
-        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="AI에게 영어 질문">${ic('pup')}</button><span>질문</span></div>
+        <div class="vc-c"><button class="vc-btn" id="vkbd" aria-label="AI에게 영어 질문">${ic('chat')}</button><span>질문</span></div>
         <div class="vc-c"><button class="vc-mic" id="vmic" aria-label="말하기"><svg class="ring-svg" viewBox="0 0 80 80"><circle cx="40" cy="40" r="37"/></svg><span class="mic-ic">${ic('micF')}</span><span class="stop-ic">${ic('stop')}</span></button><em id="vsec"></em></div>
         <div class="vc-c"><button class="vc-btn end" id="vend" aria-label="통화 종료">${ic('phoneoff')}</button><span>종료</span></div>
       </div></div>
@@ -264,13 +264,13 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
     chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text, u = null) => {
-    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${esc(text)}</p>`);
+    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${sentBr(text)}</p>`);
     // 백현이 멘트를 누르면 그 장면 바로 재생 (누른 순간 재생 → iPhone에서도 소리와 함께)
     if (u && who === 'baek') { m.classList.add('replay'); m.onclick = () => replayClip(u); }
     return m;
   };
   // 백현이 반응 = 짧은 채팅 말풍선 여러 개 (AI가 만든 말 · 이름 옆 ✦)
-  async function bhChat(text) { for (const l of bhLines(text)) { if (dead) return; const t = msg('ai', '<p>…</p>', 'typing'); await wait(300); t.remove(); if (dead) return; msg('ai', `<p>${esc(l)}</p>`, 'bhm'); } }
+  async function bhChat(text) { for (const l of bhLines(text)) { if (dead) return; const t = msg('ai', '<p>…</p>', 'typing'); await wait(300); t.remove(); if (dead) return; msg('ai', `<p>${sentBr(l)}</p>`, 'bhm'); } }
   function replayClip(u) {
     if (dead || $v('#vmic').classList.contains('live')) return; // 녹음 중엔 X
     const vid = D.video(u.videoId); if (!vid) return;
@@ -323,7 +323,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
         const sec = Math.round((Date.now() - st0) / 1000);
         live.classList.remove('typing');
         if (!r.text) { live.remove(); mic.classList.remove('live', 'over'); clearInterval(tick); toast(S.sttErrorText(r.sttError) || '잘 안 들렸어요 · 다시 눌러 말해주세요'); status('다시 눌러 말해주세요'); return; }
-        $('p', live).textContent = r.text;
+        $('p', live).innerHTML = sentBr(r.text);
         stats.sec += sec; stats.n++;
         finish(r.text, sec);
       };
@@ -432,10 +432,16 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
     tg.classList.remove('kit-on');
     say2('baek', q.ko || q.en, q.u);
     const hist = [], dialog = []; let cur = { en: q.en, ko: q.ko }, xs = startXs, prevW = 0;
+    // 내가 저장한 표현 중 이 질문에 대답할 때 쓸 수 있는 것 → ‘이 표현 써서 대답해봐!!’
+    const learned = D.get().words.map(w => ({ text: w.text, ko: w.ko || '' })).filter(w => w.text);
+    let mineFor = [];
+    const mineP = learned.length ? aiKit({ question: q.en, qko: q.ko, learned }).then(k => { mineFor = k?.xs?.filter(x => x.mine) || []; drawMine(); }).catch(() => { }) : null;
+    const drawMine = () => { const box = $v('#kmine'); if (!box) return; box.innerHTML = mineFor.length ? `<span class="km-l">이 표현 써서 대답해봐!!ㅎㅎ</span>${mineFor.map(x => `<b class="en">${esc(x.text)}</b>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}`).join('<i>·</i>')}` : ''; box.classList.toggle('hide', !mineFor.length); };
+    void mineP;
     const used = new Set(xs.map(x => x.text.toLowerCase())); // 이미 보여준 표현 (반복 방지)
     for (let i = 0; i < ROUNDS.length && !stopped; i++) {
       progress(`${i + 1} / 3`); curLine = cur;
-      tg.innerHTML = `<div class="kit compact"><p class="kit-q en">${esc(cur.en || cur.ko)}</p><p class="kit-wc">목표 <b>${GOALS[i]}</b>단어 · 지금 <b id="kwc">0</b>단어</p></div>`; tg.classList.remove('hide'); bindSaves(tg);
+      tg.innerHTML = `<div class="kit compact"><p class="kit-q en">${esc(cur.en || cur.ko)}</p><p class="kit-wc">목표 <b>${GOALS[i]}</b>단어 · 지금 <b id="kwc">0</b>단어</p><p class="kit-mine hide" id="kmine"></p></div>`; tg.classList.remove('hide'); bindSaves(tg); drawMine();
       const wc = $v('#kwc');
       const r = await turn({ limit: ROUNDS[i], auto: true, ambient: true, label: `${ROUNDS[i]}초 동안 이야기해요`, onText: t => { if (wc) { const n = words(t); wc.textContent = n; wc.parentElement.classList.toggle('hit', n >= GOALS[i]); } } }); log('sp-long', r, q.u.id); if (stopped) return;
       tg.classList.add('hide');
@@ -444,7 +450,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
       status('확인하는 중…');
       const [f, kit] = await Promise.all([
         r.text ? smartFeedback({ mode: 'long', said: r.text, question: cur.en, qko: cur.ko }) : null,
-        !last && r.text ? aiKit({ question: cur.en, qko: cur.ko, dialog: [...dialog] }) : null // 내 말에 이어지는 다음 질문
+        !last && r.text ? aiKit({ question: cur.en, qko: cur.ko, dialog: [...dialog], learned }) : null // 내 말에 이어지는 다음 질문 + 쓸 수 있는 내 표현
       ]); if (stopped) return;
       if (f?.feedback) { await bhChat(f.feedback); if (stopped) return; }
       const next = kit?.next || null;
@@ -456,7 +462,8 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
         bindCompare(pnl, saveMine(q.u, r.text));
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      if (next) { cur = next; msg('ai', `<p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}`); }
+      if (next) { cur = next; msg('ai', `<p class="en">${sentBr(next.en)}</p>${next.ko ? `<small>${sentBr(next.ko)}</small>` : ''}`); }
+      mineFor = kit?.xs?.filter(x => x.mine) || [];
       prevW = w;
     }
     tg.classList.add('hide');
