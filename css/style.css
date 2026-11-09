@@ -1762,3 +1762,18 @@ svg path.fl{fill:currentColor}
 .ex-prac{align-items:center;gap:6px}
 .ex-prac .ex-ib{flex:none;width:36px;height:36px}
 .ex-prac .btn{font-size:12.5px}
+
+/* ===================== 2026.11.09 (ae) ===================== */
+/* 백현아 도와줘 카드: 왼쪽 흰 원 + ‘ㅅ’ · 제목 옆 ♡ */
+.ex-entry{gap:14px}
+.ex-face{flex:none;width:44px;height:44px;border-radius:50%;background:#fff;display:grid;place-items:center;font-size:19px;font-weight:600;color:var(--pink-ink);line-height:1;padding-bottom:3px;box-shadow:0 2px 8px rgba(208,97,140,.1)}
+.ex-heart{font-style:normal;color:var(--pink);font-weight:500;margin-left:2px}
+.ex-entry .grow{padding-left:0}
+/* CALL 안 보고 말하기: 채팅 속 영어 가리기 */
+.vc-chat.veil .vm:not(.keep) p.en,.vc-chat.veil .vm:not(.keep) p.en *,.vc-chat.veil .vm:not(.keep) .en{color:transparent!important;-webkit-text-fill-color:transparent;text-shadow:0 0 10px rgba(255,255,255,.75)!important;filter:none;opacity:1}
+/* 음성통화: 백현이 영상(소리)이 나올 때만 원 파장 */
+.vcall.voice:not(.talking) .vv-orb .orb-waves i{animation:none;opacity:0}
+/* 영어 말풍선 줄바꿈 */
+.vm p.en{text-wrap:pretty;word-break:normal;overflow-wrap:break-word}
+.ex-face{font-size:22px}
+.ex-face{font-size:16px;letter-spacing:-.5px;padding-bottom:2px;white-space:nowrap}

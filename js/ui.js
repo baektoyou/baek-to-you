@@ -510,7 +510,8 @@ export function cmpHTML(f, { said = '', rec = '', recKo = '', saidKo = '', hl = 
   if (!rec && !said) return '';
   const same = !rec || canon(rec) === canon(said);
   const sent = rec || said;
-  const c = same ? null : (f?.cmp || (f ? localMarks(said, rec, f) : null));
+  // 고친 부분: AI가 짚은 부분 → 없으면 내 문장과 비교해서 바뀐 단어
+  let c = same ? null : (f?.cmp?.marks?.length ? f.cmp : diffMarks(said, rec));
   const rs = { s: sent, chg: c?.marks || [], chgIdx: c?.idx || null, hl };
   const body = recSentHTML(sent, rs);
   return `<div class="dc">
@@ -518,6 +519,13 @@ export function cmpHTML(f, { said = '', rec = '', recKo = '', saidKo = '', hl = 
     <div class="dc-rec"><div class="dc-b"><p class="en lp" data-rs="${esc(JSON.stringify(rs))}">${body}</p>${recKo ? `<p class="dc-ko">${esc(recKo)}</p>` : ''}</div>${save ? `<button class="sv" type="button" data-sv="${esc(sent)}" aria-label="문장 저장">${ic('bookmark')}</button>` : ''}</div>
     <p class="dc-key ${body.includes('chg') && body.includes('svd') ? '' : 'hide'}"><span class="k-chg">고친 부분</span><span class="k-svd">저장한 표현</span></p>
   </div>`;
+}
+// 내 문장 ↔ 추천 문장을 단어 단위로 비교해서 추천 문장에서 새로 들어간·바뀐 단어 위치 (거의 다 바뀌었으면 표시 안 함)
+function diffMarks(said, rec) {
+  const d = diffWords(said, rec); const idx = []; let j = 0;
+  d.ops.forEach(o => { if (o.op === 'del') return; if (o.op === 'add' && /[a-z0-9]/i.test(o.b)) idx.push(j); j++; });
+  const n = String(rec).split(/\s+/).filter(Boolean).length;
+  return { marks: [], idx: idx.length && idx.length <= Math.max(2, n * 0.7) ? idx : [] };
 }
 // AI가 없을 때: 규칙으로 고친 문장(natural)과 비교해서 추천 문장 속 바뀐 단어만 표시
 function localMarks(said, rec, f) {

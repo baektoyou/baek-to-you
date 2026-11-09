@@ -119,7 +119,7 @@ Evaluate step by step:
 
 MODE long — CALL 백현이랑 대화하기 (free conversation)
 The learner answered Baekhyun's question in their own words. correct = an on-topic, sensible answer (grammar slips are fixes, not "incorrect").
- "natural" = how a native speaker would say WHAT THE LEARNER MEANT: keep their content, facts, opinion and their own words/expressions as much as possible, change only what is needed for correct, natural English (never invent details, never give a different answer). ALWAYS give it. Recommended sentence = "natural".
+ "natural" = the BEST natural way a native speaker would actually say WHAT THE LEARNER MEANT — casual, idiomatic, spoken English (not textbook). Keep their meaning, content, facts and opinion exactly (never invent details or give a different answer); keep their own words where they are already natural, and replace awkward or Korean-style phrasing with the expression a native would really use. Break long run-on speech into natural sentences. ALWAYS give it. Recommended sentence = "natural". "rec_marks" = the words of "natural" that differ from what the learner said.
  "feedback" = Baekhyun's Korean chat: one short reaction to what they told him + the key fix in plain words if any. Do NOT ask the next question here (that is generated separately).
 
 MODE reply — the learner answered a question; same rules as long.
@@ -176,8 +176,11 @@ function cleanCmp(c, said, rec) {
 // 반환 {correct, feedback, fixes:[{wrong,right,why}], natural, xs:[{text,ko}], ai}
 export async function smartFeedback({ mode, said, target = '', ko = '', question = '', qko = '', pattern = '', expr = '', replies = [], use = [], notReal = false }) {
   const words = parseFixes(D.get().settings.sttFix).terms.concat(['Baekhyun', 'Aeri']).filter((x, i, a) => a.indexOf(x) === i).join(', ');
-  const aiP = callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr, words, use, notReal }), { temp: 0.2 });
-  const a = await aiP;
+  // 긴 말(대화하기 3라운드 등)은 시간이 더 걸려서 여유 있게 · 시간 초과·한도·연결 문제면 잠깐 뒤 한 번 더
+  const long = said.length > 220 || mode === 'long';
+  const ask = () => callAI(FB_SYS, fbUser({ mode, said, target, ko, question, qko, expr, words, use, notReal }), { temp: 0.2, ms: long ? 30000 : 15000 });
+  let a = await ask();
+  if (a?.error && ['timeout', 'quota', 'network', 'parse'].includes(a.error)) { await new Promise(r => setTimeout(r, 1800)); a = await ask(); }
   if (ok(a) && typeof a.feedback === 'string') {
     const sl = said.toLowerCase();
     const minor = f => { const n = x => String(x || '').toLowerCase().replace(/[’‘]/g, "'").replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim(); const w = n(f.wrong), r = n(f.right); return !w || w === r || expand(w) === expand(r); };

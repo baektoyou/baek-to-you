@@ -321,12 +321,23 @@ function review(root, items) {
     if (ok) result.again = result.again.filter(id => id !== x.id);
     const END = single ? ['종료', 'end', 'line'] : ['다음', 'next', 'line'];
     // 안 보고 말하기: 추천 문장을 가리고(블러) 바로 듣기 → 정확도 % + 맞으면 칭찬 · 틀리면 어디가 아쉬웠는지 · 인식이 불확실하면 다시
-    let recalled = false;
+    let recalled = false, read = false;
     for (;;) {
+      // 틀렸으면: 보고 말하기 → 안 보고 말하기
       const list = ok
         ? [...(recS && !recalled ? [['안 보고 말하기', 'retry', 'line']] : []), ['어느정도 알아요', 'okay', 'line'], ['완전히 익혔어요', 'mastered', 'pri']]
-        : [['안 보고 말하기', 'retry', 'pri'], END];
+        : read ? [['안 보고 말하기', 'retry', 'pri'], END] : [['보고 말하기', 'read', 'pri'], END];
       const g = await chips(list, true); if (dead) return;
+      if (g === 'read') {
+        read = true; lastWho = '';
+        const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(recS)}</span>${f.recKo || (mode === 'say' && D.utt(x.uttId)?.ko) ? `<span class="say-sub">${esc(f.recKo || D.utt(x.uttId)?.ko || '')}</span>` : ''}`); bindLongPress(rb);
+        const inp1 = askInput([recS]);
+        chips([['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]]);
+        autoMic();
+        const t1 = await inp1; if (dead) return;
+        if (t1 && !t1.skip) { D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review-read', text: t1 }); const me = [...$$('.msg2.me', th)].pop(); const sc = diff(t1, recS).score; $('.m-bub', me)?.insertAdjacentHTML('beforeend', `<em class="acc-b ${sc >= 85 ? 'hi' : ''}">${sc}%</em>`); }
+        continue;
+      }
       if (g === 'retry') {
         // 안 보고 말하기: 추천 문장 + 내 채팅 + 백현이 채팅 속 영어까지 전부 가리기
         $$('.dc-rec', el).forEach(r => r.classList.add('blur')); th.classList.add('veil'); $$('.msg2', th).forEach(m => m.classList.remove('keep'));

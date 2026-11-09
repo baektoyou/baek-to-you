@@ -29,7 +29,7 @@ export function videoList(root) {
       <div><b>${Object.keys(db.progress).filter(id => vids.some(v => v.id === D.utt(id)?.videoId)).length}</b><span>학습한 문장</span></div>
       <a href="#/saved"><b class="${due ? 'accent' : ''}">${due}</b><span>오늘 복습</span></a>
     </div>
-    <a class="ex-entry" href="#/express"><span class="grow"><b>백현아 도와줘</b><small>어떤 말이 궁금해!?</small></span>${ic('next')}</a>
+    <a class="ex-entry" href="#/express"><span class="ex-face" aria-hidden="true">'ㅅ'</span><span class="grow"><b>백현아 도와줘 <i class="ex-heart">♡</i></b><small>어떤 말이 궁금해!?</small></span>${ic('next')}</a>
     ${vids.length ? `<div class="sec-title label">VIDEOS · ${vids.length}</div><div class="vgrid two">${vids.map(v => {
       const us = D.uttsOf(v.id); const done = us.filter(u => db.progress[u.id]?.steps?.check).length;
       return `<a class="vcard" href="#/video/${v.id}"><div class="vthumb" style="background-image:url('${thumbOf(v)}')">${us.length ? `<div class="prog"><i style="width:${done / us.length * 100}%"></i></div>` : ''}</div>

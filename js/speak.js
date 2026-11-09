@@ -3,7 +3,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry, sentBr } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry, sentBr, balHTML } from './ui.js';
 import { diff } from './compare.js';
 import { smartFeedback, aiAsk, aiKit } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
@@ -231,7 +231,8 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   startRing();
   let callPos = start, stopped = false, dead = false, endTurn = null, skipTurn = null, typed = null, t0 = 0, timer = null, accepted = false, pending = null;
   const vv = $v('#vv');
-  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'blocked') $v('#snd')?.classList.remove('hide'); if (s === 'unblocked' || s === 'playing') $v('#snd')?.classList.add('hide'); if (s === 'playing') { vv.classList.add('on'); $v('#vwait').classList.add('gone'); } } });
+  const pl = new Player($v('#vp'), { controls: 0, onState: s => { if (s === 'blocked') $v('#snd')?.classList.remove('hide'); if (s === 'unblocked' || s === 'playing') $v('#snd')?.classList.add('hide'); if (s === 'playing') { vv.classList.add('on'); $v('#vwait').classList.add('gone'); } vcEl()?.classList.toggle('talking', s === 'playing' && !!pl.seg); } });
+  const vcEl = () => $('.vcall', root);
   const status = t => { const e = $v('#vst'); if (e.textContent !== t) { e.textContent = t; e.classList.remove('pop'); void e.offsetWidth; e.classList.add('pop'); } };
   const progress = t => ($v('#vprog').textContent = t);
   const stats = { sec: 0, n: 0 };
@@ -259,12 +260,18 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
 
   // ----- 채팅 -----
   const chat = $v('#vchat');
+  // 새 채팅이 올라오면 맨 아래로 (위로 올려 보는 중이 아니면 높이가 바뀔 때도 따라감)
+  let follow = true;
+  chat.addEventListener('scroll', () => { follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60; }, { passive: true });
+  const pinChat = () => { if (follow) chat.scrollTop = chat.scrollHeight; };
+  try { new ResizeObserver(pinChat).observe(chat); new MutationObserver(() => requestAnimationFrame(pinChat)).observe(chat, { childList: true, subtree: true, characterData: true }); } catch { }
   function msg(who, html, cls = '') {
     const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' || who === 'ai' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? `${NAME}${AI_MARK}` : esc(myName)}</b>${html}</div></div>`);
-    chat.appendChild(m); chat.scrollTop = chat.scrollHeight; return m;
+    if (chat.classList.contains('veil')) m.classList.add('keep');
+    chat.appendChild(m); follow = true; chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text, u = null) => {
-    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${sentBr(text)}</p>`);
+    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${who === 'me' ? balHTML(text, esc, 30) : sentBr(text)}</p>`);
     // 백현이 멘트를 누르면 그 장면 바로 재생 (누른 순간 재생 → iPhone에서도 소리와 함께)
     if (u && who === 'baek') { m.classList.add('replay'); m.onclick = () => replayClip(u); }
     return m;
@@ -323,7 +330,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
         const sec = Math.round((Date.now() - st0) / 1000);
         live.classList.remove('typing');
         if (!r.text) { live.remove(); mic.classList.remove('live', 'over'); clearInterval(tick); toast(S.sttErrorText(r.sttError) || '잘 안 들렸어요 · 다시 눌러 말해주세요'); status('다시 눌러 말해주세요'); return; }
-        $('p', live).innerHTML = sentBr(r.text);
+        $('p', live).innerHTML = balHTML(r.text, esc, 30);
         stats.sec += sec; stats.n++;
         finish(r.text, sec);
       };
@@ -393,7 +400,8 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
         if (k === 'read') { const a = await readAlong(target, { uttId: u.ids[0], pattern: u.pattern }); if (a.k === 'stop') return; if (a.text) { accMe(diff(a.text, target).score); D.markStep(u.ids[0], 'read'); } stage = 'recall'; continue; }
         // 안 보고 말하기: 한국어만 보고 말하기
         const tg = $v('#vtg'); tg.classList.remove('hide'); sayCard(tg, { ko: u.ko, en: target, pattern: u.pattern, mode: 'recall' });
-        const b = await turn({ label: '이번엔 안보고 해보자!!' }); log('sp-retry', b, u.ids[0]); tg.classList.add('hide'); tg.innerHTML = ''; if (stopped) return;
+        $$('.vm', chat).forEach(m => m.classList.remove('keep')); chat.classList.add('veil'); // 안 보고 말하기: 채팅 속 영어 자막 가리기
+        const b = await turn({ label: '이번엔 안보고 해보자!!' }); log('sp-retry', b, u.ids[0]); tg.classList.add('hide'); tg.innerHTML = ''; chat.classList.remove('veil'); if (stopped) return;
         if (b.skipped) break;
         status('확인하는 중…');
         const rr = await checkRetry(b.text, target, { ko: u.ko, check }); if (stopped) return;
@@ -456,13 +464,13 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
       const next = kit?.next || null;
       await new Promise(res => {
         panel(`<div class="vp-h">${i + 1}라운드 <small>${w} / ${GOALS[i]}단어${w >= GOALS[i] ? ' ✓' : ''}${i && prevW ? ` · ${w - prevW >= 0 ? '+' : ''}${w - prevW}` : ''}</small></div>
-          ${f ? coachHTML(f, { said: r.text }) : '<p class="vp-s">말한 내용이 없어요</p>'}
+          ${f ? coachHTML(f, { said: r.text }) + (f.ai ? '' : '<p class="vp-s">AI가 잠깐 답이 없어서 기본 교정으로 보여줘ㅜㅜ</p>') : '<p class="vp-s">말한 내용이 없어요</p>'}
           ${!last && next ? `<div class="next-q"><span class="cor-l">이어서</span><p class="en">${esc(next.en)}</p>${next.ko ? `<small>${esc(next.ko)}</small>` : ''}</div>` : ''}
           <div class="fbc-btns"><span></span><button class="nx-btn" data-k="next">${last ? '마치기' : `다음 · ${ROUNDS[i + 1]}초`} ${ic('next')}</button></div>`);
         bindCompare(pnl, saveMine(q.u, r.text));
         $$('[data-k]', pnl).forEach(b => b.onclick = () => { closePanel(); res(); });
       });
-      if (next) { cur = next; msg('ai', `<p class="en">${sentBr(next.en)}</p>${next.ko ? `<small>${sentBr(next.ko)}</small>` : ''}`); }
+      if (next) { cur = next; msg('ai', `<p class="en">${balHTML(next.en, esc, 30)}</p>${next.ko ? `<small>${sentBr(next.ko)}</small>` : ''}`); }
       mineFor = kit?.xs?.filter(x => x.mine) || [];
       prevW = w;
     }
