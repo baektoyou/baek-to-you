@@ -14,15 +14,19 @@ import { aiOn, aiDM, aiDMHint, aiDMKo, AI_ERR } from './ai.js';
 const KEY = () => 'baek-to-you:dm:' + D.accountKey();
 const META = () => 'baek-to-you:dm-meta:' + D.accountKey();
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY()) || '[]'); } catch { return []; } };
-const save = list => { try { localStorage.setItem(KEY(), JSON.stringify(list.slice(-300))); } catch { } };
+const save = list => { try { localStorage.setItem(KEY(), JSON.stringify(list.slice(-3000))); } catch { } };
 const meta = () => { try { return { level: 'auto', est: 'mid', ...JSON.parse(localStorage.getItem(META()) || '{}') }; } catch { return { level: 'auto', est: 'mid' }; } };
 const setMeta = p => { try { localStorage.setItem(META(), JSON.stringify({ ...meta(), ...p })); } catch { } };
 const LV = { auto: '자동', easy: '쉽게', mid: '보통', hard: '원어민처럼' };
 const wait = ms => new Promise(r => setTimeout(r, ms));
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const hm = t => { const d = new Date(t); const H = d.getHours(); return `${H < 12 ? '오전' : '오후'} ${H % 12 || 12}:${String(d.getMinutes()).padStart(2, '0')}`; };
-const dayKey = t => new Date(t).toDateString();
-const dayText = t => { const d = new Date(t); return `${d.getFullYear()}년 ${d.getMonth() + 1}월 ${d.getDate()}일 ${'일월화수목금토'[d.getDay()]}요일`; };
+// 날짜는 한국 시간 기준 (자정이 지나면 새 대화)
+const kday = (t = Date.now()) => new Date(t + 9 * 3600e3).toISOString().slice(0, 10);
+const dayKey = kday;
+const ymd = d => d.split('-').map(Number);
+const dayText = t => { const [y, m, d] = ymd(kday(t)); const w = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); return `${y}년 ${m}월 ${d}일 ${'일월화수목금토'[w]}요일`; };
+const dayShort = d => { const [, m, dd] = ymd(d); return `${d === kday() ? '오늘 · ' : ''}${m}월 ${dd}일`; };
 
 export function dm(root) {
   let dead = false, cap = null, busy = false, pumpT = null;
@@ -31,10 +35,11 @@ export function dm(root) {
   const AV = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
   root.innerHTML = `<div class="chatv dm">
     <header class="cv-top"><a class="icon-btn" href="#/talk" aria-label="뒤로">${ic('back')}</a>
-      <div class="cv-title">${AV(30)}<div><b>백현이</b><small id="dms">AI 백현이 · 영어 채팅</small></div></div>
+      <div class="cv-title">${AV(30)}<div><b>백현이</b><button class="dm-date" id="dmd" type="button"><span id="dms"></span>${ic('clock')}</button></div></div>
       <button class="icon-btn" id="dmo" aria-label="채팅 설정">${ic('settings')}</button></header>
     <div class="thread" id="th"></div>
     <div class="dm-hints hide" id="dmh"></div>
+    <div class="dm-past hide" id="dmp"><span>지난 대화는 볼 수만 있어</span><button class="btn sm" id="dmtoday" type="button">오늘 대화로</button></div>
     <div class="composer on" id="cp">
       <button class="cp-mic" id="cpm" aria-label="영어로 말하기">${ic('mic')}</button>
       <button class="cp-q dm-hb" id="cph" aria-label="답장 힌트">${ic('bulb')}</button>
@@ -44,6 +49,10 @@ export function dm(root) {
   </div>`;
   const th = $('#th', root), ta = $('#cpt', root), sendB = $('#cps', root), micB = $('#cpm', root), hb = $('#cph', root), hints = $('#dmh', root), status = $('#dms', root);
   const scroll = autoFollow(th);
+  let viewDay = kday();
+  const isToday = () => viewDay === kday();
+  const todays = () => list.filter(m => kday(m.at) === kday());
+  const setStatus = () => { status.textContent = dayShort(viewDay); };
   const level = () => { const m = meta(); return m.level === 'auto' ? (m.est || 'mid') : m.level; };
   const persist = () => save(list);
 
@@ -59,10 +68,11 @@ export function dm(root) {
     const el = h(`<div class="msg2 ${bh ? 'bh' : 'me'} ${first ? 'first' : ''} ${anim ? '' : 'still'}" data-id="${m.id}" data-who="${m.who}" data-min="${hm(m.at)}">
       ${bh ? (first ? AV(34) : '<span class="m-av sp"></span>') : ''}
       <div class="m-col">${bh && first ? '<span class="m-name">백현이</span>' : ''}
-        <div class="dm-row">${bh ? '' : `<span class="dm-meta"><i class="dm-un ${m.read ? 'hide' : ''}">1</i><span class="dm-time">${hm(m.at)}</span></span>`}<button class="m-bub dm-b" type="button"><span class="en">${esc(m.en)}</span></button>${bh ? `<span class="dm-meta"><span class="dm-time">${hm(m.at)}</span></span>` : ''}</div>
-        ${!bh && m.fix ? fixBtn(m) : ''}
+        <div class="dm-row">${bh ? '' : `<span class="dm-meta"><i class="dm-un ${m.read ? 'hide' : ''}">1</i><span class="dm-time">${hm(m.at)}</span></span>`}<button class="m-bub dm-b" type="button"><span class="en">${esc(m.en)}</span>${bh ? `<span class="dm-ko">${esc(m.ko || '')}</span>` : ''}</button>${bh ? `<span class="dm-meta"><span class="dm-time">${hm(m.at)}</span></span>` : ''}</div>
+        ${!bh && m.fix ? fixBtn(m) : ''}${bh ? '<div class="dm-act hide"></div>' : ''}
       </div></div>`);
-    $('.dm-b', el).onclick = () => flip(m, el);
+    $('.dm-b', el).onclick = () => bh ? saveAct(m, el) : flip(m, el);
+    if (bh && !m.ko) needKo(m, el);
     bindFix(m, el);
     th.appendChild(el); lastEl = el; return el;
   }
@@ -73,13 +83,27 @@ export function dm(root) {
       const box = $('.dm-fix', el), open = box.classList.toggle('hide') === false;
       b.classList.toggle('on', open);
       if (open && !box.innerHTML) {
-        box.innerHTML = `${cmpHTML({}, { said: m.en, rec: m.fix.natural, save: true })}${m.fix.why ? `<p class="dm-why">${esc(m.fix.why)}</p>` : ''}<button class="btn sm soft dm-use" type="button">${ic('edit')} 이 문장으로 써보기</button>`;
+        box.innerHTML = `${cmpHTML({}, { said: m.en, rec: m.fix.natural, save: true })}${m.fix.why ? `<p class="dm-why">${esc(m.fix.why)}</p>` : ''}`;
         bindCompare(box);
-        $('.dm-use', box).onclick = () => { ta.value = m.fix.natural; resize(); ta.focus(); sendB.classList.add('on'); };
       }
     };
   }
-  // 누르면 한국어 뜻 ↔ 영어
+  // 백현이 말풍선: 누르면 작은 ‘문장 저장 ♡’ (이미 저장했으면 하트 채워짐 · 중복 저장 X) → SAVED › 문장 › 내 문장
+  function saveAct(m, el) {
+    const act = $('.dm-act', el); if (!act) return;
+    if (!act.classList.contains('hide')) { act.classList.add('hide'); return; }
+    $$('.dm-act:not(.hide)', th).forEach(x => x.classList.add('hide'));
+    const done = () => !!D.findSavedByText(m.en);
+    const draw = () => { const on = done(); act.innerHTML = `<button class="dm-svb ${on ? 'on' : ''}" type="button">${on ? '저장했어' : '문장 저장'} <i>${on ? '♥' : '♡'}</i></button>`; $('.dm-svb', act).onclick = e => { e.stopPropagation(); if (done()) { toast('이미 저장한 문장이야 ♡'); return; } D.saveExpr({ kind: 'mine', level: 'mine', src: 'dm', ko: m.ko || '', text: m.en, en: { easy: '', natural: m.en, advanced: '' }, note: '' }); draw(); toast('저장했어 ♡'); window.dispatchEvent(new CustomEvent('b2u:words')); }; };
+    draw(); act.classList.remove('hide');
+  }
+  // 예전 기록에 뜻이 없으면 한 번만 받아서 채움 (차례대로)
+  let koQ = Promise.resolve();
+  function needKo(m, el) {
+    if (!aiOn()) return;
+    koQ = koQ.then(async () => { if (dead || m.ko) return; const ko = await aiDMKo(m.en); if (dead || !ko) return; m.ko = ko; persist(); const k = $('.dm-ko', el); if (k) k.textContent = ko; });
+  }
+  // 내 말풍선: 누르면 한국어 뜻 ↔ 영어
   async function flip(m, el) {
     const sp = $('.dm-b > span', el), toKo = !el.classList.contains('ko');
     if (!toKo) { el.classList.remove('ko'); sp.className = 'en'; sp.textContent = m.en; return; }
@@ -92,19 +116,50 @@ export function dm(root) {
     el.classList.add('ko'); sp.className = 'ko'; sp.textContent = m.ko;
   }
 
-  // ----- 처음 화면 -----
-  list.forEach(m => bubble(m, { anim: false }));
-  if (!list.length) th.appendChild(h(`<div class="dm-empty">${AV(64)}<b>백현이랑 영어로 수다 떨기</b><p>영상도 대본도 없이 아무 얘기나 영어로 보내봐!<br>말풍선을 누르면 한국어 뜻이 보이고,<br>막히면 ${ic('bulb')} 힌트를 눌러봐</p><small>AI가 백현이 말투로 답하는 연습용 채팅이에요</small></div>`));
-  if (!aiOn()) th.appendChild(h(`<div class="dm-off">영어 채팅은 AI 키가 있어야 답장이 와요.<br><small>SETTINGS › AI에서 Gemini 무료 키를 넣으면 바로 쓸 수 있어요.</small><a class="btn sm soft mt12" href="#/settings">SETTINGS로</a></div>`));
-  requestAnimationFrame(() => { th.scrollTop = th.scrollHeight; });
-  // 답장 못 받은 내 메시지가 있으면 이어서
-  if (aiOn() && list.length && list[list.length - 1].who === 'me') setTimeout(pump, 600);
+  // ----- 날짜별 화면: 오늘은 대화 · 지난 날은 보기만 -----
+  function render() {
+    th.innerHTML = ''; lastWho = lastDay = ''; lastEl = null;
+    const day = list.filter(m => kday(m.at) === viewDay);
+    day.forEach(m => bubble(m, { anim: false }));
+    const today = isToday();
+    if (today && !day.length) th.appendChild(h(`<div class="dm-empty">${AV(64)}<b>나랑 얘기하자~~</b><p>나랑 얘기하자! 말풍선을 누르면 한국어 뜻도 볼 수 있어 ♡</p></div>`));
+    if (!today && !day.length) th.appendChild(h(`<div class="dm-empty"><p>이 날은 나눈 대화가 없어</p></div>`));
+    if (today && !aiOn()) th.appendChild(h(`<div class="dm-off">답장을 받으려면 AI 키가 필요해요.<br><small>SETTINGS › AI에서 Gemini 무료 키를 넣으면 바로 쓸 수 있어요.</small><a class="btn sm soft mt12" href="#/settings">SETTINGS로</a></div>`));
+    $('#cp', root).classList.toggle('hide', !today); $('#dmp', root).classList.toggle('hide', today);
+    if (!today) closeHints();
+    setStatus();
+    requestAnimationFrame(() => { th.scrollTop = th.scrollHeight; });
+  }
+  const goDay = d => { viewDay = d; render(); };
+  render();
+  // 답장 못 받은 오늘 메시지가 있으면 이어서
+  { const t = todays(); if (aiOn() && t.length && t[t.length - 1].who === 'me') setTimeout(pump, 600); }
+  // 자정(한국 시간)이 지나면 오늘 화면은 새 빈 대화로 (지난 기록은 그대로)
+  let curDay = kday();
+  const tick = setInterval(() => { const d = kday(); if (d === curDay) return; const was = viewDay === curDay; curDay = d; if (was && !busy) goDay(d); else setStatus(); }, 15000);
+  $('#dmtoday', root).onclick = () => goDay(kday());
+  $('#dmd', root).onclick = () => calSheet();
+  function calSheet() {
+    const has = new Set(list.map(m => kday(m.at))); let [y, mo] = ymd(viewDay);
+    const sh = sheet(`<div class="cal-h"><button class="cl-nav" data-m="-1">${ic('back')}</button><b id="calt"></b><button class="cl-nav" data-m="1">${ic('next')}</button></div><div class="cal dm-cal" id="cal"></div><p class="cal-goal"><i class="dm-dot"></i> 백현이랑 채팅한 날</p>`);
+    const draw = () => {
+      $('#calt', sh).textContent = `${y}년 ${mo}월`;
+      const first = new Date(Date.UTC(y, mo - 1, 1)).getUTCDay(), n = new Date(Date.UTC(y, mo, 0)).getUTCDate(), t = kday();
+      $('#cal', sh).innerHTML = '일월화수목금토'.split('').map(x => `<span class="cal-w">${x}</span>`).join('') + '<span></span>'.repeat(first)
+        + Array.from({ length: n }, (_, i) => { const d = `${y}-${String(mo).padStart(2, '0')}-${String(i + 1).padStart(2, '0')}`;
+          return `<button class="dm-cd ${d === viewDay ? 'on' : ''} ${d === t ? 'now' : ''}" data-d="${d}" ${d > t ? 'disabled' : ''}><span>${i + 1}</span>${has.has(d) ? '<i class="dm-dot"></i>' : ''}</button>`; }).join('');
+      $$('[data-d]', sh).forEach(b => b.onclick = () => { sh.close(); goDay(b.dataset.d); });
+    };
+    $$('[data-m]', sh).forEach(b => b.onclick = () => { mo += +b.dataset.m; if (mo < 1) { mo = 12; y--; } if (mo > 12) { mo = 1; y++; } draw(); });
+    draw();
+  }
 
   // ----- 입력 -----
   const resize = () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; sendB.classList.toggle('on', !!ta.value.trim()); };
   ta.addEventListener('input', resize);
   function send() {
     const t = ta.value.trim(); if (!t) return;
+    if (!isToday()) { goDay(kday()); }
     if (!aiOn()) { toast('AI 키를 넣으면 백현이가 답장해줘'); return; }
     cap?.stop();
     $('.dm-empty', th)?.remove();
@@ -120,17 +175,18 @@ export function dm(root) {
   // ----- 백현이 답장 -----
   async function pump() {
     if (dead || busy) return;
-    const lastBh = list.map(m => m.who).lastIndexOf('bh');
-    const fresh = list.slice(lastBh + 1).filter(m => m.who === 'me');
+    const tl = todays(); // 오늘 대화만 이어감 (날마다 새 대화)
+    const lastBh = tl.map(m => m.who).lastIndexOf('bh');
+    const fresh = tl.slice(lastBh + 1).filter(m => m.who === 'me');
     if (!fresh.length) return;
     busy = true;
     await wait(500); if (dead) return;
     fresh.forEach(m => { m.read = true; $(`.msg2[data-id="${m.id}"] .dm-un`, th)?.classList.add('hide'); }); persist();
     let typing = showTyping();
-    const r = await aiDM({ history: list.slice(0, lastBh + 1), fresh: fresh.map(m => m.en), level: level() });
+    const r = await aiDM({ history: tl.slice(0, lastBh + 1), fresh: fresh.map(m => m.en), level: level() });
     if (dead) return;
     if (r.error) {
-      typing.remove(); status.textContent = 'AI 백현이 · 영어 채팅'; busy = false;
+      typing.remove(); busy = false;
       const er = h(`<div class="dm-err">답장을 못 받았어 · ${esc(AI_ERR[r.error] || '잠시 뒤 다시')} <button type="button">다시 받기</button></div>`);
       th.appendChild(er); scroll();
       $('button', er).onclick = () => { er.remove(); pump(); };
@@ -152,20 +208,18 @@ export function dm(root) {
       await wait(Math.min(1700, 450 + x.en.length * 22)); if (dead) return;
       typing.remove();
       const m = { id: uid(), who: 'bh', en: x.en, ko: x.ko, at: Date.now() };
-      list.push(m); persist(); bubble(m); scroll();
+      list.push(m); persist(); if (viewDay === kday(m.at)) { bubble(m); scroll(); }
       if (i < r.reply.length - 1) typing = showTyping();
     }
-    status.textContent = 'AI 백현이 · 영어 채팅';
     busy = false;
     // 답장 쓰는 동안 또 보냈으면 이어서
-    const after = list.map(m => m.who).lastIndexOf('bh');
-    if (list.slice(after + 1).some(m => m.who === 'me')) { clearTimeout(pumpT); pumpT = setTimeout(pump, 700); }
+    const t2 = todays(), after = t2.map(m => m.who).lastIndexOf('bh');
+    if (t2.slice(after + 1).some(m => m.who === 'me')) { clearTimeout(pumpT); pumpT = setTimeout(pump, 700); }
   }
   function showTyping() {
-    status.textContent = '입력 중...';
     const cont = lastWho === 'bh' && lastDay === dayKey(Date.now());
     const t = h(`<div class="msg2 bh ${cont ? '' : 'first'} typing">${cont ? '<span class="m-av sp"></span>' : AV(34)}<div class="m-col">${cont ? '' : '<span class="m-name">백현이</span>'}<div class="m-bub"><span class="typing3"><i></i><i></i><i></i></span></div></div></div>`);
-    th.appendChild(t); scroll();
+    if (viewDay === kday()) { th.appendChild(t); scroll(); }
     return t;
   }
 
@@ -177,7 +231,7 @@ export function dm(root) {
     hb.classList.add('on'); hints.classList.remove('hide');
     hints.innerHTML = `<div class="dm-hh"><b>${ic('bulb')} 이렇게 답해볼까?</b><button class="icon-btn sm" id="dhx" aria-label="닫기">${ic('x')}</button></div><div class="dm-hl"><span class="typing3"><i></i><i></i><i></i></span></div>`;
     $('#dhx', hints).onclick = closeHints;
-    const r = await aiDMHint({ history: list, level: level() });
+    const r = await aiDMHint({ history: todays(), level: level() });
     if (dead || hints.classList.contains('hide')) return;
     const box = $('.dm-hl', hints);
     if (r.error) { box.innerHTML = `<p class="dm-hn">힌트를 못 불러왔어 · ${esc(AI_ERR[r.error] || '다시 눌러줘')}</p>`; return; }
@@ -207,8 +261,8 @@ export function dm(root) {
       <div class="goal-ch">${Object.entries(LV).map(([k, v]) => `<button class="chip ${k === m.level ? 'on' : ''}" data-lv="${k}">${v}</button>`).join('')}</div>
       <button class="btn soft block-w mt12" id="dmclr">${ic('trash')} 대화 기록 지우기</button>`);
     $$('[data-lv]', sh).forEach(b => b.onclick = () => { setMeta({ level: b.dataset.lv }); sh.close(); toast(`난이도: ${LV[b.dataset.lv]}`); });
-    $('#dmclr', sh).onclick = async () => { sh.close(); if (!(await confirmSheet('대화 기록을 지울까?', '지우기', '이 기기에 저장된 백현이와의 영어 채팅이 모두 지워져요'))) return; list = []; persist(); th.innerHTML = ''; lastWho = lastDay = ''; lastEl = null; toast('대화 기록을 지웠어'); };
+    $('#dmclr', sh).onclick = async () => { sh.close(); if (!(await confirmSheet('대화 기록을 지울까?', '지우기', '이 기기에 저장된 백현이와의 영어 채팅이 모두 지워져요'))) return; list = []; persist(); goDay(kday()); toast('대화 기록을 지웠어'); };
   };
 
-  return () => { dead = true; cap?.stop(); clearTimeout(pumpT); document.body.classList.remove('no-tab'); };
+  return () => { dead = true; cap?.stop(); clearTimeout(pumpT); clearInterval(tick); document.body.classList.remove('no-tab'); };
 }

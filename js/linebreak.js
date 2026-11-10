@@ -5,7 +5,7 @@
 const SEL = [
   '.msg2:not(.me) .m-bub .ko', '.msg2:not(.me) .m-bub .en', '.m-bub .say-sub', '.m-bub .rv-sub', '.m-bub .rv-ko2',
   '.dc-b p.en', '.dc-ko', '.vm:not(.me) p', '.vm:not(.me) small', '.ex-en', '.ex-bub', '.say-en', '.say-ko', '.say-ko-big',
-  '.kit-q', '.kit-ko', '.rv-use b'
+  '.kit-q', '.kit-ko', '.rv-use b', '.dm-ko'
 ].join(',');
 
 // 이 단어 앞에서 끊기 좋음 (뒤 문장을 이끄는 말)

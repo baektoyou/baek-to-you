@@ -64,7 +64,7 @@ function normSaved(s, d = db) {
   const out = { id: s.id || uid(), kind, level, uttId: s.uttId || null, ko: s.ko || '', en, text, pattern: s.pattern || '', note: s.note || '',
     videoId: s.videoId || null, ytId: s.ytId || '', start: s.start ?? null, videoTitle: s.videoTitle || '',
     createdAt: s.createdAt || Date.now(), hard: status === 'again', status, audioId: s.audioId || null, srs, history: arrOf(s.history), editedAt: s.editedAt || 0,
-    marks: arr(s.marks), before: s.before || '' };
+    marks: arr(s.marks), before: s.before || '', src: s.src || '' };
   // 원본 영상 정보 보강 (예전 항목)
   if (out.uttId && !out.ytId) {
     const u = d.utts?.find(x => x.id === out.uttId); const v = u && d.videos?.find(x => x.id === u.videoId);

@@ -18,7 +18,7 @@ let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어
 const ST = { new: ['복습전', ''], again: ['2일 후 복습', 'mid'], okay: ['2일 후 복습', 'mid'], mastered: ['복습완료', 'ok'] };
 // 상태 옆: 복습할 날이 됐으면 ‘오늘’
 const dueTag = r => r?.due <= D.endOfToday() ? '오늘' : '';
-const SRC = s => s.kind === 'utt' ? '백현이' : '내 문장';
+const SRC = s => s.kind === 'utt' ? '백현이' : s.src === 'dm' ? '백현이 채팅' : '내 문장';
 const enOf = s => fixAddr(s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s)));
 const enHTML = s => markPattern(enOf(s), s.pattern, esc, s.marks || []);
 const FILTERS = [['due', '오늘', '이거 다시 해볼까?!'], ['bh', '백현이 문장', '내가 말했던 문장!!'], ['mine', '내 문장', '네가 직접 만든 문장!!'], ['done', '복습완료', '이건 이제 다 외웠지❤️']];

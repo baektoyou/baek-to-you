@@ -1882,3 +1882,25 @@ svg path.fl{fill:currentColor}
 .dm-hn{margin:2px 2px 6px;font-size:11px;color:var(--muted)}
 .dm-hb.on{background:var(--pink-soft);color:var(--pink-ink)}
 .block-w{width:100%}
+
+/* ---- (aj) 채팅하기: 날짜·달력·뜻·문장 저장 ---- */
+.cl-goal{color:#111}
+.dm-date{display:inline-flex;align-items:center;gap:2px;margin-top:1px;padding:0;font-size:11.5px;color:var(--ink2);background:none}
+.dm-date svg{width:11px;height:11px;color:var(--muted)}
+.dm-ko{display:block;margin-top:3px;font-size:12px;line-height:1.5;color:#a3a8ae;word-break:keep-all}
+.dm-ko:empty{display:none}
+.dm-act{margin-top:5px}
+.dm-svb{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:11.5px;color:var(--ink);animation:rise .2s var(--ease) both;transition:background .2s}
+.dm-svb i{font-style:normal;color:var(--pink);font-size:13px;line-height:1}
+.dm-svb.on{background:var(--pink-soft);border-color:transparent;color:var(--pink-ink)}
+.dm-svb.on i{animation:gdog .45s ease}
+.dm-past{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px calc(var(--safe-b) + 10px);border-top:1px solid var(--line);background:#fff;font-size:12.5px;color:var(--ink2)}
+.dm-cal{row-gap:4px}
+.dm-cd{position:relative;display:grid;place-items:center;height:40px;background:none;font-size:13px;color:var(--ink)}
+.dm-cd span{width:32px;height:32px;display:grid;place-items:center;border-radius:50%}
+.dm-cd.now span{font-weight:700}
+.dm-cd.on span{background:#111;color:#fff}
+.dm-cd:disabled{color:var(--line2)}
+.dm-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#F5A3C2;vertical-align:middle}
+.dm-cd .dm-dot{position:absolute;bottom:1px;left:50%;transform:translateX(-50%)}
+.cal-goal .dm-dot{margin-right:4px}
