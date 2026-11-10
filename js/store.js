@@ -111,6 +111,9 @@ export function addVideo(ytId, title) { if (!gate('addVideo')) return null;
   db.videos.unshift(v); save(); return v;
 }
 export function updateVideo(id, patch) { if (!gate('updateVideo')) return null; const v = db.videos.find(x => x.id === id); if (v) { Object.assign(v, patch, { updatedAt: Date.now() }); save(); } }
+// 영상 순서: 직접 바꾼 순서(order) → 순서가 없는 새 영상은 맨 앞에 최신순
+export const sortVideos = list => [...list].sort((a, b) => ((a.order ?? -1) - (b.order ?? -1)) || ((b.addedAt || 0) - (a.addedAt || 0)));
+export function reorderVideos(ids) { if (!gate('updateVideo')) return null; ids.forEach((id, i) => { const v = db.videos.find(x => x.id === id); if (v) { v.order = i; v.updatedAt = Date.now(); } }); save(); }
 export function deleteVideo(id) { if (!gate('deleteVideo')) return null;
   snapshot('영상 삭제');
   const ids = new Set(db.utts.filter(u => u.videoId === id).map(u => u.id));
@@ -243,12 +246,13 @@ function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d
 export function grade(id, q) { rate(id, q === 0 ? 'again' : q === 3 ? 'mastered' : 'okay'); }
 export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due));
 // 오늘 복습: 오늘 안에 복습할 차례가 오는 것까지 전부 (복습 중 빠지는 문장이 없게)
-// 오늘 복습 = 복습완료·2일 후 복습 중에서 날짜가 된 것만 (복습전은 목록에서 따로) · 오래전에 저장한 것부터
+// 오늘 복습 = 복습전 + 2일 후 복습 중 날짜가 된 것 (복습완료 제외) · 오래전에 저장한 것부터
 export const REVIEW_DAYS = 2;
 export const endOfToday = () => startOfDay(Date.now()) + 864e5 - 1;
 const byOld = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
-export const dueTodayList = () => { const e = endOfToday(); return db.saved.filter(s => s.status !== 'new' && s.srs.due <= e).sort(byOld); };
-export const dueTodayWords = () => { const e = endOfToday(); return db.words.filter(w => w.status !== 'new' && w.srs.due <= e).sort(byOld); };
+// 오늘 복습 = 복습전 + ‘2일 후 복습’ 중 날짜가 된 것 (복습완료는 제외)
+export const dueTodayList = () => { const e = endOfToday(); return db.saved.filter(s => s.status === 'new' || (s.status !== 'mastered' && (s.srs?.due ?? 0) <= e)).sort(byOld); };
+export const dueTodayWords = () => { const e = endOfToday(); return db.words.filter(w => w.status === 'new' || (w.status !== 'mastered' && (w.srs?.due ?? 0) <= e)).sort(byOld); };
 export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
 export function setSetting(k, v) { if (CONTENT_SETTINGS.includes(k) && !gate(k)) return; db.settings[k] = v; save(); }
@@ -270,6 +274,9 @@ export function deleteTalkLogs(ids) { const set = new Set(ids); snapshot('통화
 export const findSavedByText = t => { const k = normText(t); return k ? db.saved.find(s => normText(s.text) === k) || null : null; };
 export const findWordByText = t => { const k = normText(t); return k ? db.words.find(w => normText(w.text) === k) || null : null; };
 export const callDays = () => new Set(callLogs().map(l => today(new Date(l.at))));
+// 하루 통화 목표 (분) · 날짜별 통화시간(초)
+export const callGoal = () => Math.max(1, +db.settings.callGoal || 10);
+export const callTotals = () => { const m = new Map(); callLogs().forEach(l => { const d = today(new Date(l.at)); m.set(d, (m.get(d) || 0) + (l.sec || 0)); }); return m; };
 // 내 프로필 (백현이가 부를 이름 · 사진)
 export const profile = () => ({ name: '', photo: '', ...(db.settings.profile || {}) });
 export function setProfile(patch) { db.settings.profile = { ...profile(), ...patch }; save(); }

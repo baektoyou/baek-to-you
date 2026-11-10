@@ -1,8 +1,8 @@
 // SAVED — 문장 · 표현 · 단어 저장 → 질문에 영어로 대답하며 복습
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
-import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry, swipeDelete } from './ui.js';
-import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn } from './ai.js';
+import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry, swipeDelete, enterSend, autoFollow } from './ui.js';
+import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn, aiKoMark } from './ai.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
 import { avatarStyle } from './scene.js';
@@ -175,7 +175,7 @@ function review(root, items) {
   const player = () => pl || (pl = new Player($('#pl', root), { controls: 0 }));
   const end = () => { dead = true; cap?.stop(); pl?.destroy(); document.body.classList.remove('no-tab'); saved(root); };
   $('#x', root).onclick = end;
-  const scroll = () => requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' }));
+  const scroll = autoFollow(th);
   const wait = ms => new Promise(r => setTimeout(r, ms));
   let lastWho = '';
   const add = (who, html, cls = '') => {
@@ -232,7 +232,7 @@ function review(root, items) {
   };
   micB.onclick = () => { if (cap) { cap.stop(); return; } startMic(); };
   sendB.onclick = () => { if (cap) { cap.stop(); return; } doSend(); };
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendB.onclick(); } };
+  enterSend(ta, () => sendB.onclick());
 
   // 문장: 영상 대사면 영상 보고 말하기 · 표현·단어: 저장한 영상 대사가 있으면 그 영상으로, 없으면 그 표현을 쓴 백현이 한국어 문장(AI) 번역
   const lc = t => String(t || '').toLowerCase();
@@ -274,6 +274,13 @@ function review(root, items) {
     const t0 = typing(); await wait(380); if (dead) return; t0.remove(); lastWho = '';
     const b = add('bh', `<span class="ko rv-ko2">${esc(u.ko)}</span>${canPlay ? `<button class="rv-play" type="button">${ic('play')}<span>원본 영상 듣기</span><em>${D.fmt(u.start)}–${D.fmt(u.end)}</em></button>` : ''}<span class="rv-ask">영어로 말해볼래?</span>`);
     if (canPlay) $('.rv-play', b).onclick = e => { e.stopPropagation(); play(); };
+    // 저장한 표현에 해당하는 한국어 부분 밑줄 (뜻이 그대로 있으면 바로, 아니면 AI로 찾기)
+    const mx = expr || splitPatterns(x.pattern)[0] || (x.marks || [])[0] || '';
+    if (mx) {
+      const koEl = $('.rv-ko2', b), paint = m => { if (m && u.ko.includes(m) && !koEl.querySelector('u')) koEl.innerHTML = esc(u.ko).replace(esc(m), `<u class="rv-mark">${esc(m)}</u>`); };
+      const mean = String((it.t === 'w' ? x.ko : '') || '').split(/[,·/;]/).map(t => t.trim()).filter(t => t.length > 1).find(t => u.ko.includes(t));
+      if (mean) paint(mean); else aiKoMark({ ko: u.ko, en: natOf(u), expr: mx }).then(m => { if (!dead) paint(m); }).catch(() => { });
+    }
     await turn(it, x, { target, mode: 'say', ko: u.ko, targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: expr || x.pattern, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: u.ko, pattern: expr || x.pattern || '', expr }), rec: () => target, hl: expr ? [expr] : [...splitPatterns(x.pattern), ...(x.marks || [])], save: false });
   }
 
@@ -343,23 +350,21 @@ function review(root, items) {
     let el = add('learn', `${cmpHTML(f, { said, rec: recS, recKo: mode === 'reply' ? (f.recKo || '') : '', hl, save })}${mode === 'reply' && expr && !f.usedTarget ? `<p class="rv-tip">다음엔 <b class="en">${esc(expr)}</b>도 넣어서 말해보자ㅎㅎ</p>` : ''}`, 'wide rvfb'); lastWho = '';
     bindCompare(el, makeSave);
     D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text: said });
+    // 상태는 자동으로 안 바꾸고 내가 고름: ‘2일 후 복습’ / ‘복습완료’ (안 고르면 그대로)
     const rateFn = isW ? D.rateWord : D.rate;
-    snap = D.rateSnap(x.id, isW);
-    rateFn(x.id, ok ? 'okay' : 'again');
     if (!ok && !result.again.includes(x.id)) result.again.push(x.id);
-    if (ok) result.again = result.again.filter(id => id !== x.id);
-    const END = single ? ['종료', 'end', 'line'] : ['다음', 'next', 'line'];
+    const PICK = [['2일 후 복습', 'okay', 'line'], ['복습완료', 'mastered', 'pri']];
+    const showRead = () => { lastWho = ''; const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐!</span><span class="en big lp">${lpHTML(recS)}</span>${koLine || f.recKo ? `<span class="say-sub">${esc(koLine || f.recKo)}</span>` : ''}`); bindLongPress(rb); return rb; };
     // 안 보고 말하기: 추천 문장을 가리고(블러) 바로 듣기 → 정확도 % + 맞으면 칭찬 · 틀리면 어디가 아쉬웠는지 · 인식이 불확실하면 다시
     let recalled = false, read = false;
     for (;;) {
       // 틀렸으면: 보고 말하기 → 안 보고 말하기
-      const list = ok
-        ? [...(recS && !recalled ? [['안 보고 말하기', 'retry', 'line']] : []), ['어느정도 알아요', 'okay', 'line'], ['완전히 익혔어요', 'mastered', 'pri']]
-        : read ? [['안 보고 말하기', 'retry', 'pri'], END] : [['보고 말하기', 'read', 'pri'], END];
+      const list = (ok || recalled)
+        ? [...(recS && !recalled ? [['안 보고 말하기', 'retry', 'line']] : []), ...PICK]
+        : read ? [['안 보고 말하기', 'retry', 'line'], ...PICK] : [['보고 말하기', 'read', 'line'], ...PICK];
       const g = await chips(list, true); if (dead) return;
       if (g === 'read') {
-        read = true; lastWho = '';
-        const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(recS)}</span>${koLine || f.recKo ? `<span class="say-sub">${esc(koLine || f.recKo)}</span>` : ''}`); bindLongPress(rb);
+        read = true; showRead();
         const inp1 = askInput([recS]);
         chips([['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]]);
         autoMic();
@@ -382,17 +387,14 @@ function review(root, items) {
         ty2.remove(); lastWho = ''; if (dead) return;
         if (r.state !== 'unsure') { const me = [...$$('.msg2.me', th)].pop(); $('.m-bub', me)?.insertAdjacentHTML('beforeend', `<em class="acc-b ${r.score >= 85 ? 'hi' : ''}">${r.score}%</em>`); }
         await bhSay(r.msg); if (dead) return;
-        if (r.state === 'ok') {
-          recalled = true;
-          if (ok) continue; // 처음부터 맞았으면 → 익숙함 고르기
-          await wait(800); if (dead) return; // 칭찬하고 다음으로
-          if (!single && !requeued.has(x.id)) { requeued.add(x.id); queue.push(it); }
-          return next();
-        }
+        if (r.state === 'ok') { recalled = true; continue; } // 맞으면 → 2일 후 / 복습완료 고르기
+        // 안 보고도 틀리면: 백현이 멘트 뒤에 보고 말하기 때 문장(영어+한국어)을 다시 보여줌 → ‘안 보고 말하기’ 누르면 다시 가려짐
+        if (r.state === 'retry') { read = true; showRead(); }
         continue;
       }
       if (g === 'okay' || g === 'mastered') {
-        if (g === 'mastered') { D.unrate(x.id, snap, isW); rateFn(x.id, 'mastered'); }
+        rateFn(x.id, g); result.again = result.again.filter(id => id !== x.id);
+        toast(g === 'okay' ? '2일 후에 다시 보자!' : '복습완료!');
         result.ok++; return next();
       }
       if (g === 'end') return summary();

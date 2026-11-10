@@ -3,7 +3,7 @@ import * as D from './store.js';
 import { callAI, AI_ERR, aiOn, aiKeys, setAiKeys, PROVIDERS, DEFAULT_MODEL } from './ai.js';
 import * as S from './speech.js';
 import { parseYouTubeId, fetchTitle, thumb, vThumb, Player } from './yt.js';
-import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText } from './ui.js';
+import { esc, $, $$, ic, toast, sheet, confirmSheet, copyText, dragSort } from './ui.js';
 import { TOPICS, TYPES, EMOTIONS } from './talk-engine.js';
 import { APP_VERSION, checkUpdate } from './pwa.js';
 import * as Y from './sync.js';
@@ -36,9 +36,9 @@ export function settings(root) {
     <div class="sec-title label">VIDEOS · ${db.videos.length}</div>
     ${db.videos.length ? (() => {
       const chat = db.videos.filter(v => !isLive(v)), callV = db.videos.filter(isLive), list = vtab === 'call' ? callV : chat;
-      const shown = [...list].sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0)).slice(0, 5);
+      const shown = D.sortVideos(list).slice(0, 5);
       return `<div class="view-sw"><button data-vt="chat" class="${vtab === 'chat' ? 'on' : ''}">CHAT <em>${chat.length}</em></button><button data-vt="call" class="${vtab === 'call' ? 'on' : ''}">CALL <em>${callV.length}</em></button></div>
-      ${list.length ? `<div class="list">${shown.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
+      ${list.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${shown.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
         ${list.length > shown.length ? `<a class="li more" href="#/settings/videos/${vtab}"><span class="grow">전체 ${list.length}개 보기</span>${ic('next')}</a>` : ''}</div>`
         : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
     })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}` : ''}
@@ -105,6 +105,8 @@ export function settings(root) {
   const unsub = mountSync($('#sync', root));
   mountProfile($('#prof', root));
   $$('[data-vt]', root).forEach(b => b.onclick = () => { vtab = b.dataset.vt; vmore = false; settings(root); });
+  // 꾹 눌러 드래그 → 순서 저장 (보이는 5개 + 나머지는 원래 순서 그대로 뒤에)
+  dragSort($('#vsort', root), '.li', ids => { const rest = D.sortVideos(D.get().videos.filter(v => vtab === 'call' ? isLive(v) : !isLive(v))).map(v => v.id).filter(id => !ids.includes(id)); D.reorderVideos([...ids, ...rest]); toast('순서를 바꿨어요'); });
 
   function row(ok, t, d) { return `<div><span class="${ok ? 'ok-dot' : 'no-dot'}"></span><b>${t}</b> <span class="muted tiny">${esc(d)}</span></div>`; }
 
@@ -341,12 +343,13 @@ async function squareThumb(file, size) {
 
 // ---------- 전체 영상 목록 (CHAT / CALL) ----------
 export function videoListAll(root, tab = 'call') {
-  const all = D.get().videos.filter(v => tab === 'call' ? isLive(v) : !isLive(v)).sort((a, b) => (b.addedAt || 0) - (a.addedAt || 0));
+  const all = D.sortVideos(D.get().videos.filter(v => tab === 'call' ? isLive(v) : !isLive(v)));
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>${tab === 'call' ? 'CALL' : 'CHAT'} 영상 · ${all.length}</h2><span class="icon-sp"></span></header>
     <div class="view-sw"><a href="#/settings/videos/chat" class="${tab === 'chat' ? 'on' : ''}">CHAT</a><a href="#/settings/videos/call" class="${tab === 'call' ? 'on' : ''}">CALL</a></div>
-    ${all.length ? `<div class="list">${all.map(v => `<a class="li" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
+    ${all.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${all.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
   </div>`;
+  if (D.canEdit()) dragSort($('#vsort', root), '.li', ids => { D.reorderVideos(ids); toast('순서를 바꿨어요'); });
 }
 
 // ---------- 영상 상세 / 문장 관리 ----------

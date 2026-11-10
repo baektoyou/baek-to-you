@@ -2,7 +2,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { vThumb as thumbOf, Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx, bhLines, AI_MARK, checkRetry, brSent } from './ui.js';
+import { esc, $, $$, ic, toast, h, ytLink, natOf, hintBox, coachHTML, aiAnswerHTML, bindCompare, lpHTML, bindLongPress, setLpCtx, bhLines, AI_MARK, checkRetry, brSent, enterSend, autoFollow } from './ui.js';
 import { improve } from './feedback.js';
 import { diff } from './compare.js';
 import { judgeTranslation, keyExpressions } from './judge.js';
@@ -20,8 +20,10 @@ export const BH_PROFILE = { id: 'bh-profile', src: 'icons/bh-profile.jpg', w: 48
 
 export function videoList(root) {
   const db = D.get();
-  const vids = db.videos.filter(v => !isLive(v)); // 라이브 영상은 CALL 전용
-  const due = D.dueList().length;
+  // 라이브 영상은 CALL 전용 · 최근에 들은 영상부터 (안 들은 영상은 그 뒤에 원래 순서대로)
+  const rs = db.settings.chatResume || {}, lastAt = v => rs[v.id]?.at || 0;
+  const vids = db.videos.filter(v => !isLive(v)).map((v, i) => [v, i]).sort((a, b) => (lastAt(b[0]) - lastAt(a[0])) || (a[1] - b[1])).map(x => x[0]);
+  const due = D.dueTodayList().length + D.dueTodayWords().length;
   root.innerHTML = `<div class="screen">
     <header class="top">${WORDMARK}</header>
     <div class="stats-strip">
@@ -151,11 +153,7 @@ export function study(root, uttId) {
   if (!warmStart) pl.cue(v.ytId, u.start);
   const playU = x => { D.markStep(x.id, 'listen'); return pl.playSegment(v.ytId, x.start, x.end).then(r => { if (r === 'ended') onEnded?.(x); return r; }); };
   // 새 채팅이 올라오면 항상 맨 아래로 (내가 위로 올려 보는 중이 아니면 높이가 바뀔 때도 따라감)
-  let follow = true;
-  const scroll = () => { follow = true; requestAnimationFrame(() => th.scrollTo({ top: th.scrollHeight, behavior: 'smooth' })); };
-  th.addEventListener('scroll', () => { follow = th.scrollHeight - th.scrollTop - th.clientHeight < 90; }, { passive: true });
-  const pinBottom = () => { if (follow) th.scrollTop = th.scrollHeight; };
-  try { const ro = new ResizeObserver(pinBottom); ro.observe(th); new MutationObserver(() => requestAnimationFrame(pinBottom)).observe(th, { childList: true, subtree: true, characterData: true }); } catch { }
+  const scroll = autoFollow(th);
   const wait = ms => new Promise(r => setTimeout(r, ms));
 
   // ----- 말풍선 -----
@@ -240,7 +238,7 @@ export function study(root, uttId) {
   };
   const send = () => { if (cap) { sendAfter = true; cap.stop(); return; } doSend(); };
   sendB.onclick = send;
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } };
+  enterSend(ta, send);
   // 마이크: 백현이가 말하는 중이어도 누르면 바로 내 차례로
   micB.onclick = () => {
     if (cap) { cap.stop(); return; }
@@ -280,13 +278,14 @@ export function study(root, uttId) {
     const check = s2 => smartFeedback({ mode: 'translate', said: s2, target, ko: x.ko, pattern: x.pattern });
     // 보면서 따라 말하기(정확도 %) → 안 보고 말하기(블러 · 정확도 % + 백현이 멘트) → 맞으면 칭찬하고 다음
     let read = false;
+    const showRead = async () => { const re = await bh(`<span class="bub-tag">이거 보고 한번 해봐!</span><span class="en big lp">${lpHTML(target)}</span><span class="say-sub">${esc(x.ko)}</span>`); bindLongPress(re); return re; };
     for (;;) {
       const k = await chips(read
         ? [['안 보고 말하기', 'recall', 'pri', { mic: true, targets: [target], tap: () => th.classList.add('veil') }], NEXT(x)]
         : [['보면서 따라 말하기', 'read', 'pri', { mic: true, targets: [target] }], NEXT(x)]); if (dead) return;
       if (k === 'read') {
         read = true;
-        const re = await bh(`<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(target)}</span><span class="say-sub">${esc(x.ko)}</span>`); bindLongPress(re); if (dead) return;
+        await showRead(); if (dead) return;
         const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
         D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
         accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
@@ -309,6 +308,8 @@ export function study(root, uttId) {
         if (nx) { await wait(900); if (dead) return; return goOn(x, 'next'); }
         const k2 = await chips([NEXT(x)]); if (dead) return; return goOn(x, k2);
       }
+      // 안 보고도 틀리면: 백현이 멘트 뒤에 보고 말하기 때 문장(영어+한국어)을 다시 보여줌 → ‘안 보고 말하기’ 누르면 다시 가려짐
+      if (r.state === 'retry') { read = true; await showRead(); if (dead) return; }
     }
   }
   function goOn(x, k = 'next') {

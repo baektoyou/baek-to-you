@@ -335,28 +335,11 @@ export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x
 
 // ---------- 문장 속 단어: 길게 누르면 단어 저장 ----------
 const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
-// 문장이 바뀌면 새 줄 (짧은 글은 한 줄 그대로)
-export const lpHTML = t => { const ws = String(t || '').split(/\s+/).filter(Boolean); const long = String(t || '').length > 42; return ws.map((w, i) => wspan(w) + (i === ws.length - 1 ? '' : long && /[.!?]["')]?$/.test(w) && /^[A-Z"(]/.test(ws[i + 1]) ? '<br>' : ' ')).join(''); };
-// 긴 영어 한 문장을 보기 좋게 두 줄로: 가운데쯤의 끊기 좋은 곳(how/that/because/to… 앞, 쉼표 뒤)에서 줄바꿈
-const BRK = /^(how|what|why|when|where|who|which|that|because|so|but|and|or|if|to|for|with|about|than|until|before|after|while|since|like|without)$/i;
-export function balHTML(t, wrap = wspan, max = 24) {
-  const ws = String(t || '').split(/\s+/).filter(Boolean); const len = ws.join(' ').length;
-  if (len <= max || ws.length < 4) return ws.map(w => wrap(w)).join(' ');
-  // 문장이 여러 개면 문장마다 줄바꿈
-  if (ws.some((w, i) => i < ws.length - 1 && /[.!?]["')]?$/.test(w))) return ws.map((w, i) => wrap(w) + (i === ws.length - 1 ? '' : /[.!?]["')]?$/.test(w) ? '<br>' : ' ')).join('');
-  // 한 문장: 줄 수를 정하고, 줄마다 비슷한 길이가 되도록 끊기 좋은 곳(how/that/to… 앞, 쉼표 뒤)에서 끊기
-  const n = Math.ceil(len / max), ends = []; let acc = 0; ws.forEach(w => { acc += w.length + 1; ends.push(acc); });
-  const brk = new Set(); let from = 0;
-  for (let k = 1; k < n; k++) {
-    const goal = len * k / n; let best = -1, bs = 1e9;
-    for (let i = from; i < ws.length - 1; i++) { const d = Math.abs(ends[i] - goal); const pen = /,$/.test(ws[i]) ? 0 : BRK.test(ws[i + 1].replace(/[^a-z']/gi, '')) ? 1 : 7; const sc = d + pen; if (sc < bs) { bs = sc; best = i; } }
-    if (best >= 0) { brk.add(best); from = best + 1; }
-  }
-  return ws.map((w, i) => wrap(w) + (i === ws.length - 1 ? '' : brk.has(i) ? '<br>' : ' ')).join('');
-}
-// 문장이 바뀌면 줄바꿈 (영어·한국어 공통 · 평문)
-export const sentBr = t => esc(String(t || '').trim()).replace(/([.!?]+["')]?|[ㅎㅋㅜ]{2,})\s+(?=[A-Z가-힣"(])/g, '$1<br>');
-export const brSent = t => { t = String(t || '').trim(); return t.length > 34 ? esc(t).replace(/([.!?]+|[ㅎㅋㅜ]{2,})\s+(?=\S)/g, '$1<br>') : esc(t); };
+// 줄바꿈은 화면 폭을 재서 js/linebreak.js가 보기 좋게 넣음 (여기서는 단어만 감쌈)
+export const lpHTML = t => String(t || '').split(/\s+/).filter(Boolean).map(w => wspan(w)).join(' ');
+export function balHTML(t, wrap = wspan) { return String(t || '').split(/\s+/).filter(Boolean).map(w => wrap(w)).join(' '); }
+export const sentBr = t => esc(String(t || '').trim());
+export const brSent = t => esc(String(t || '').trim());
 // 문장에서 단어·표현 저장: 단어를 꾹 누른 채(0.3초) 옆으로 드래그해서 범위 선택 → ‘저장’
 // · 저장할 때 문장 속 뜻(한국어)을 AI가 같이 넣어줌 (AI 없으면 뜻은 비워두고 문장을 메모로)
 let lpCtx = {};
@@ -494,11 +477,12 @@ export function recSentHTML(sent, { chg = [], chgIdx = null, hl = [] } = {}) {
   const C = new Set(chgIdx || []), H = new Set();
   chg.forEach(m => findRun(toks, m, C));
   [...hl, ...savedPhrases()].forEach(x => { if (!findRun(toks, x, H)) hlParts(x).forEach(p => p.includes(' ') && findRun(toks, p, H)); });
-  let out = '', run = null, buf = [];
-  const flush = () => { if (!buf.length) return; out += (out ? ' ' : '') + (run ? `<span class="${run}">${buf.join(' ')}</span>` : buf.join(' ')); buf = []; };
-  raw.forEach((w, i) => { const k = [C.has(i) ? 'chg' : '', H.has(i) ? 'svd' : ''].filter(Boolean).join(' '); if (k !== run) { flush(); run = k; } buf.push(wspan(w)); });
-  flush();
-  return out;
+  // 저장한 표현은 이어진 단어 전체를 한 덩어리(.svd)로 감싸 밑줄이 끊기지 않게, 고친 부분(.chg)은 그 안에서 따로
+  const inner = (a, b) => { let o = '', run = null, buf = []; const fl = () => { if (!buf.length) return; o += (o ? ' ' : '') + (run ? `<span class="chg">${buf.join(' ')}</span>` : buf.join(' ')); buf = []; };
+    for (let i = a; i < b; i++) { const k = C.has(i); if (k !== run) { fl(); run = k; } buf.push(wspan(raw[i])); } fl(); return o; };
+  const parts = []; let i = 0;
+  while (i < raw.length) { const sv = H.has(i); let j = i; while (j < raw.length && H.has(j) === sv) j++; parts.push(sv ? `<span class="svd">${inner(i, j)}</span>` : inner(i, j)); i = j; }
+  return parts.join(' ');
 }
 // 저장/저장 취소가 생기면 화면 속 추천 문장의 ‘저장한 표현’ 밑줄을 다시 그림
 window.addEventListener('b2u:words', () => $$('.dc-rec p[data-rs]').forEach(p => { try { const o = JSON.parse(p.dataset.rs); p.innerHTML = recSentHTML(o.s, o); p.closest('.dc')?.querySelector('.dc-key')?.classList.toggle('hide', !p.querySelector('.svd') || !p.querySelector('.chg')); } catch { } }));
@@ -521,7 +505,7 @@ export function cmpHTML(f, { said = '', rec = '', recKo = '', saidKo = '', hl = 
   </div>`;
 }
 // 내 문장 ↔ 추천 문장을 단어 단위로 비교해서 추천 문장에서 새로 들어간·바뀐 단어 위치 (거의 다 바뀌었으면 표시 안 함)
-function diffMarks(said, rec) {
+export function diffMarks(said, rec) {
   const d = diffWords(said, rec); const idx = []; let j = 0;
   d.ops.forEach(o => { if (o.op === 'del') return; if (o.op === 'add' && /[a-z0-9]/i.test(o.b)) idx.push(j); j++; });
   const n = String(rec).split(/\s+/).filter(Boolean).length;
@@ -594,4 +578,66 @@ export function aiAnswerHTML(r) {
   if (r.error) return `<div class="fb2"><p class="fb-msg">${r.error === 'off' ? 'SETTINGS › AI에서 Gemini 키를 넣으면 영어 질문에 답해줄게요.' : '지금은 답할 수 없어요. 잠시 뒤 다시 물어봐요.'}</p></div>`;
   return `<div class="fb2 qa"><p class="fb-msg">${esc(r.answer).replace(/\n/g, '<br>')}</p>
     ${(r.xs || []).length ? `<div class="fxs">${r.xs.map(x => `<div class="fx-i"><div><span class="en">${esc(x.text)}</span>${x.ko ? `<small>${esc(x.ko)}</small>` : ''}</div><button class="sv" type="button" data-sw="${esc(x.text)}" data-ko="${esc(x.ko || '')}" aria-label="표현 저장">${ic('bookmark')}</button></div>`).join('')}</div>` : ''}</div>`;
+}
+
+// 엔터(키보드 ‘보내기’) = 전송 · iOS 한글 조합 중 엔터, 줄바꿈 입력(beforeinput)까지 처리
+export function enterSend(ta, fn) {
+  if (!ta) return;
+  ta.setAttribute('enterkeyhint', 'send');
+  let pend = false;
+  const go = () => { pend = false; setTimeout(() => { ta.value = ta.value.replace(/\n+$/, ''); fn(); }, 0); };
+  ta.onkeydown = e => {
+    if (e.key !== 'Enter' && e.keyCode !== 13) return;
+    if (e.shiftKey) return;
+    e.preventDefault();
+    if (e.isComposing || e.keyCode === 229) { pend = true; return; }
+    go();
+  };
+  ta.addEventListener('compositionend', () => { if (pend) go(); });
+  ta.addEventListener('beforeinput', e => { if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') { e.preventDefault(); go(); } });
+  ta.addEventListener('input', () => { if (ta.value.includes('\n')) { ta.value = ta.value.replace(/\n/g, ' ').trim(); go(); } });
+}
+
+// 채팅창 자동 스크롤: 새 채팅·높이 변화 → 항상 맨 아래 (내가 손가락/휠로 위로 올려 볼 때만 멈춤)
+export function autoFollow(box) {
+  let follow = true, touching = false;
+  const bottom = () => { box.scrollTop = box.scrollHeight; };
+  const pin = () => { if (follow) bottom(); };
+  const userMoved = () => { follow = box.scrollHeight - box.scrollTop - box.clientHeight < 80; };
+  box.addEventListener('touchstart', () => { touching = true; }, { passive: true });
+  box.addEventListener('touchend', () => { touching = false; setTimeout(userMoved, 350); }, { passive: true });
+  box.addEventListener('wheel', () => setTimeout(userMoved, 50), { passive: true });
+  box.addEventListener('scroll', () => { if (touching) userMoved(); }, { passive: true });
+  try { new ResizeObserver(pin).observe(box); new MutationObserver(() => { pin(); requestAnimationFrame(pin); }).observe(box, { childList: true, subtree: true, characterData: true }); } catch { }
+  // 새 채팅: 따라가기 켜고 바로 + 레이아웃이 끝난 뒤 한 번 더 (이미지·줄바꿈 계산 후 높이 변화 대비)
+  return () => { follow = true; bottom(); requestAnimationFrame(bottom); setTimeout(bottom, 120); setTimeout(bottom, 400); };
+}
+
+// 꾹 눌러(0.45초) 드래그해서 순서 바꾸기 · 놓으면 onDone(새 순서의 data-id 배열)
+export function dragSort(box, sel, onDone) {
+  if (!box) return;
+  let it = null, timer = null, x0 = 0, y0 = 0, moved = false, on = false, justDragged = false;
+  const items = () => [...box.querySelectorAll(sel)];
+  const reset = () => { clearTimeout(timer); timer = null; };
+  const start = (el, x, y) => { it = el; x0 = x; y0 = y; on = false; reset(); timer = setTimeout(() => { on = true; it.classList.add('dragging'); box.classList.add('sorting'); navigator.vibrate?.(15); }, 450); };
+  const move = (x, y, e) => {
+    if (!it) return;
+    if (!on) { if (Math.abs(x - x0) > 8 || Math.abs(y - y0) > 8) { reset(); it = null; } return; }
+    e?.cancelable && e.preventDefault(); moved = true;
+    const list = items().filter(n => n !== it);
+    const after = list.find(n => { const r = n.getBoundingClientRect(); return y < r.top + r.height / 2; });
+    if (after) { if (it.nextElementSibling !== after) box.insertBefore(it, after); }
+    else { const last = list[list.length - 1]; if (last && last.nextElementSibling !== it) last.after(it); }
+  };
+  const end = () => { reset(); if (it && on) { it.classList.remove('dragging'); box.classList.remove('sorting'); if (moved) { justDragged = true; setTimeout(() => { justDragged = false; }, 400); onDone(items().map(n => n.dataset.id)); } } it = null; on = false; moved = false; };
+  box.addEventListener('touchstart', e => { const el = e.target.closest(sel); if (el && box.contains(el)) start(el, e.touches[0].clientX, e.touches[0].clientY); }, { passive: true });
+  box.addEventListener('touchmove', e => move(e.touches[0].clientX, e.touches[0].clientY, e), { passive: false });
+  box.addEventListener('touchend', end); box.addEventListener('touchcancel', end);
+  box.addEventListener('mousedown', e => { const el = e.target.closest(sel); if (el && box.contains(el)) start(el, e.clientX, e.clientY); });
+  box.addEventListener('mousemove', e => it && move(e.clientX, e.clientY, e));
+  box.addEventListener('mouseup', () => it && end()); box.addEventListener('mouseleave', () => it && end());
+  box.addEventListener('contextmenu', e => { if (e.target.closest(sel)) e.preventDefault(); });
+  box.addEventListener('dragstart', e => e.preventDefault()); // 링크·사진 기본 끌기 막기
+  // 드래그 직후의 탭(링크 이동·버튼)은 무시
+  box.addEventListener('click', e => { if (justDragged || on) { e.preventDefault(); e.stopPropagation(); } }, true);
 }

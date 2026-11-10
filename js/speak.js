@@ -3,7 +3,7 @@
 import * as D from './store.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
-import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry, sentBr, balHTML } from './ui.js';
+import { esc, $, $$, ic, toast, h, natOf, sheet, hintBox, sayCard, bindSaves, swipeDelete, coachHTML, aiAnswerHTML, bindCompare, setLpCtx, bhLines, AI_MARK, checkRetry, sentBr, balHTML, enterSend, autoFollow, dragSort } from './ui.js';
 import { diff } from './compare.js';
 import { smartFeedback, aiAsk, aiKit } from './ai.js';
 import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
@@ -115,11 +115,14 @@ export function speak(root) {
     </section>
     <div class="modes">
       <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 대화하기</b>${ic('next')}</button>
+      <a class="mode" href="#/dm"><span class="mode-ic">${ic('chat')}</span><span class="grow mode-t"><b>${NAME}랑 영어 채팅</b><small>아무 얘기나 영어로 톡하기</small></span>${ic('next')}</a>
     </div>
     <section class="call-log">
       <div class="cl-total">
         <div class="cl-day"><button class="cl-nav" id="dprev" aria-label="이전 날">${ic('back')}</button><button class="cl-date" id="dcal">${esc(dayLabel(day))}${ic('clock')}</button><button class="cl-nav" id="dnext" aria-label="다음 날" ${isToday ? 'disabled' : ''}>${ic('next')}</button></div>
-        <span class="label">${isToday ? '오늘 통화시간' : '통화시간'}</span><div class="cl-big">${bigDur(dd.total)}</div>
+        <div class="cl-goalrow"><div class="grow"><span class="label">${isToday ? '오늘 통화시간' : '통화시간'}</span><div class="cl-big">${bigDur(dd.total)}</div>
+          <button class="cl-goal" id="dgoal">하루 목표 <b>${D.callGoal()}분</b>${ic('next')}</button></div>
+          ${goalRing(dd.total, 64)}</div>
       </div>
       ${groups.length ? `<div class="cl-list">${groups.map((g, gi) => { const r = g.v && rm.get(g.v.id); const showR = r && dd.logs.some(l => l.at === r.at);
         return `<div class="cl-row" data-g="${gi}"><div class="grow"><b>${esc(g.v ? (g.last.concept || conceptOf(g.v)) : MODE_KO[g.last.mode] || '통화')}${g.last.voice ? ' <i class="cl-kind">음성</i>' : ''}</b><small>${g.v ? `${esc(g.v.title)} · ` : ''}${clock(g.sec)}</small></div>${showR ? `<button class="cl-resume" data-resume="${g.v.id}" data-pos="${r.pos}" data-voice="${g.last.voice ? 1 : ''}">이어서 ${r.pos + 1}/${r.total}</button>` : ''}</div>`; }).join('')}</div>` : ''}
@@ -134,25 +137,44 @@ export function speak(root) {
   $('#dprev', root).onclick = () => { day = addDay(day, -1); speak(root); };
   $('#dnext', root).onclick = () => { if (day < today) { day = addDay(day, 1); speak(root); } };
   $('#dcal', root).onclick = () => calSheet(day, d => { day = d; speak(root); });
+  $('#dgoal', root).onclick = () => goalSheet(() => speak(root));
+  $('.g-ring', root).onclick = () => calSheet(day, d => { day = d; speak(root); });
   return () => { active?.(); active = null; };
 }
 // 더보기: 통화 콘텐츠를 썸네일 · 제목 · 간단한 설명으로 · 상황으로 거르기
 function contentSheet(root, vids) {
-  const sh = sheet(`<h3>나랑 통화할래?! ㅎㅎ</h3><div class="ct-list" id="clist"></div>`);
-  $('#clist', sh).innerHTML = vids.map(v => `<div class="ct-item"><span class="ct-th" style="background-image:url('${vThumb(v)}')"></span>
+  vids = D.sortVideos(vids);
+  const sh = sheet(`<h3>나랑 통화할래!?</h3>${D.canEdit() ? '<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p>' : ''}<div class="ct-list sortable" id="clist"></div>`);
+  $('#clist', sh).innerHTML = vids.map(v => `<div class="ct-item" data-id="${v.id}"><span class="ct-th" style="background-image:url('${vThumb(v)}')"></span>
     <div class="ct-meta"><b>${esc(String(v.title || '').split('\n')[0])}</b><small>${esc(v.desc || conceptOf(v))}</small></div>
     <div class="ct-ib">${voiceOk(v) ? `<button data-vc="${v.id}" data-voice="1" aria-label="음성통화">${ic('phoneF')}</button>` : ''}<button class="vid" data-vc="${v.id}" aria-label="영상통화">${ic('cam')}</button></div></div>`).join('');
   $$('[data-vc]', sh).forEach(b => b.onclick = () => { unlock(); sh.close(); call(root, 'call', D.video(b.dataset.vc), { voice: !!b.dataset.voice }); });
+  if (D.canEdit()) dragSort($('#clist', sh), '.ct-item', ids => { const rest = D.sortVideos(D.get().videos.filter(isLive)).map(v => v.id).filter(id => !ids.includes(id)); D.reorderVideos([...ids, ...rest]); toast('순서를 바꿨어요'); });
 }
-// 달력: 통화한 날에 점
+// 하루 목표 달성률 원형 차트 · 달성하면 🐶
+function goalRing(sec, size = 64) {
+  const p = Math.min(100, Math.round((sec || 0) / 60 / D.callGoal() * 100)), done = p >= 100;
+  return `<button class="g-ring ${done ? 'done' : ''}" type="button" style="--p:${p};--s:${size}px" aria-label="목표 ${p}% 달성">${done ? '<span class="g-dog">🐶</span>' : `<span class="g-pct"><b>${p}</b>%</span>`}</button>`;
+}
+function goalSheet(onDone) {
+  const cur = D.callGoal(), opts = [5, 10, 15, 20, 30, 45, 60];
+  const sh = sheet(`<h3>하루 통화 목표</h3><p class="sheet-sub">매일 이만큼 나랑 통화하자!</p>
+    <div class="goal-ch">${opts.map(m => `<button class="chip ${m === cur ? 'on' : ''}" data-gm="${m}">${m}분</button>`).join('')}</div>
+    <div class="row mt12"><input class="input grow" id="gmin" type="number" inputmode="numeric" min="1" max="600" value="${cur}"><span class="goal-u">분</span><button class="btn" id="gsave">저장</button></div>`);
+  const set = m => { m = Math.round(+m); if (!(m >= 1 && m <= 600)) { toast('1~600분 사이로 정해줘'); return; } D.setSetting('callGoal', m); sh.close(); toast(`하루 ${m}분! 화이팅🐶`); onDone?.(); };
+  $$('[data-gm]', sh).forEach(b => b.onclick = () => set(b.dataset.gm));
+  $('#gsave', sh).onclick = () => set($('#gmin', sh).value);
+}
+// 달력: 날짜마다 목표 달성률 원형 차트 · 달성한 날 🐶
 function calSheet(cur, pick) {
-  const has = D.callDays(); let base = dayDate(cur); base.setDate(1);
-  const sh = sheet(`<div class="cal-h"><button class="cl-nav" data-m="-1">${ic('back')}</button><b id="calt"></b><button class="cl-nav" data-m="1">${ic('next')}</button></div><div class="cal" id="cal"></div>`);
+  const tot = D.callTotals(), goal = D.callGoal() * 60; let base = dayDate(cur); base.setDate(1);
+  const sh = sheet(`<div class="cal-h"><button class="cl-nav" data-m="-1">${ic('back')}</button><b id="calt"></b><button class="cl-nav" data-m="1">${ic('next')}</button></div><div class="cal" id="cal"></div><p class="cal-goal">하루 목표 ${D.callGoal()}분 · 달성한 날은 🐶</p>`);
   const draw = () => {
     $('#calt', sh).textContent = `${base.getFullYear()}년 ${base.getMonth() + 1}월`;
     const first = base.getDay(), n = new Date(base.getFullYear(), base.getMonth() + 1, 0).getDate(), t = D.today();
     $('#cal', sh).innerHTML = '일월화수목금토'.split('').map(x => `<span class="cal-w">${x}</span>`).join('') + '<span></span>'.repeat(first)
-      + Array.from({ length: n }, (_, i) => { const d = D.today(new Date(base.getFullYear(), base.getMonth(), i + 1)); return `<button class="cal-d ${d === cur ? 'on' : ''} ${has.has(d) ? 'dot' : ''}" data-d="${d}" ${d > t ? 'disabled' : ''}>${i + 1}</button>`; }).join('');
+      + Array.from({ length: n }, (_, i) => { const d = D.today(new Date(base.getFullYear(), base.getMonth(), i + 1)); const sec = tot.get(d) || 0, p = Math.min(100, Math.round(sec / goal * 100)), ok = p >= 100;
+        return `<button class="cal-d ${d === cur ? 'on' : ''} ${ok ? 'won' : ''}" data-d="${d}" ${d > t ? 'disabled' : ''}><span class="cr" style="--p:${p}"><span class="cn">${i + 1}</span></span>${ok ? '<em class="cdog">🐶</em>' : ''}</button>`; }).join('');
     $$('[data-d]', sh).forEach(b => b.onclick = () => { sh.close(); pick(b.dataset.d); });
   };
   $$('[data-m]', sh).forEach(b => b.onclick = () => { base.setMonth(base.getMonth() + +b.dataset.m); draw(); });
@@ -261,14 +283,11 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   // ----- 채팅 -----
   const chat = $v('#vchat');
   // 새 채팅이 올라오면 맨 아래로 (위로 올려 보는 중이 아니면 높이가 바뀔 때도 따라감)
-  let follow = true;
-  chat.addEventListener('scroll', () => { follow = chat.scrollHeight - chat.scrollTop - chat.clientHeight < 60; }, { passive: true });
-  const pinChat = () => { if (follow) chat.scrollTop = chat.scrollHeight; };
-  try { new ResizeObserver(pinChat).observe(chat); new MutationObserver(() => requestAnimationFrame(pinChat)).observe(chat, { childList: true, subtree: true, characterData: true }); } catch { }
+  const toBottom = autoFollow(chat);
   function msg(who, html, cls = '') {
     const m = h(`<div class="vm ${who} ${cls}">${who === 'baek' || who === 'ai' ? `<i class="bh-av" style="background-image:url('icons/bh-profile.jpg')"></i>` : me.photo ? `<i class="bh-av" style="background-image:url('${me.photo}')"></i>` : `<i>${esc(myName[0])}</i>`}<div><b>${who === 'baek' ? NAME : who === 'ai' ? `${NAME}${AI_MARK}` : esc(myName)}</b>${html}</div></div>`);
     if (chat.classList.contains('veil')) m.classList.add('keep');
-    chat.appendChild(m); follow = true; chat.scrollTop = chat.scrollHeight; return m;
+    chat.appendChild(m); toBottom(); return m;
   }
   const say2 = (who, text, u = null) => {
     const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${who === 'me' ? esc(text) : sentBr(text)}</p>`);
@@ -325,7 +344,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
           if (limit) { const left = Math.max(0, limit - e); secEl.textContent = `${Math.ceil(left)}초`; rg.style.strokeDashoffset = 232 * Math.min(1, e / limit); if (left <= 0) { if (auto) cap?.stop(); else mic.classList.add('over'); } }
           else secEl.textContent = `${Math.floor(e)}초`;
         }, 200);
-        cap = S.capture({ stt: true, targets: hint?.en ? [hint.en] : [], onInterim: t => { const p = $('p', live); p.textContent = t || '…'; p.scrollTop = p.scrollHeight; onText?.(t); chat.scrollTop = chat.scrollHeight; } });
+        cap = S.capture({ stt: true, targets: hint?.en ? [hint.en] : [], onInterim: t => { const p = $('p', live); p.textContent = t || '…'; p.scrollTop = p.scrollHeight; onText?.(t); toBottom(); } });
         const r = await cap.result; cap = null; if (done) return;
         const sec = Math.round((Date.now() - st0) / 1000);
         live.classList.remove('typing');
@@ -341,6 +360,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
     return new Promise(res => {
       panel(`<div class="vp-h">영어로 입력</div><textarea class="textarea en" id="tb" rows="2"></textarea><button class="btn block mt12" id="tbs">보내기</button>`);
       $v('#tbs').onclick = () => { const t = $v('#tb').value.trim(); closePanel(); res(t); };
+      enterSend($v('#tb'), () => $v('#tbs').onclick());
     });
   }
   const pnl = $v('#vpanel');
@@ -363,9 +383,9 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
   }
   const NX = (nextU, label = '다음') => ['next', `${label} ${ic('next')}`, 'nx', { tap: () => nextU && startClip(nextU) }];
   // 보면서 따라 말하기: 정답 문장을 크게 보고 따라 말하기 (한 번)
-  async function readAlong(target, { uttId = null, pattern = '' } = {}) {
+  async function readAlong(target, { uttId = null, pattern = '', ko = '' } = {}) {
     const tg = $v('#vtg');
-    tg.classList.remove('hide'); sayCard(tg, { en: target, pattern, mode: 'read' });
+    tg.classList.remove('hide'); sayCard(tg, { en: target, ko, pattern, mode: 'read' });
     const a = await turn({ label: '보면서 따라 말해요' }); log('sp-practice', a, uttId);
     tg.classList.add('hide'); tg.innerHTML = '';
     return { k: stopped ? 'stop' : a.skipped ? 'next' : 'ok', text: a.text || '' };
@@ -396,8 +416,9 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
           ? await card(coachHTML(f, { rec: target, recKo: u.ko, pattern: u.pattern, said }), [['read', '보면서 따라 말하기', ''], NX(nx, nx ? '다음' : '마치기')], save)
           : await card('', [['recall', '안 보고 말하기', ''], NX(nx, nx ? '다음' : '마치기')]);
         if (stopped) return;
+        const tg0 = $v('#vtg'); if (tg0.dataset.again) { delete tg0.dataset.again; tg0.classList.add('hide'); tg0.innerHTML = ''; }
         if (k === 'next') break;
-        if (k === 'read') { const a = await readAlong(target, { uttId: u.ids[0], pattern: u.pattern }); if (a.k === 'stop') return; if (a.text) { accMe(diff(a.text, target).score); D.markStep(u.ids[0], 'read'); } stage = 'recall'; continue; }
+        if (k === 'read') { const a = await readAlong(target, { uttId: u.ids[0], pattern: u.pattern, ko: u.ko }); if (a.k === 'stop') return; if (a.text) { accMe(diff(a.text, target).score); D.markStep(u.ids[0], 'read'); } stage = 'recall'; continue; }
         // 안 보고 말하기: 한국어만 보고 말하기
         const tg = $v('#vtg'); tg.classList.remove('hide'); sayCard(tg, { ko: u.ko, en: target, pattern: u.pattern, mode: 'recall' });
         $$('.vm', chat).forEach(m => m.classList.remove('keep')); chat.classList.add('veil'); // 안 보고 말하기: 채팅 속 영어 자막 가리기
@@ -408,6 +429,8 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
         status(''); if (rr.state !== 'unsure') accMe(rr.score);
         await bhChat(rr.msg.split('\n').join(' ')); if (stopped) return; // 멘트 하나
         if (rr.state === 'ok') { D.markStep(u.ids[0], 'recall'); await wait(700); if (stopped) return; if (nx) startClip(nx); break; }
+        // 안 보고도 틀리면: 보고 말하기 때 문장(영어+한국어)을 다시 보여줌 → ‘안 보고 말하기’ 누르면 다시 가려짐
+        if (rr.state === 'retry') { tg.classList.remove('hide'); sayCard(tg, { en: target, ko: u.ko, pattern: u.pattern, mode: 'read' }); tg.dataset.again = '1'; }
         stage = 'recall';
       }
       if (!stopped) callPos = i + 1;

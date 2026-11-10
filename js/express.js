@@ -4,7 +4,7 @@
 // · 번역은 AI(SETTINGS › AI 키)가 있어야 해요 — 없으면 가짜 결과를 만들지 않고 안내만
 import * as D from './store.js';
 import * as S from './speech.js';
-import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, balHTML, swipeDelete } from './ui.js';
+import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, balHTML, swipeDelete, enterSend } from './ui.js';
 import { avatarStyle } from './scene.js';
 import { BH_PROFILE } from './video.js';
 import { aiExpress, aiOn, smartFeedback } from './ai.js';
@@ -49,7 +49,7 @@ export function express(root) {
     });
   };
   $('#exg', root).onclick = () => { if (cap) { cap.stop(); return; } go(); };
-  ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); go(); } };
+  enterSend(ta, go);
 
   async function go() {
     const ko = ta.value.trim(); if (!ko) { toast('하고 싶은 말을 먼저 적거나 말해줘요'); return; }

@@ -331,3 +331,66 @@ export async function aiExprSay({ expr, ko = '', avoid = [] }) {
   }
   return null;
 }
+
+// 영상 대사(한국어 자막)에서 저장한 영어 표현에 해당하는 부분 찾기 → 한국어 문장에 밑줄
+const KOMARK_SYS = `You align an English expression with its Korean translation.
+Given a Korean subtitle line, its English original, and an English expression used in it, return ONLY JSON {"mark": the EXACT shortest substring of the Korean line that expresses that English expression (copy characters exactly, no paraphrase), or "" if none}`;
+const koMarkCache = new Map();
+export async function aiKoMark({ ko, en, expr }) {
+  ko = String(ko || ''); if (!ko || !expr) return '';
+  const key = ko + '|' + String(expr).toLowerCase();
+  if (koMarkCache.has(key)) return koMarkCache.get(key);
+  if (!aiOn()) return '';
+  const a = await callAI(KOMARK_SYS, `Korean: ${clip(ko, 160)}\nEnglish: ${clip(en, 200)}\nExpression: ${clip(expr, 80)}`, { temp: 0.1, ms: 12000 });
+  const m = ok(a) ? cleanX(a.mark) : '';
+  const r = m && ko.includes(m) && m.length < ko.length ? m : '';
+  if (ok(a)) koMarkCache.set(key, r);
+  return r;
+}
+
+// ---------- 자유 영어 채팅 (CALL › 백현이랑 영어 채팅) ----------
+// AI 백현이(연습용 말투) · 영상·대본과 상관없는 1:1 메신저 대화
+const DM_LEVEL = {
+  easy: 'BEGINNER: very short, simple sentences (A1-A2 words), one idea per message, no idioms or slang.',
+  mid: 'INTERMEDIATE: everyday casual English, short sentences, common phrasal verbs, light slang only if obvious.',
+  hard: 'ADVANCED: fully natural native texting — idioms, phrasal verbs, slang, contractions, playful wordplay.'
+};
+const DM_SYS = `You are an AI practice chat partner speaking AS "Baekhyun" (K-pop idol persona) in a fan's personal English-practice messenger app.
+It is clearly an AI practice voice: never claim to be the real person, never state private real-life facts, schedules, plans or relationships as true; keep personal talk light, generic and playful. Never romantic or sexual.
+Persona: warm, sweet, playful, teasing and cute close friend. Texts like a real messenger: short, spontaneous, lowercase is fine, natural fillers ("hehe", "omg", "wait") in English only, at most one emoji per message and not every message (🐶 ✨ 😆 🥹 are fine). He may call the user "Aeri" sometimes (not every time).
+Conversation: reply to what the user actually said, react with feeling, share a little, and often (not always) end with an easy, open follow-up question so the chat keeps going. Any topic is fine. Do NOT correct the user's English inside the reply and never mention grammar in the reply. If the user writes Korean, answer in English anyway.
+Write 1-3 separate short messages (each under ~20 words) as an array — like sending several texts in a row.
+Match the English level given.
+Also analyze ONLY the user's newest message(s):
+- "user_ko": natural Korean (반말) meaning of the user's newest message(s).
+- "fix": if the user's English has grammar mistakes, wrong word choice, Konglish, or sounds clearly unnatural to a native texter → {"natural": the most natural native way a friend would text the same meaning (keep their meaning & casual tone; for Korean input give the English version), "why_ko": ONE short friendly Korean 반말 tip (under 40 chars) on the key change}. If it is already fine for casual texting (ignore capitalization, missing periods, casual abbreviations like "u", "lol"), "fix": null.
+- "level": the user's apparent English level: "easy" | "mid" | "hard".
+Return ONLY JSON: {"reply": ["msg", ...], "reply_ko": ["natural Korean 반말 for each msg", ...], "user_ko": "...", "fix": {...} or null, "level": "..."}`;
+const dmHist = msgs => msgs.slice(-16).map(m => `${m.who === 'me' ? 'User' : 'Baekhyun'}: ${clip(m.en, 220)}`).join('\n');
+export async function aiDM({ history = [], fresh = [], level = 'mid' }) {
+  if (!aiOn()) return { error: 'off' };
+  const user = `English level: ${DM_LEVEL[level] || DM_LEVEL.mid}\n\nConversation so far:\n${dmHist(history) || '(new chat)'}\n\nUser's newest message(s):\n${fresh.map(t => clip(t, 300)).join('\n')}`;
+  let a = await callAI(DM_SYS, user, { temp: 0.8, ms: 25000 });
+  if (!ok(a) && ['timeout', 'network', 'parse'].includes(a?.error)) a = await callAI(DM_SYS, user, { temp: 0.8, ms: 25000 });
+  if (!ok(a)) return { error: a?.error || 'parse' };
+  const reply = (Array.isArray(a.reply) ? a.reply : [a.reply]).map(x => fixAddr(String(x || '').replace(/\\n/g, ' ').trim())).filter(Boolean).slice(0, 3);
+  if (!reply.length) return { error: 'parse' };
+  const rk = Array.isArray(a.reply_ko) ? a.reply_ko : [];
+  const fix = a.fix && a.fix.natural && String(a.fix.natural).trim() ? { natural: fixAddr(String(a.fix.natural).trim()), why: String(a.fix.why_ko || '').trim() } : null;
+  return { reply: reply.map((en, i) => ({ en, ko: String(rk[i] || '').trim() })), userKo: String(a.user_ko || '').trim(), fix, level: ['easy', 'mid', 'hard'].includes(a.level) ? a.level : '' };
+}
+const DMHINT_SYS = `You help a Korean learner reply in an English messenger chat with "Baekhyun" (AI practice persona). Suggest 3 different replies the USER could send next to his latest message(s): different directions (e.g. answer + share, ask back, playful reaction). Casual native texting, short (under 15 words), at the given English level, written as the user (not as Baekhyun).
+Return ONLY JSON {"hints": [{"en": "...", "ko": "natural Korean 반말 meaning"}, ...]}`;
+export async function aiDMHint({ history = [], level = 'mid' }) {
+  if (!aiOn()) return { error: 'off' };
+  const a = await callAI(DMHINT_SYS, `English level: ${DM_LEVEL[level] || DM_LEVEL.mid}\n\nConversation:\n${dmHist(history) || '(new chat — suggest friendly openers)'}`, { temp: 0.8, ms: 20000 });
+  if (!ok(a)) return { error: a?.error || 'parse' };
+  const hints = (Array.isArray(a.hints) ? a.hints : []).map(x => ({ en: String(x?.en || '').trim(), ko: String(x?.ko || '').trim() })).filter(x => x.en).slice(0, 3);
+  return hints.length ? { hints } : { error: 'parse' };
+}
+const DMKO_SYS = `Translate the English chat message into natural casual Korean (반말, messenger tone). Return ONLY JSON {"ko": "..."}`;
+export async function aiDMKo(en) {
+  if (!aiOn()) return '';
+  const a = await callAI(DMKO_SYS, clip(en, 400), { temp: 0.2, ms: 12000 });
+  return ok(a) ? String(a.ko || '').trim() : '';
+}
