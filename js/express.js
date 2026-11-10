@@ -4,20 +4,21 @@
 // · 번역은 AI(SETTINGS › AI 키)가 있어야 해요 — 없으면 가짜 결과를 만들지 않고 안내만
 import * as D from './store.js';
 import * as S from './speech.js';
-import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, balHTML } from './ui.js';
+import { esc, $, $$, ic, toast, h, cmpHTML, bindCompare, lpHTML, bindLongPress, bhLines, checkRetry, balHTML, swipeDelete } from './ui.js';
 import { avatarStyle } from './scene.js';
 import { BH_PROFILE } from './video.js';
 import { aiExpress, aiOn, smartFeedback } from './ai.js';
 
 const KEY = () => 'baek-to-you:express:' + D.accountKey();
 const hist = () => { try { return JSON.parse(localStorage.getItem(KEY()) || '[]'); } catch { return []; } };
+const delHist = src => { try { localStorage.setItem(KEY(), JSON.stringify(hist().filter(y => y.src !== src))); } catch { } };
 const pushHist = x => { try { localStorage.setItem(KEY(), JSON.stringify([x, ...hist().filter(y => y.src !== x.src)].slice(0, 20))); } catch { } };
 
 export function express(root) {
   let dead = false, cap = null, cur = null, tts = null;
   root.innerHTML = `<div class="screen express">
     <header class="top"><a class="icon-btn" href="#/video" id="exb" aria-label="뒤로">${ic('back')}</a><h2>백현아 도와줘</h2><span class="icon-btn ghost"></span></header>
-    <div class="ex-hero"><span class="ex-av" style="${avatarStyle(BH_PROFILE, 44)}"></span><p class="ex-lead"><b>나한테 말해봐아~~ㅎㅎ</b><small>내가 영어로 바꿔주께!!</small></p></div>
+    <div class="ex-hero"><span class="ex-av" style="${avatarStyle(BH_PROFILE, 44)}"></span><p class="ex-lead"><b>나한테 말해봐아~~</b><small>내가 영어로 바꿔주께!!</small></p></div>
     <div class="ex-in">
       <textarea id="exk" rows="2" placeholder="예) 나한테 언제나 큰 힘과 원동력이 되어주는 나의 사랑들아" autocapitalize="off" spellcheck="false"></textarea>
       <div class="ex-row">
@@ -104,8 +105,10 @@ export function express(root) {
   // ----- 최근 -----
   function drawHist() {
     const list = hist().filter(y => y.src && (!cur || y.src !== cur.src)).slice(0, 8);
-    $('#exh', root).innerHTML = list.length ? `<div class="label ex-hl">최근</div><div class="ex-list">${list.map((y, i) => `<button class="ex-li" data-i="${i}"><b class="en">${esc(y.en)}</b><small>${esc(y.src)}</small></button>`).join('')}</div>` : '';
-    $$('[data-i]', root).forEach(b => b.onclick = () => { cur = list[+b.dataset.i]; ta.value = cur.src; show(cur); drawHist(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    $('#exh', root).innerHTML = list.length ? `<div class="label ex-hl">최근</div><div class="ex-list">${list.map((y, i) => `<div class="ex-li" role="button" tabindex="0" data-i="${i}"><b class="en">${esc(y.en)}</b><small>${esc(y.src)}</small></div>`).join('')}</div>` : '';
+    // 왼쪽으로 밀면 ‘삭제’
+    $$('.ex-li', root).forEach(row => swipeDelete(row, () => { delHist(list[+row.dataset.i].src); toast('지웠어!'); drawHist(); }));
+    $$('[data-i]', root).forEach(b => b.onclick = e => { if (e.target.closest('.sw-del')) return; cur = list[+b.dataset.i]; ta.value = cur.src; show(cur); drawHist(); window.scrollTo({ top: 0, behavior: 'smooth' }); });
   }
   drawHist();
   return () => { dead = true; stopAll(); };

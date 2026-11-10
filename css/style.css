@@ -1777,3 +1777,14 @@ svg path.fl{fill:currentColor}
 .vm p.en{text-wrap:pretty;word-break:normal;overflow-wrap:break-word}
 .ex-face{font-size:22px}
 .ex-face{font-size:16px;letter-spacing:-.5px;padding-bottom:2px;white-space:nowrap}
+
+/* ===================== 2026.11.10 (ag) ===================== */
+.dc-key{display:none!important}                 /* 하이라이트 설명 없음 */
+.dc-ko{margin-top:5px}                          /* 추천 영어 ↔ 한국어 살짝 간격 */
+.ex-face{padding:3px 0 0;line-height:1}         /* 'ㅅ' 원 정가운데 */
+.ex-li.swipe{padding:0;border:0;background:none}
+.ex-li.swipe>.sw-in{display:block;padding:11px 13px;border:1px solid var(--line);border-radius:var(--r-md);background:#fff}
+.rv-mark{text-decoration:underline;text-decoration-color:var(--pink);text-decoration-thickness:2px;text-underline-offset:4px}
+/* CALL 내 말풍선: 말하는 동안 최대 3줄(최신 줄이 보이게) · 끝나도 줄바꿈 그대로 */
+.vm.me{max-width:92%}
+.vm.me.typing p{max-height:calc(1.5em * 3);overflow:hidden}

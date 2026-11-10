@@ -117,6 +117,8 @@ Evaluate step by step:
  "natural" = "" unless the learner's own sentence is awkward or has fixes — then their own sentence minimally fixed (never copy the reference).
  "feedback" by level — perfect: specific delight (❤️ allowed only here, sparingly) · good: praise + the one small point · partial: what they got right + what was missing/wrong · off: a kind nudge about what the line actually means.
 
+If a "Target expression" is given (SAVED expression review): focus "feedback" on that expression — did the learner use it (or say that part naturally)? Name the expression in the feedback. correct still needs the whole meaning; using a different natural phrase for that part is OK but gently show the saved expression.
+
 MODE long — CALL 백현이랑 대화하기 (free conversation)
 The learner answered Baekhyun's question in their own words. correct = an on-topic, sensible answer (grammar slips are fixes, not "incorrect").
  "natural" = the BEST natural way a native speaker would actually say WHAT THE LEARNER MEANT — casual, idiomatic, spoken English (not textbook). Keep their meaning, content, facts and opinion exactly (never invent details or give a different answer); keep their own words where they are already natural, and replace awkward or Korean-style phrasing with the expression a native would really use. Break long run-on speech into natural sentences. ALWAYS give it. Recommended sentence = "natural". "rec_marks" = the words of "natural" that differ from what the learner said.
@@ -147,7 +149,7 @@ const cleanX = x => fixAddr(String(x || '').replace(/\s+/g, ' ').trim());
 const expand = t => t.replace(/\b(i|you|we|they|he|she|it|that|there|what)'(m|re|s|ve|ll|d)\b/g, (m, a, b) => a + ' ' + ({ m: 'am', re: 'are', s: 'is', ve: 'have', ll: 'will', d: 'would' })[b]).replace(/\b(do|does|did|is|are|was|were|have|has|can|could|would|should|won)n't\b/g, (m, a) => (a === 'won' ? 'will' : a === 'can' ? 'can' : a) + ' not').replace(/\bcan not\b/g, 'cannot');
 // 말투 규칙 강제: ㅠㅠ → ㅜㅜ · ‘…’, ‘ㅜㅜ’ 뒤에 말이 이어지면 한 칸
 export const bhTone = t => String(t || '').replace(/ㅠ/g, 'ㅜ').replace(/♡|♥/g, '').replace(/(\.{2,}|ㅜ{2,})(?=[가-힣A-Za-z0-9])/g, '$1 ');
-const cleanF = x => bhTone(fixAddr(String(x || ''))).split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
+const cleanF = x => bhTone(fixAddr(String(x || '').replace(/\\n/g, '\n'))).split(/\n+/).map(l => l.replace(/\s+/g, ' ').trim()).filter(Boolean).filter((l, i, a) => a.indexOf(l) === i).slice(0, 3).join('\n'); // 줄바꿈 유지 · 같은 문장 반복 제거
 const goodX = t => /^[A-Za-z~(][A-Za-z' ,.!?~…/()-]*$/.test(t) && t.split(' ').length <= 8; // 표현 (패턴 ~ 허용)
 const goodChunk = t => /^[A-Za-z][A-Za-z' ,.!?-]*$/.test(t) && t.split(' ').length <= 8 && !/[a-z][.!?][A-Za-z]/.test(t) && t.split(' ').every(w => w.length <= 16);
 // AI 비교(cmp) 검사: 내 문장 조각을 이어 붙이면 실제로 말한 문장이 되는지 · 축약형(it's = it is)은 고친 걸로 보지 않음
@@ -307,4 +309,25 @@ export async function aiExpress(ko) {
   if (!ok(a) || !a.en) return { error: a?.error || 'parse' };
   const en = cleanX(a.en).slice(0, 240);
   return { en, ko: cleanX(a.ko).slice(0, 160), alt: '', bh: cleanF(a.bh || a.tip).slice(0, 120) };
+}
+
+// ---------- 7) 표현·단어 복습: 그 표현을 쓴 백현이가 말할 법한 한국어 문장 ----------
+// 화면엔 한국어만(표현에 해당하는 부분 밑줄) → 사용자가 영어로 번역 → en이 정답(표현 포함)
+const EXSAY_SYS = `${COACH}
+${BH_VOICE}
+The learner saved an English expression and now reviews it by TRANSLATING a Korean line into English.
+Write ONE short Korean chat line (1 sentence, ≤ 40 chars) that Baekhyun might naturally say in his voice — everyday life, feelings, work, fans — whose most natural English translation USES the saved expression exactly (same meaning and grammar).
+Return ONLY JSON {"ko": the Korean line, "mark": the EXACT substring of "ko" that corresponds to the expression (a few words), "en": the natural casual English translation that contains the expression}`;
+export async function aiExprSay({ expr, ko = '', avoid = [] }) {
+  if (!aiOn()) return null;
+  const core = String(expr).toLowerCase().split(/~|\.\.\.|…|\(|\bsomething\b|\bsomeone\b|\bsb\b|\bsth\b|\bone's\b/)[0].replace(/[^a-z' ]/g, '').trim().split(' ').slice(0, 2).join(' ');
+  const user = [`Saved expression: ${clip(expr, 80)}`, ko ? `Meaning (Korean): ${clip(ko, 80)}` : '', avoid.length ? `Do not repeat: ${avoid.slice(-6).map(x => clip(x, 80)).join(' | ')}` : ''].filter(Boolean).join('\n');
+  for (let t = 0; t < 2; t++) {
+    const a = await callAI(EXSAY_SYS, user + (t ? '\nLast try failed: "en" must contain the expression and "mark" must be an exact part of "ko".' : ''), { temp: t ? 0.5 : 0.85, ms: 15000 });
+    if (!ok(a) || !a.ko || !a.en) continue;
+    const k = bhTone(cleanX(a.ko)).slice(0, 80), en = cleanX(a.en).slice(0, 200), mark = cleanX(a.mark);
+    if (core && !en.toLowerCase().includes(core)) continue;
+    return { ko: k, en, mark: mark && k.includes(mark) ? mark : '' };
+  }
+  return null;
 }

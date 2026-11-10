@@ -2,7 +2,7 @@
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
 import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry, swipeDelete } from './ui.js';
-import { smartFeedback, aiReplyLine, fixAddr } from './ai.js';
+import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn } from './ai.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
 import { avatarStyle } from './scene.js';
@@ -15,7 +15,9 @@ import { judgeReply, questionFor } from './judge.js';
 let filter = 'due';
 let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어
 // 상태: 복습전 · 복습중 · (어느 정도 = 다음 복습 시간만) · 복습완료
-const ST = { new: ['복습전', ''], again: ['복습중', 'warn'], okay: ['', 'mid'], mastered: ['복습완료', 'ok'] };
+const ST = { new: ['복습전', ''], again: ['2일 후 복습', 'mid'], okay: ['2일 후 복습', 'mid'], mastered: ['복습완료', 'ok'] };
+// 상태 옆: 복습할 날이 됐으면 ‘오늘’
+const dueTag = r => r?.due <= D.endOfToday() ? '오늘' : '';
 const SRC = s => s.kind === 'utt' ? '백현이' : '내 문장';
 const enOf = s => fixAddr(s.kind === 'utt' ? (natOf(s) || s.text) : (s.text || natOf(s)));
 const enHTML = s => markPattern(enOf(s), s.pattern, esc, s.marks || []);
@@ -25,21 +27,22 @@ export function saved(root) {
   const db = D.get(); const due = D.dueTodayList(); const dueW = D.dueTodayWords(); // 오늘 안에 복습할 차례가 오는 것까지 전부
   const lists = {
     due, bh: db.saved.filter(s => s.kind === 'utt'), mine: db.saved.filter(s => s.kind !== 'utt'),
-    done: db.saved.filter(s => s.status === 'okay' || s.status === 'mastered')
+    done: db.saved.filter(s => s.status === 'mastered')
   };
   if (!lists[filter]) filter = 'due';
   const isW = view !== 'sent';
   const words = db.words.filter(w => view === 'word' ? w.kind === 'word' : w.kind !== 'word');
   const items = isW ? words : lists[filter];
+  const todo = items.filter(x => x.status !== 'mastered'); // ‘이 목록 복습하기’는 복습완료 빼고
   const nE = db.words.filter(w => w.kind !== 'word').length, nW = db.words.length - nE;
   root.innerHTML = `<div class="screen saved-scr">
     <header class="top"><h1 class="page-title">Saved</h1></header>
     <div class="stats-strip"><div><b class="${due.length ? 'accent' : ''}">${due.length}</b><span>복습할 문장</span></div><div><b class="${dueW.length ? 'accent' : ''}">${dueW.length}</b><span>복습할 표현·단어</span></div><div><b>${db.saved.filter(s => s.status === 'mastered').length}</b><span>익힌 문장</span></div></div>
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button></div>
-    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${items.length > 1 ? `<button class="btn sm" id="pw">${ic('play')} ${items.length}개 복습</button>` : ''}</div>`
+    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${todo.length}개 복습</button>` : ''}</div>`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
-    ${items.length ? `${!isW && filter !== 'due' && items.length > 1 ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${items.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
+    ${items.length ? `${!isW && filter !== 'due' && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}
   </div>`;
   // 삭제: 왼쪽으로 밀면 ‘삭제’
@@ -48,9 +51,9 @@ export function saved(root) {
   bindLongPress(root); // 문장·표현 속 단어: 짧게 누르면 그 단어, 꾹 누른 채 드래그하면 그 범위를 저장
   $$('[data-f]', root).forEach(b => b.onclick = () => { filter = b.dataset.f; saved(root); });
   $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; saved(root); });
-  $('#go', root).onclick = () => review(root, due.map(s => ({ t: 's', id: s.id })).concat(dueW.map(w => ({ t: 'w', id: w.id }))));
-  $('#pa', root) && ($('#pa', root).onclick = () => review(root, items.map(s => ({ t: 's', id: s.id }))));
-  $('#pw', root) && ($('#pw', root).onclick = () => review(root, items.map(w => ({ t: 'w', id: w.id }))));
+  $('#go', root).onclick = () => review(root, due.map(s => ({ t: 's', id: s.id, at: s.createdAt || 0 })).concat(dueW.map(w => ({ t: 'w', id: w.id, at: w.createdAt || 0 }))).sort((a, b) => a.at - b.at));
+  $('#pa', root) && ($('#pa', root).onclick = () => review(root, todo.map(s => ({ t: 's', id: s.id }))));
+  $('#pw', root) && ($('#pw', root).onclick = () => review(root, todo.map(w => ({ t: 'w', id: w.id }))));
   $('#addw', root) && ($('#addw', root).onclick = () => wordSheet(null, () => saved(root), view === 'word' ? 'word' : 'expr'));
   root.onclick = async e => {
     const b = e.target.closest('[data-act]'); if (!b) return;
@@ -84,14 +87,14 @@ function itemHTML(s) {
     ${s.ko ? `<div class="ko s-ko">${esc(s.ko)}</div>` : ''}
     <div class="foot">
       <button class="s-act" data-act="one">복습</button>
-      <span class="s-meta">${[stL ? `<em class="${stC}">${stL}</em>` : '', esc(dueText(s.srs))].filter(Boolean).join(' · ')}</span>
+      <span class="s-meta">${[`<em class="${stC}">${stL}</em>`, s.status !== 'new' ? dueTag(s.srs) : ''].filter(Boolean).join(' · ')}</span>
       ${link ? `<a class="mini" href="${link.href}" ${link.ext ? 'target="_blank" rel="noopener"' : ''} aria-label="${esc(link.label)}">${ic(link.ext ? 'external' : 'video')}</a>` : ''}
       <button class="mini" data-act="edit" aria-label="수정">${ic('edit')}</button></div></article>`;
 }
 function wordHTML(w) {
   const [stL, stC] = ST[w.status] || ST.new; const src = w.srcId && D.get().saved.find(s => s.id === w.srcId);
   return `<article class="witem" data-id="${w.id}" data-w="1">
-    <div class="w-top"><b class="w-text en">${esc(w.text)}</b><span class="s-meta">${[stL ? `<em class="${stC}">${stL}</em>` : '', esc(dueText(w.srs))].filter(Boolean).join(' · ')}</span></div>
+    <div class="w-top"><b class="w-text en">${esc(w.text)}</b><span class="s-meta">${[`<em class="${stC}">${stL}</em>`, w.status !== 'new' ? dueTag(w.srs) : ''].filter(Boolean).join(' · ')}</span></div>
     ${w.ko ? `<p class="w-ko">${esc(w.ko)}</p>` : `<button class="w-addko" data-act="edit">+ 뜻 적기</button>`}
     ${src ? `<p class="w-src en lp">${recSentHTML(enOf(src), { hl: [w.text] })}</p>` : ''}
     <div class="foot"><button class="s-act" data-act="make">복습</button>${w.made?.length ? `<span class="s-meta">내가 만든 문장 ${w.made.length}개</span>` : '<span class="grow2"></span>'}
@@ -231,9 +234,19 @@ function review(root, items) {
   sendB.onclick = () => { if (cap) { cap.stop(); return; } doSend(); };
   ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendB.onclick(); } };
 
+  // 문장: 영상 대사면 영상 보고 말하기 · 표현·단어: 저장한 영상 대사가 있으면 그 영상으로, 없으면 그 표현을 쓴 백현이 한국어 문장(AI) 번역
+  const lc = t => String(t || '').toLowerCase();
+  const uttForWord = w => {
+    const src = w.srcId && D.get().saved.find(s => s.id === w.srcId);
+    if (src?.uttId && D.utt(src.uttId)) return D.utt(src.uttId);
+    const t = lc(w.text).replace(/[^a-z' ]/g, ' ').trim(); if (!t) return null;
+    const us = D.get().utts.filter(u => u.ko && D.video(u.videoId));
+    return us.find(u => w.note && lc(natOf(u)) === lc(w.note)) || us.find(u => (' ' + lc(natOf(u)).replace(/[^a-z' ]/g, ' ') + ' ').includes(' ' + t + ' ')) || null;
+  };
   const kindOf = (it, x) => {
-    if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; }
-    return { mode: 'reply' };
+    if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; return { mode: 'reply' }; }
+    const u = uttForWord(x); if (u) return { mode: 'say', u, v: D.video(u.videoId), expr: x.text };
+    return aiOn() ? { mode: 'gen', expr: x.text } : { mode: 'reply' };
   };
   const next = () => { i++; if (dead) return; if (i >= queue.length) summary(); else card(); };
 
@@ -242,16 +255,17 @@ function review(root, items) {
     const x = isW ? D.get().words.find(w => w.id === it.id) : D.get().saved.find(s => s.id === it.id);
     if (!x) return next();
     const k = kindOf(it, x);
-    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'say' ? '백현이의 말 영어로' : '백현이에게 답장'}`;
+    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'reply' ? '백현이에게 답장' : '백현이의 말 영어로'}`;
     $('#mt', root).style.width = `${(i / queue.length) * 100}%`;
     if (th.children.length) sys(`${i + 1} / ${queue.length}`);
     if (k.mode === 'say') return say(it, x, k);
+    if (k.mode === 'gen') return gen(it, x, k);
     return reply(it, x);
   }
 
   // ---- ① 백현이의 말 영어로 표현하기 ----
-  async function say(it, x, { u, v }) {
-    const target = enOf(x);
+  async function say(it, x, { u, v, expr = '' }) {
+    const target = expr ? fixAddr(natOf(u)) : enOf(x);
     setLpCtx({ ko: u.ko });
     const canPlay = !!(v && v.ytId && u.end > u.start);
     plw.classList.toggle('hide', !canPlay);
@@ -260,7 +274,22 @@ function review(root, items) {
     const t0 = typing(); await wait(380); if (dead) return; t0.remove(); lastWho = '';
     const b = add('bh', `<span class="ko rv-ko2">${esc(u.ko)}</span>${canPlay ? `<button class="rv-play" type="button">${ic('play')}<span>원본 영상 듣기</span><em>${D.fmt(u.start)}–${D.fmt(u.end)}</em></button>` : ''}<span class="rv-ask">영어로 말해볼래?</span>`);
     if (canPlay) $('.rv-play', b).onclick = e => { e.stopPropagation(); play(); };
-    await turn(it, x, { target, mode: 'say', targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: x.pattern, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: u.ko, pattern: x.pattern || '' }), rec: () => target, hl: [...splitPatterns(x.pattern), ...(x.marks || [])], save: false });
+    await turn(it, x, { target, mode: 'say', ko: u.ko, targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: expr || x.pattern, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: u.ko, pattern: expr || x.pattern || '', expr }), rec: () => target, hl: expr ? [expr] : [...splitPatterns(x.pattern), ...(x.marks || [])], save: false });
+  }
+
+  // ---- ①-2 영상에 없는 표현: 그 표현을 쓴 백현이 한국어 문장 → 영어로 (표현은 안 보여주고 한국어에 밑줄만) ----
+  async function gen(it, x, { expr }) {
+    plw.classList.add('hide'); pl?.pause();
+    const t0 = typing();
+    const line = await aiExprSay({ expr, ko: x.ko || '', avoid: lines }); if (dead) return;
+    t0.remove();
+    if (!line) return reply(it, x); // AI가 못 만들면 답장 연습으로
+    lines.push(line.ko); lastWho = '';
+    setLpCtx({ ko: line.ko });
+    const koHTML = line.mark ? esc(line.ko).replace(esc(line.mark), `<u class="rv-mark">${esc(line.mark)}</u>`) : esc(line.ko);
+    add('bh', `<span class="ko rv-ko2">${koHTML}</span><span class="rv-ask">영어로 말해볼래?</span>`);
+    const target = line.en;
+    await turn(it, x, { target, mode: 'say', ko: line.ko, targets: [target, expr], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: expr, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: line.ko, pattern: expr, expr }), rec: () => target, hl: [expr], save: false });
   }
 
   // ---- ② 백현이에게 답장하기 ----
@@ -290,7 +319,7 @@ function review(root, items) {
   // ---- 공통: 답하기 → 바로 피드백 → (다시 말하기) → 결과 기록 ----
   const single = items.length === 1; // 복습할 게 하나뿐이면 ‘다음’ 대신 ‘종료’
   const bhSay = async text => { let n = 0; for (const l of bhLines(text)) { if (dead) return; const t = typing(); await wait(300); if (dead) return; t.remove(); lastWho = n++ ? 'bh' : ''; add('bh', `<span class="ko">${esc(l)}</span>`); } };
-  async function turn(it, x, { target, mode, expr = '', targets, hint, check, rec, hl, save }) {
+  async function turn(it, x, { target, mode, expr = '', ko: koLine = '', targets, hint, check, rec, hl, save }) {
     const isW = it.t === 'w';
     let snap = null, hinted = false;
     const inp = askInput(targets);
@@ -330,7 +359,7 @@ function review(root, items) {
       const g = await chips(list, true); if (dead) return;
       if (g === 'read') {
         read = true; lastWho = '';
-        const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(recS)}</span>${f.recKo || (mode === 'say' && D.utt(x.uttId)?.ko) ? `<span class="say-sub">${esc(f.recKo || D.utt(x.uttId)?.ko || '')}</span>` : ''}`); bindLongPress(rb);
+        const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐ㅎㅎ</span><span class="en big lp">${lpHTML(recS)}</span>${koLine || f.recKo ? `<span class="say-sub">${esc(koLine || f.recKo)}</span>` : ''}`); bindLongPress(rb);
         const inp1 = askInput([recS]);
         chips([['건너뛰기', 'skip', 'line', { stay: true, tap: () => { cancelMic(); if (waiting) { const w = waiting; waiting = null; qk.innerHTML = ''; w.res({ skip: true }); } } }]]);
         autoMic();
@@ -349,7 +378,7 @@ function review(root, items) {
         if (t2 && t2.skip) { recalled = true; continue; }
         D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review-retry', text: t2 });
         const ty2 = typing();
-        const r = await checkRetry(t2, recS, { check: s2 => smartFeedback({ mode: 'translate', said: s2, target: recS, ko: f.recKo || (mode === 'say' ? D.utt(x.uttId)?.ko || '' : '') }) });
+        const r = await checkRetry(t2, recS, { check: s2 => smartFeedback({ mode: 'translate', said: s2, target: recS, ko: koLine || f.recKo || '' }) });
         ty2.remove(); lastWho = ''; if (dead) return;
         if (r.state !== 'unsure') { const me = [...$$('.msg2.me', th)].pop(); $('.m-bub', me)?.insertAdjacentHTML('beforeend', `<em class="acc-b ${r.score >= 85 ? 'hi' : ''}">${r.score}%</em>`); }
         await bhSay(r.msg); if (dead) return;

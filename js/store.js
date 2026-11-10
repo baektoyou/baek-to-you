@@ -193,8 +193,10 @@ export function deleteWord(id) { db.words = db.words.filter(w => w.id !== id); s
 export function rateWord(id, status) {
   const w = db.words.find(x => x.id === id); if (!w) return;
   const r = w.srs; const iv = nextInterval(w, status);
-  if (status === 'again') { r.reps = 0; r.lapses++; r.interval = 0; r.due = Date.now() + 10 * 60e3; }
-  else { r.reps++; r.interval = iv; r.due = startOfDay(Date.now() + iv * DAY) + 4 * 36e5; }
+  // 상태는 복습전 · 2일 후 복습(okay) · 복습완료(mastered) 3가지: 틀려도·어느 정도도 2일 뒤 다시
+  if (status === 'again') { r.reps = 0; r.lapses++; } else r.reps++;
+  r.interval = status === 'mastered' ? iv : REVIEW_DAYS; r.due = startOfDay(Date.now() + r.interval * DAY) + 4 * 36e5;
+  status = status === 'mastered' ? 'mastered' : 'okay';
   w.status = status; w.history.push({ at: Date.now(), status }); w.updatedAt = Date.now(); bump(); save();
 }
 export const dueWords = () => db.words.filter(w => w.srs.due <= Date.now());
@@ -229,9 +231,11 @@ export function unrate(id, snap, words = false) {
 export function rate(id, status) {
   const s = db.saved.find(x => x.id === id); if (!s) return;
   const r = s.srs; const iv = nextInterval(s, status);
-  if (status === 'again') { r.reps = 0; r.lapses++; r.interval = 0; r.due = Date.now() + 10 * 60e3; }
-  else { r.reps++; r.interval = iv; r.due = startOfDay(Date.now() + iv * DAY) + 4 * 36e5; }
-  s.status = status; s.hard = status === 'again';
+  const hard = status === 'again';
+  if (hard) { r.reps = 0; r.lapses++; } else r.reps++;
+  r.interval = status === 'mastered' ? iv : REVIEW_DAYS; r.due = startOfDay(Date.now() + r.interval * DAY) + 4 * 36e5;
+  status = status === 'mastered' ? 'mastered' : 'okay';
+  s.status = status; s.hard = hard;
   s.history.push({ at: Date.now(), status }); bump(); save();
 }
 function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d.getTime(); }
@@ -239,9 +243,12 @@ function startOfDay(t) { const d = new Date(t); d.setHours(0, 0, 0, 0); return d
 export function grade(id, q) { rate(id, q === 0 ? 'again' : q === 3 ? 'mastered' : 'okay'); }
 export const dueList = () => db.saved.filter(s => s.srs.due <= Date.now()).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due));
 // 오늘 복습: 오늘 안에 복습할 차례가 오는 것까지 전부 (복습 중 빠지는 문장이 없게)
-const endOfToday = () => startOfDay(Date.now()) + 864e5 - 1;
-export const dueTodayList = () => { const e = endOfToday(); return db.saved.filter(s => s.srs.due <= e).sort((a, b) => ((b.status === 'again') - (a.status === 'again')) || (a.srs.due - b.srs.due)); };
-export const dueTodayWords = () => { const e = endOfToday(); return db.words.filter(w => w.srs.due <= e); };
+// 오늘 복습 = 복습완료·2일 후 복습 중에서 날짜가 된 것만 (복습전은 목록에서 따로) · 오래전에 저장한 것부터
+export const REVIEW_DAYS = 2;
+export const endOfToday = () => startOfDay(Date.now()) + 864e5 - 1;
+const byOld = (a, b) => (a.createdAt || 0) - (b.createdAt || 0);
+export const dueTodayList = () => { const e = endOfToday(); return db.saved.filter(s => s.status !== 'new' && s.srs.due <= e).sort(byOld); };
+export const dueTodayWords = () => { const e = endOfToday(); return db.words.filter(w => w.status !== 'new' && w.srs.due <= e).sort(byOld); };
 export const doneToday = () => { const t0 = startOfDay(Date.now()); return db.saved.filter(s => s.history.some(h => h.at >= t0)); };
 
 export function setSetting(k, v) { if (CONTENT_SETTINGS.includes(k) && !gate(k)) return; db.settings[k] = v; save(); }

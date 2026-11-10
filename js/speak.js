@@ -271,7 +271,7 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
     chat.appendChild(m); follow = true; chat.scrollTop = chat.scrollHeight; return m;
   }
   const say2 = (who, text, u = null) => {
-    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${who === 'me' ? balHTML(text, esc, 30) : sentBr(text)}</p>`);
+    const m = msg(who, `<p class="${who === 'me' ? 'en' : ''}">${who === 'me' ? esc(text) : sentBr(text)}</p>`);
     // 백현이 멘트를 누르면 그 장면 바로 재생 (누른 순간 재생 → iPhone에서도 소리와 함께)
     if (u && who === 'baek') { m.classList.add('replay'); m.onclick = () => replayClip(u); }
     return m;
@@ -325,12 +325,12 @@ function call(root, mode, v = null, { start = null, voice = false } = {}) {
           if (limit) { const left = Math.max(0, limit - e); secEl.textContent = `${Math.ceil(left)}초`; rg.style.strokeDashoffset = 232 * Math.min(1, e / limit); if (left <= 0) { if (auto) cap?.stop(); else mic.classList.add('over'); } }
           else secEl.textContent = `${Math.floor(e)}초`;
         }, 200);
-        cap = S.capture({ stt: true, targets: hint?.en ? [hint.en] : [], onInterim: t => { $('p', live).textContent = t || '…'; onText?.(t); chat.scrollTop = chat.scrollHeight; } });
+        cap = S.capture({ stt: true, targets: hint?.en ? [hint.en] : [], onInterim: t => { const p = $('p', live); p.textContent = t || '…'; p.scrollTop = p.scrollHeight; onText?.(t); chat.scrollTop = chat.scrollHeight; } });
         const r = await cap.result; cap = null; if (done) return;
         const sec = Math.round((Date.now() - st0) / 1000);
         live.classList.remove('typing');
         if (!r.text) { live.remove(); mic.classList.remove('live', 'over'); clearInterval(tick); toast(S.sttErrorText(r.sttError) || '잘 안 들렸어요 · 다시 눌러 말해주세요'); status('다시 눌러 말해주세요'); return; }
-        $('p', live).innerHTML = balHTML(r.text, esc, 30);
+        $('p', live).textContent = r.text; // 말할 때와 같은 줄바꿈 그대로
         stats.sec += sec; stats.n++;
         finish(r.text, sec);
       };
