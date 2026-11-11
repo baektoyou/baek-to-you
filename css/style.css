@@ -1919,3 +1919,6 @@ svg path.fl{fill:currentColor}
 
 .btn.danger-t{color:var(--danger)}
 .btn.danger-t svg{color:var(--danger)}
+
+.g-weak{margin:0 4px 12px}
+.g-note:empty{display:none}

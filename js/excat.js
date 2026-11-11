@@ -44,7 +44,9 @@ export async function classify(list, onStep) {
 }
 // 새로 저장한 표현: 저장하고 몇 초 뒤 조용히 분류 (최근 하루 안에 저장한 것만 · 예전 것은 버튼으로)
 let t = null;
+const AUTO = false; // 카테고리 보기를 없애서 자동 분류도 쉼 (AI 사용량 아끼기 · 이미 분류한 값은 데이터에 그대로)
 window.addEventListener('b2u:words', () => {
+  if (!AUTO) return;
   clearTimeout(t);
   t = setTimeout(() => { const fresh = uncats().filter(w => Date.now() - (w.createdAt || 0) < 864e5); if (fresh.length && aiOn()) classify(fresh.slice(0, 20)); }, 5000);
 });
