@@ -5,12 +5,10 @@ import { videoList, videoDetail, study } from './video.js';
 import { speak } from './speak.js';
 import { saved } from './saved.js';
 import { express } from './express.js';
-import { dm } from './dm.js';
 import { settings, videoEditor, uttEditor, videoListAll, privacy } from './settings.js';
 import { stopSpeak } from './speech.js';
 import { registerSW } from './pwa.js';
 import { loadUserPhotos } from './scene.js';
-import { startLineBreaks } from './linebreak.js';
 import * as Y from './sync.js';
 import { sheet, toast, $$ } from './ui.js';
 
@@ -40,7 +38,6 @@ function route(keepScroll) {
     case 'talk': case 'speak': tab = 'talk'; cleanup = speak(root); break;
     case 'saved': saved(root); break;
     case 'express': tab = 'video'; cleanup = express(root); break; // 백현아 도와줘 (CHAT 첫 화면에서 들어감)
-    case 'dm': tab = 'talk'; cleanup = dm(root); break; // 백현이랑 영어 채팅 (CALL › 대화하기 아래)
     case 'privacy': tab = 'settings'; privacy(root); break;
     case 'settings':
       // 영상·문장 편집 화면은 관리자만 (주소로 직접 들어와도 막음 · 서버 보안 규칙도 같은 기준)
@@ -62,14 +59,13 @@ window.addEventListener('hashchange', () => route());
 D.onChange(e => { if (!e?.role) return; const h = location.hash || '#/video'; if (/^#\/(settings|video)/.test(h) || h === '#/' || h === '') route(true); });
 route();
 registerSW();
-startLineBreaks();
 loadUserPhotos().then(() => { if (/^#\/settings/.test(location.hash)) route(true); });
 
 // ---------- 기기 연동 ----------
 // 다른 기기의 변경이 들어오면: 목록 화면이면 조용히 다시 그림, 학습·입력 중이면 방해하지 않고 알림만
 window.addEventListener('b2u:remote', () => {
   const h = location.hash || '#/video';
-  const busy = document.body.classList.contains('no-tab') || document.body.classList.contains('in-call') || /^#\/(study|talk|speak|express|dm|settings\/(video|utt))/.test(h)
+  const busy = document.body.classList.contains('no-tab') || document.body.classList.contains('in-call') || /^#\/(study|talk|speak|express|settings\/(video|utt))/.test(h)
     || document.querySelector('.sheet') || ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName);
   if (busy) { renderTabs(curTab); toast('다른 기기의 변경 사항을 가져왔어요'); }
   else { const y = window.scrollY; route(true); window.scrollTo(0, y); }

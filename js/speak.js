@@ -115,7 +115,6 @@ export function speak(root) {
     </section>
     <div class="modes">
       <button class="mode" data-mode="long" ${qs.length ? '' : 'disabled'}><span class="mode-ic">${ic('timer')}</span><b class="grow">${NAME}랑 대화하기</b>${ic('next')}</button>
-      <a class="mode" href="#/dm"><span class="mode-ic">${ic('chat')}</span><b class="grow">${NAME}랑 채팅하기</b>${ic('next')}</a>
     </div>
     <section class="call-log">
       <div class="cl-total">

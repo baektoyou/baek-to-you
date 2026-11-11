@@ -1835,72 +1835,7 @@ svg path.fl{fill:currentColor}
 .cdog{position:absolute;top:-3px;right:0;font-size:13px;font-style:normal;line-height:1}
 .cal-goal{margin:10px 2px 0;font-size:12px;color:var(--ink2);text-align:center}
 
-/* ---- (ai) 백현이랑 영어 채팅 ---- */
-.mode-t small{font-size:11.5px}
-.dm .cv-title small{color:var(--muted)}
-.dm .thread{padding-bottom:18px}
-.dm-day{display:flex;justify-content:center;margin:16px 0 4px}
-.dm-day span{font-size:11px;color:var(--muted);background:rgba(0,0,0,.04);padding:4px 11px;border-radius:999px}
-.dm-row{display:flex;align-items:flex-end;gap:5px;max-width:100%}
-.msg2.me .dm-row{justify-content:flex-end}
-.dm-b{font:inherit;color:inherit;text-align:left;cursor:pointer;-webkit-tap-highlight-color:transparent;transition:transform .15s var(--spring)}
-.dm-b:active{transform:scale(.97)}
-.msg2.ko .dm-b{background:#fff7fa;border-color:var(--pink-mid)}
-.msg2.me.ko .dm-b{background:#fff;border:1px solid var(--pink-mid)}
-.dm-b .ko{color:var(--ink2)}
-.msg2.loading .dm-b{opacity:.55}
-.dm-meta{display:flex;flex-direction:column;align-items:flex-end;flex:none;font-size:10px;color:var(--muted);line-height:1.3;padding-bottom:2px}
-.msg2.bh .dm-meta{align-items:flex-start}
-.dm-un{font-style:normal;font-weight:700;color:var(--pink);font-size:10.5px}
-.msg2.still{animation:none}
-.dm-fixb{display:inline-flex;align-items:center;gap:4px;margin-top:5px;padding:4px 9px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:11px;color:var(--pink-ink);transition:background .2s}
-.dm-fixb svg{width:11px;height:11px}
-.dm-fixb.on{background:var(--pink-soft);border-color:transparent}
-.dm-fix{width:100%;max-width:300px;margin-top:6px;padding:12px;border-radius:16px;background:#fff;border:1px solid var(--line);animation:rise .25s var(--ease) both;text-align:left}
-.dm-fix .dc-rec .en{font-size:15px}
-.dm-why{margin:8px 0 0;font-size:12.5px;color:var(--ink2);line-height:1.5}
-.dm-use{margin-top:10px}
-.dm-err{margin:12px auto 0;text-align:center;font-size:12px;color:var(--muted)}
-.dm-err button{margin-left:6px;color:var(--pink-ink);font-weight:600;text-decoration:underline}
-.dm-empty{display:flex;flex-direction:column;align-items:center;text-align:center;padding:44px 20px 10px;color:var(--ink2)}
-.dm-empty .m-av{margin-bottom:12px}
-.dm-empty b{font-size:15px;color:var(--ink)}
-.dm-empty p{margin:8px 0 0;font-size:13px;line-height:1.65}
-.dm-empty p svg{width:13px;height:13px;vertical-align:-2px}
-.dm-empty small{margin-top:14px;font-size:11px;color:var(--muted)}
-.dm-off{margin:16px 6px 0;padding:16px;border-radius:18px;background:#fff;border:1px solid var(--line);text-align:center;font-size:13px;line-height:1.6;display:flex;flex-direction:column;align-items:center}
-.dm-off small{color:var(--muted)}
-.dm-hints{padding:10px 12px 4px;border-top:1px solid var(--line);background:#fff;animation:rise .2s var(--ease) both}
-.dm-hh{display:flex;align-items:center;justify-content:space-between}
-.dm-hh b{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600}
-.dm-hh b svg{width:14px;height:14px;color:var(--pink)}
-.dm-hl{display:grid;gap:6px;margin-top:8px;max-height:38vh;overflow-y:auto}
-.dm-hi{display:block;text-align:left;padding:9px 12px;border-radius:14px;background:var(--pink-soft2);font:inherit;transition:transform .15s var(--spring)}
-.dm-hi:active{transform:scale(.98)}
-.dm-hi .en{display:block;font-size:14px;color:var(--ink)}
-.dm-hi small{display:block;margin-top:2px;font-size:11.5px;color:var(--muted)}
-.dm-hn{margin:2px 2px 6px;font-size:11px;color:var(--muted)}
-.dm-hb.on{background:var(--pink-soft);color:var(--pink-ink)}
-.block-w{width:100%}
-
-/* ---- (aj) 채팅하기: 날짜·달력·뜻·문장 저장 ---- */
+/* ---- (ak) ---- */
 .cl-goal{color:#111}
-.dm-date{display:inline-flex;align-items:center;gap:2px;margin-top:1px;padding:0;font-size:11.5px;color:var(--ink2);background:none}
-.dm-date svg{width:11px;height:11px;color:var(--muted)}
-.dm-ko{display:block;margin-top:3px;font-size:12px;line-height:1.5;color:#a3a8ae;word-break:keep-all}
-.dm-ko:empty{display:none}
-.dm-act{margin-top:5px}
-.dm-svb{display:inline-flex;align-items:center;gap:4px;padding:5px 11px;border-radius:999px;background:#fff;border:1px solid var(--line);font-size:11.5px;color:var(--ink);animation:rise .2s var(--ease) both;transition:background .2s}
-.dm-svb i{font-style:normal;color:var(--pink);font-size:13px;line-height:1}
-.dm-svb.on{background:var(--pink-soft);border-color:transparent;color:var(--pink-ink)}
-.dm-svb.on i{animation:gdog .45s ease}
-.dm-past{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 14px calc(var(--safe-b) + 10px);border-top:1px solid var(--line);background:#fff;font-size:12.5px;color:var(--ink2)}
-.dm-cal{row-gap:4px}
-.dm-cd{position:relative;display:grid;place-items:center;height:40px;background:none;font-size:13px;color:var(--ink)}
-.dm-cd span{width:32px;height:32px;display:grid;place-items:center;border-radius:50%}
-.dm-cd.now span{font-weight:700}
-.dm-cd.on span{background:#111;color:#fff}
-.dm-cd:disabled{color:var(--line2)}
-.dm-dot{display:inline-block;width:5px;height:5px;border-radius:50%;background:#F5A3C2;vertical-align:middle}
-.dm-cd .dm-dot{position:absolute;bottom:1px;left:50%;transform:translateX(-50%)}
-.cal-goal .dm-dot{margin-right:4px}
+/* 줄바꿈: 글자 수를 재서 억지로 끊지 않고 브라우저가 자연스럽게 (한국어는 단어 단위, 마지막 줄에 한 단어만 남는 것 방지) */
+.m-bub,.m-bub .en,.m-bub .ko,.dc-b p,.dc-ko,.vm p,.ex-en,.ex-bub,.say-en,.say-ko,.say-sub,.rv-ko2,.kit-q,.kit-ko{word-break:keep-all;overflow-wrap:break-word;text-wrap:pretty}

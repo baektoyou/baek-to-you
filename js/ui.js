@@ -335,7 +335,7 @@ export const exprChips = list => list?.length ? `<div class="rec-x">${list.map(x
 
 // ---------- 문장 속 단어: 길게 누르면 단어 저장 ----------
 const wspan = (w, cls = '') => { const core = w.replace(/^[^\w']+|[^\w']+$/g, ''); return core ? `<span class="w ${cls}" data-w="${esc(core)}">${esc(w)}</span>` : esc(w); };
-// 줄바꿈은 화면 폭을 재서 js/linebreak.js가 보기 좋게 넣음 (여기서는 단어만 감쌈)
+// 줄바꿈은 브라우저에 맡김 (CSS: keep-all + text-wrap:pretty) · 여기서는 단어만 감쌈
 export const lpHTML = t => String(t || '').split(/\s+/).filter(Boolean).map(w => wspan(w)).join(' ');
 export function balHTML(t, wrap = wspan) { return String(t || '').split(/\s+/).filter(Boolean).map(w => wrap(w)).join(' '); }
 export const sentBr = t => esc(String(t || '').trim());
