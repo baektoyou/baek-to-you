@@ -5,7 +5,7 @@
 // 사용자 데이터(localStorage·IndexedDB)는 캐시 정리와 무관해서 지워지지 않아요.
 import { toast } from './ui.js';
 
-export const APP_VERSION = '2026.11.12-ao';
+export const APP_VERSION = '2026.11.12-ap';
 let reg = null;
 const RELOAD_KEY = 'b2u:reloadedAt';
 

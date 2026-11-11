@@ -32,7 +32,7 @@ const sig = d => JSON.stringify(d);
 if (configured) D.setRole({ cloud: true, admin: safeGet('b2u:admin') === D.accountKey() && D.accountKey() !== 'guest' });
 
 // 개인 데이터만 / 공용 콘텐츠만 골라내기
-const P_KEYS = ['version', 'saved', 'attempts', 'talkLogs', 'words', 'progress', 'days', 'settings'];
+const P_KEYS = ['version', 'saved', 'attempts', 'talkLogs', 'words', 'mistakes', 'progress', 'days', 'settings'];
 function onlyPersonal(d) {
   const n = D.normalize(d), out = {};
   P_KEYS.forEach(k => (out[k] = n[k]));
@@ -251,7 +251,7 @@ async function pullContent(attempt = 0) {
     cSig = sig(rdata); return;
   }
   // 관리자 (여러 기기): 3-way 병합
-  const merged = onlyContent(mergeData({ ...local, saved: [], words: [], attempts: [], talkLogs: [] }, { ...rdata, saved: [], words: [], attempts: [], talkLogs: [] }, loadJ(CBASE)));
+  const merged = onlyContent(mergeData({ ...local, saved: [], words: [], attempts: [], talkLogs: [], mistakes: [] }, { ...rdata, saved: [], words: [], attempts: [], talkLogs: [], mistakes: [] }, loadJ(CBASE)));
   if (!sameData(merged, local)) { D.applyContent(merged); announce(); }
   await fetchPhotos(merged);
   cRev = remote.rev;

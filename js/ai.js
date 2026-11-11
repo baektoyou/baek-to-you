@@ -356,3 +356,32 @@ export async function aiKo(en) {
   const a = await callAI(KO_SYS, clip(en, 400), { temp: 0.2, ms: 12000 });
   return ok(a) ? cleanX(a.ko) : '';
 }
+
+// ---------- 문법 노트: 내가 말한 문장들의 문법 실수만 (여러 문장을 한 번에) ----------
+import { TAGS as GTAGS } from './grammar.js';
+const GRAM_SYS = () => `You are a strict but fair English grammar checker for a Korean learner's SPOKEN English (speech-to-text, so ignore capitalization, punctuation and obvious filler like "um").
+For EACH numbered sentence: find only real GRAMMAR / FORM mistakes (tense, agreement, articles, prepositions, word order, missing/extra words, wrong verb form, wrong word that breaks meaning, etc.).
+Do NOT count: a different but correct way to say it, style or naturalness upgrades, casual but correct speech ("gonna", "wanna", dropping "I" in very casual replies is still a mistake only if it makes the sentence ungrammatical), Korean words or names.
+"fixed" = the user's own sentence with the MINIMUM changes needed to be grammatical (keep their words and meaning; do not rewrite to a fancier sentence). If no mistakes, fixed = the sentence as-is and errors = [].
+Each error: {"tag": one key from the list, "wrong": exact wrong part copied from the sentence ("" if something is missing), "right": the corrected part as it appears in fixed, "why": ONE short Korean 반말 explanation under 40 chars}. Use the MOST SPECIFIC tag. One error per mistake (max 4 per sentence).
+Tags: ${GTAGS.map(t => `${t[0]}=${t[1]}`).join(', ')}
+"Meaning" (Korean) is only a hint of what they wanted to say.
+Return ONLY JSON {"results": [{"i": number, "fixed": "...", "errors": [...]}, ...]}`;
+export async function aiGrammar(items) {
+  if (!aiOn()) return { error: 'off' };
+  const user = items.map((x, i) => `${i + 1}. ${clip(x.said, 240)}${x.ko ? `\n   Meaning: ${clip(x.ko, 120)}` : ''}`).join('\n');
+  let a = await callAI(GRAM_SYS(), user, { temp: 0.1, ms: 30000 });
+  if (!ok(a) && ['timeout', 'network', 'parse'].includes(a?.error)) a = await callAI(GRAM_SYS(), user, { temp: 0.1, ms: 30000 });
+  if (!ok(a)) return { error: a?.error || 'parse' };
+  const keys = new Set(GTAGS.map(t => t[0]));
+  const res = Array.isArray(a.results) ? a.results : [];
+  return {
+    results: items.map((x, i) => {
+      const r = res.find(y => +y.i === i + 1) || {};
+      const fixed = String(r.fixed || x.said).trim();
+      const errors = (Array.isArray(r.errors) ? r.errors : []).filter(e => e && keys.has(e.tag) && String(e.right || '').trim())
+        .slice(0, 4).map(e => ({ tag: e.tag, wrong: String(e.wrong || '').trim(), right: String(e.right || '').trim(), why: String(e.why || '').trim() }));
+      return { aid: x.aid, said: x.said, ko: x.ko, fixed, errors: fixed.toLowerCase().replace(/[^a-z']/g, '') === String(x.said).toLowerCase().replace(/[^a-z']/g, '') ? [] : errors };
+    })
+  };
+}

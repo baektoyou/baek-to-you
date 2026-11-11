@@ -7,13 +7,15 @@ import * as S from './speech.js';
 import { Player } from './yt.js';
 import { avatarStyle } from './scene.js';
 import { BH_PROFILE } from './video.js';
+import * as GT from './grammar.js';
 const canon = t => String(t || '').toLowerCase().replace(/[^a-z0-9' ]/g, '').replace(/\s+/g, ' ').trim();
 import { markPattern, splitPatterns, diff } from './compare.js';
 import { improve, patternParts } from './feedback.js';
 import { judgeReply, questionFor } from './judge.js';
 
 let filter = 'due';
-let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어
+let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어 | 'gram' 문법
+let gtag = ''; // 문법 노트에서 보고 있는 문법
 // 상태: 복습전 · 복습중 · (어느 정도 = 다음 복습 시간만) · 복습완료
 const ST = { new: ['복습전', ''], again: ['2일 후 복습', 'mid'], okay: ['2일 후 복습', 'mid'], mastered: ['복습완료', 'ok'] };
 // 상태 옆: 복습할 날이 됐으면 ‘오늘’
@@ -43,18 +45,20 @@ export function saved(root) {
     <header class="top"><h1 class="page-title">Saved</h1></header>
     <div class="stats-strip"><div><b class="${due.length + dueW.length ? 'accent' : ''}">${due.length + dueW.length}</b><span>오늘 복습</span></div><div><b>${later}</b><span>2일 후 복습</span></div><div><b>${mastered}</b><span>복습완료</span></div></div>
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
-    <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button></div>
+    <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button><button data-v="gram" class="${view === 'gram' ? 'on' : ''}">문법 <em>${GT.stats().filter(s => !s.fixed).length}</em></button></div>
+    ${view === 'gram' ? gramHTML() : `
     ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${todo.length}개 복습</button>` : ''}</div>`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
     ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
-      : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}
+      : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}`}
   </div>`;
   // 삭제: 왼쪽으로 밀면 ‘삭제’
   $$('.sitem', root).forEach(row => swipeDelete(row, () => { D.deleteSaved(row.dataset.id); toast('삭제했어요'); saved(root); }));
   $$('.witem', root).forEach(row => swipeDelete(row, () => { const w = D.get().words.find(x => x.id === row.dataset.id); if (w) { D.deleteWord(w.id); const s = w.srcId && D.get().saved.find(x => x.id === w.srcId); s && D.toggleMark(s.id, w.text, false); } toast('삭제했어요'); saved(root); }));
   bindLongPress(root); // 문장·표현 속 단어: 짧게 누르면 그 단어, 꾹 누른 채 드래그하면 그 범위를 저장
   $$('[data-f]', root).forEach(b => b.onclick = () => { filter = b.dataset.f; saved(root); });
-  $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; saved(root); });
+  $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; gtag = ''; saved(root); });
+  if (view === 'gram') bindGram(root);
   $('#go', root).onclick = () => review(root, due.map(s => ({ t: 's', id: s.id, at: s.createdAt || 0 })).concat(dueW.map(w => ({ t: 'w', id: w.id, at: w.createdAt || 0 }))).sort((a, b) => a.at - b.at));
   $('#pa', root) && ($('#pa', root).onclick = () => review(root, todo.map(s => ({ t: 's', id: s.id }))));
   $('#pw', root) && ($('#pw', root).onclick = () => review(root, todo.map(w => ({ t: 'w', id: w.id }))));
@@ -158,6 +162,58 @@ function editSheet(s, done) {
 // ② 백현이에게 답장하기 — 표현·단어·내 문장: 백현이가 먼저 건네는 연습용 메시지(AI) → 저장한 표현으로 답장 (뜻이 자연스럽게 통하면 정답)
 // 답하면 바로 채팅 안에 내 문장(작게) → 추천 문장(크게, 고친 부분만 연핑크) → 이유 한 줄
 const AVS = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
+// ---------- 문법 노트 (SAVED › 문법) ----------
+const MAXRUN = 48; // 예전 기록은 한 번에 최대 48문장 (AI 무료 사용량 보호)
+const ago = t => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? '오늘' : d === 1 ? '어제' : `${d}일 전`; };
+function gramHTML() {
+  const st = GT.stats(), ms = D.get().mistakes, nNew = GT.pendingNew().length, nOld = GT.pendingOld().length, ai = aiOn();
+  const sum = `<div class="g-sum"><div class="g-sum-n"><div><b>${GT.analyzedCount()}</b><span>분석한 문장</span></div><div><b>${ms.length}</b><span>찾은 실수</span></div><div><b>${st.filter(s => s.fixed).length}</b><span>거의 고친 문법</span></div></div>
+    ${!ai ? '<p class="g-note">문법 분석은 AI 키가 있어야 해요 · SETTINGS › AI</p>'
+      : GT.isRunning() ? '<p class="g-note" id="gprog">분석하고 있어요…</p>'
+      : `${nNew ? `<button class="btn sm block" id="gnew">${ic('sparkle')} 새로 말한 문장 ${nNew}개 분석</button>` : ''}${nOld ? `<button class="btn sm soft block mt8" id="gold">${ic('refresh')} 예전 기록 ${nOld}개 분석하기${nOld > MAXRUN ? ` (이번에 ${MAXRUN}개)` : ''}</button><p class="g-note">AI 무료 사용량을 써요 · 8문장씩 묶어서 분석해요</p>` : ''}${!nNew && !nOld ? '<p class="g-note">말한 문장은 모이면 자동으로 분석돼요</p>' : ''}`}
+    <p class="g-note" id="gprog2"></p></div>`;
+  if (gtag) {
+    const s = st.find(x => x.tag === gtag); const T = GT.TAG[gtag];
+    if (!s || !T) { gtag = ''; return gramHTML(); }
+    const sentences = new Set(s.list.map(m => canon(m.fixed))).size; // 같은 문장은 한 번만 연습
+    return `${sum}<button class="link-sm g-back" id="gback">${ic('back')} 문법 목록</button>
+      <div class="g-rule"><span class="g-grp">${esc(T.group)}</span><h3>${esc(T.label)}</h3><p>${esc(T.rule)}</p><p class="en g-ex">${esc(T.ex)}</p>
+        <div class="g-meta">총 ${s.n}번 · 최근 2주 ${s.recent}번${s.streak ? ` · 연습 ${s.streak}번 연속 맞힘` : ''}${s.fixed ? ' · <b>거의 고쳤어!</b>' : ''}</div>
+        <button class="btn block mt12" id="gpr">${ic('play')} 이 문법 연습하기 (${Math.min(10, sentences)}문장)</button></div>
+      <div class="slist">${s.list.map(m => { const w = m.wrong && m.said.includes(m.wrong) ? esc(m.said).replace(esc(m.wrong), `<u class="g-wrong">${esc(m.wrong)}</u>`) : esc(m.said); const r = m.right && m.fixed.includes(m.right) ? esc(m.fixed).replace(esc(m.right), `<span class="chg">${esc(m.right)}</span>`) : esc(m.fixed);
+        const u = m.uttId && D.utt(m.uttId); const last = (m.practice || []).slice(-1)[0];
+        return `<div class="g-item" data-mid="${m.id}"><p class="en g-said">${w}</p><p class="en g-fix">${r}</p>${m.why ? `<p class="g-why">${esc(m.why)}</p>` : ''}<div class="g-foot"><span>${ago(m.at || 0)}${u ? ` · ${esc(u.ko).slice(0, 24)}` : ''}</span>${last ? `<span class="g-last ${last.ok ? 'ok' : ''}">${last.ok ? '연습 맞힘' : '연습 아쉬움'}</span>` : ''}</div></div>`; }).join('')}</div>
+      <p class="g-note center">AI가 잘못 짚은 건 왼쪽으로 밀어서 지울 수 있어요</p>`;
+  }
+  if (!st.length) return `${sum}<div class="empty"><span class="empty-ic">${ic('check')}</span><b>${GT.analyzedCount() ? '아직 찾은 문법 실수가 없어요' : '아직 분석한 문장이 없어요'}</b><p>CHAT·CALL·복습에서 영어로 말하면 여기에 모여요</p></div>`;
+  const max = Math.max(...st.map(s => s.n));
+  const weak = st.filter(s => !s.fixed).slice(0, 3);
+  return `${sum}${weak.length ? `<button class="btn block mb12" id="gweak">${ic('play')} 약한 문법 모아 연습 (${weak.map(s => s.label.split(' (')[0]).join(' · ')})</button>` : ''}
+    <div class="g-list">${st.map(s => `<button class="g-row ${s.fixed ? 'fixed' : ''}" data-gt="${s.tag}"><div class="grow"><div class="g-row-t"><b>${esc(s.label)}</b><small>${esc(s.group)}</small>${s.fixed ? '<i class="g-badge">거의 고쳤어</i>' : ''}</div>
+      <div class="g-bar"><i style="width:${Math.max(6, s.n / max * 100)}%"></i></div></div>
+      <div class="g-n"><b>${s.n}</b><small>${s.recent > s.before ? '▲' : s.recent < s.before ? '▼' : ''} 최근 ${s.recent}</small></div>${ic('next')}</button>`).join('')}</div>`;
+}
+function bindGram(root) {
+  const re = () => saved(root);
+  const run = async list => {
+    const p = $('#gprog2', root); $$('#gnew,#gold', root).forEach(b => b.disabled = true);
+    if (p) p.textContent = `분석하고 있어요… 0 / ${list.length}`;
+    const r = await GT.analyze(list, (d, n) => { const q = $('#gprog2', root); if (q) q.textContent = `분석하고 있어요… ${d} / ${n}`; });
+    if (r.error && r.error !== 'busy') toast(r.done ? `${r.done}문장까지 분석했어요 · 나머지는 잠시 뒤에 다시` : 'AI 분석을 못 했어요 · 잠시 뒤에 다시 해줘요');
+    else if (r.done) toast(`${r.done}문장 분석 완료!`);
+    if (view === 'gram' && root.isConnected && $('.g-sum', root)) re();
+  };
+  $('#gnew', root) && ($('#gnew', root).onclick = () => run(GT.pendingNew()));
+  $('#gold', root) && ($('#gold', root).onclick = () => run(GT.pendingOld().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, MAXRUN)));
+  $$('[data-gt]', root).forEach(b => b.onclick = () => { gtag = b.dataset.gt; re(); window.scrollTo(0, 0); });
+  $('#gback', root) && ($('#gback', root).onclick = () => { gtag = ''; re(); });
+  const pick = list => { const seen = new Set(); return list.filter(m => { const k = canon(m.fixed); if (seen.has(k)) return false; seen.add(k); return true; }); };
+  $('#gpr', root) && ($('#gpr', root).onclick = () => { const s = GT.stats().find(x => x.tag === gtag); if (s) review(root, pick(s.list).slice(0, 10).map(m => ({ t: 'g', id: m.id }))); });
+  $('#gweak', root) && ($('#gweak', root).onclick = () => { const w = GT.stats().filter(s => !s.fixed).slice(0, 3); const items = w.flatMap(s => pick(s.list).slice(0, 4)); review(root, items.slice(0, 10).map(m => ({ t: 'g', id: m.id }))); });
+  $$('.g-item', root).forEach(row => swipeDelete(row, () => { D.deleteMistake(row.dataset.mid); toast('지웠어요'); re(); }));
+}
+window.addEventListener('b2u:grammar', () => { const r = document.querySelector('.saved-scr'); if (r && view === 'gram') { const root = r.parentElement; if (root) saved(root); } });
+
 function review(root, items) {
   let queue = [...items], i = 0, dead = false, cap = null, waiting = null, chipRes = null;
   const result = { ok: 0, again: [] }; const requeued = new Set(); const lines = [];
@@ -248,6 +304,7 @@ function review(root, items) {
     return us.find(u => w.note && lc(natOf(u)) === lc(w.note)) || us.find(u => (' ' + lc(natOf(u)).replace(/[^a-z' ]/g, ' ') + ' ').includes(' ' + t + ' ')) || null;
   };
   const kindOf = (it, x) => {
+    if (it.t === 'g') return { mode: 'fix' }; // 문법 노트: 내가 틀렸던 문장 고쳐 말하기
     // ‘이 표현 써서 말해봐’(답장 연습)는 없음: 영상 대사 → 백현이 말 영어로 · 없으면 한국어 뜻 보고 영어로
     if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; return { mode: 'ko' }; }
     const u = uttForWord(x); if (u) return { mode: 'say', u, v: D.video(u.videoId), expr: x.text };
@@ -257,15 +314,28 @@ function review(root, items) {
 
   async function card() {
     const it = queue[i]; const isW = it.t === 'w';
-    const x = isW ? D.get().words.find(w => w.id === it.id) : D.get().saved.find(s => s.id === it.id);
+    const x = it.t === 'g' ? D.get().mistakes.find(m => m.id === it.id) : isW ? D.get().words.find(w => w.id === it.id) : D.get().saved.find(s => s.id === it.id);
     if (!x) return next();
     const k = kindOf(it, x);
-    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'ko' ? '한국어 보고 영어로' : '백현이의 말 영어로'}`;
+    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'fix' ? `문법 · ${GT.TAG[x.tag]?.label || ''}` : k.mode === 'ko' ? '한국어 보고 영어로' : '백현이의 말 영어로'}`;
     $('#mt', root).style.width = `${(i / queue.length) * 100}%`;
     if (th.children.length) sys(`${i + 1} / ${queue.length}`);
     if (k.mode === 'say') return say(it, x, k);
     if (k.mode === 'gen') return gen(it, x, k);
+    if (k.mode === 'fix') return fixSay(it, x);
     return koSay(it, x);
+  }
+
+  // ---- 문법 노트 연습: 전에 틀렸던 내 문장 → 맞게 고쳐서 다시 말하기 ----
+  async function fixSay(it, x) {
+    plw.classList.add('hide'); pl?.pause();
+    const T = GT.TAG[x.tag] || { label: '', rule: '' };
+    const mark = x.wrong && x.said.includes(x.wrong) ? esc(x.said).replace(esc(x.wrong), `<u class="g-wrong">${esc(x.wrong)}</u>`) : esc(x.said);
+    lastWho = '';
+    add('bh', `<span class="bub-tag">${esc(T.label)}</span><span class="rv-ask">전에 이렇게 말했었어!</span><span class="en big">${mark}</span>${x.ko ? `<span class="say-sub">${esc(x.ko)}</span>` : ''}<span class="rv-ask">맞게 고쳐서 다시 말해볼래?</span>`);
+    await turn(it, x, { target: x.fixed, mode: 'say', ko: x.ko || '', targets: [x.fixed],
+      hint: () => { lastWho = ''; add('bh', `<span class="bub-tag">힌트</span><span class="ko">${esc(T.rule)}</span>${x.why ? `<span class="say-sub">${esc(x.why)}</span>` : ''}`); },
+      check: said => smartFeedback({ mode: 'translate', said, target: x.fixed, ko: x.ko || '', pattern: x.right }), rec: () => x.fixed, hl: x.right ? [x.right] : [], save: false });
   }
 
   // ---- ① 백현이의 말 영어로 표현하기 ----
@@ -371,9 +441,11 @@ function review(root, items) {
     bindCompare(el, makeSave);
     D.addAttempt({ uttId: isW ? null : x.uttId, step: 'review', text: said });
     // 상태는 자동으로 안 바꾸고 내가 고름: ‘2일 후 복습’ / ‘복습완료’ (안 고르면 그대로)
+    const isG = it.t === 'g';
+    if (isG) D.gramResult(x.id, ok); // 문법 노트: 처음 답으로 맞았는지 기록 (3번 연속이면 ‘거의 고쳤어’)
     const rateFn = isW ? D.rateWord : D.rate;
     if (!ok && !result.again.includes(x.id)) result.again.push(x.id);
-    const PICK = [['2일 후 복습', 'okay', 'line'], ['복습완료', 'mastered', 'pri']];
+    const PICK = isG ? [['다음', 'gnext', 'pri']] : [['2일 후 복습', 'okay', 'line'], ['복습완료', 'mastered', 'pri']];
     const showRead = () => { lastWho = ''; const rb = add('bh', `<span class="bub-tag">이거 보고 한번 해봐!</span><span class="en big lp">${lpHTML(recS)}</span>${koLine || f.recKo ? `<span class="say-sub">${esc(koLine || f.recKo)}</span>` : ''}`); bindLongPress(rb); return rb; };
     // 안 보고 말하기: 추천 문장을 가리고(블러) 바로 듣기 → 정확도 % + 맞으면 칭찬 · 틀리면 어디가 아쉬웠는지 · 인식이 불확실하면 다시
     let recalled = false, read = false;
@@ -412,6 +484,7 @@ function review(root, items) {
         if (r.state === 'retry') { read = true; showRead(); }
         continue;
       }
+      if (g === 'gnext') { if (ok || recalled) result.ok++; return next(); }
       if (g === 'okay' || g === 'mastered') {
         rateFn(x.id, g); result.again = result.again.filter(id => id !== x.id);
         toast(g === 'okay' ? '2일 후에 다시 보자!' : '복습완료!');
@@ -424,7 +497,7 @@ function review(root, items) {
   }
   function summary() {
     cap?.stop(); pl?.destroy(); pl = null; dead = true;
-    const again = result.again.filter(id => D.get().saved.some(s => s.id === id) || D.get().words.some(w => w.id === id));
+    const again = result.again.filter(id => D.get().saved.some(s => s.id === id) || D.get().words.some(w => w.id === id) || D.get().mistakes.some(m => m.id === id));
     root.innerHTML = `<div class="screen full done-scr">
       <header class="top"><span class="icon-sp"></span><h2>복습 완료</h2><button class="icon-btn" id="x" aria-label="닫기">${ic('x')}</button></header>
       <div class="done-hero"><span class="done-mark">${ic('check')}</span><p>오늘 복습을 끝냈어요</p></div>
@@ -433,7 +506,7 @@ function review(root, items) {
       <button class="btn soft block mt8" id="done">SAVED로 돌아가기</button></div>`;
     const back = () => { document.body.classList.remove('no-tab'); saved(root); };
     $('#x', root).onclick = back; $('#done', root).onclick = back;
-    $('#again', root) && ($('#again', root).onclick = () => review(root, again.map(id => ({ t: D.get().words.some(w => w.id === id) ? 'w' : 's', id }))));
+    $('#again', root) && ($('#again', root).onclick = () => review(root, again.map(id => ({ t: D.get().mistakes.some(m => m.id === id) ? 'g' : D.get().words.some(w => w.id === id) ? 'w' : 's', id }))));
   }
   card();
 }

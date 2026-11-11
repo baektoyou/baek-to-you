@@ -12,6 +12,7 @@ const defaults = () => ({
   progress: {},    // uttId -> {steps:{}, lastAt}
   talkLogs: [],    // 통화 기록 {id, at, kind, videoId, sec, spoke, n}
   words: [],       // 따로 저장한 단어·표현 {id, text, ko, note, srcId, status, srs}
+  mistakes: [],    // 문법 노트: 내가 말한 문장 속 문법 실수 {id, at, aid, uttId, said, fixed, tag, wrong, right, ko, why, practice:[{at, ok}]}
   days: {},        // 'YYYY-MM-DD' -> 활동 수
   settings: { voiceURI: '', rate: 0.92, pitch: 1, talkShowEn: false, talkCaption: true, camera: false, sttFix: '', sttLang: 'en-US', autoPause: true, autoLT: true, callFill: true, userPhotos: [], hiddenPhotos: [], customSits: [], hiddenSits: [], profile: { name: '', photo: '' } }
 });
@@ -35,6 +36,7 @@ function migrate(d) {
   out.saved = arrOf(out.saved).map(s => normSaved(s, out));
   out.attempts = arrOf(out.attempts); out.talkLogs = arrOf(out.talkLogs).map(l => ({ id: l.id || uid(), ...l }));
   out.words = arrOf(out.words).map(normWord);
+  out.mistakes = arrOf(out.mistakes);
   out.progress = out.progress || {}; out.days = out.days || {};
   return out;
 }
@@ -187,9 +189,22 @@ export function markStep(uttId, step) {
 }
 export function addAttempt(a) {
   db.attempts.push({ id: uid(), at: Date.now(), ...a });
+  setTimeout(() => window.dispatchEvent(new Event('b2u:attempt')), 0); // 문법 노트: 새로 말한 문장 분석 예약
   if (db.attempts.length > 1500) db.attempts = db.attempts.slice(-1200);
   bump(); save();
 }
+// ---------- 문법 노트 ----------
+// 분석 결과 저장: 시도(aid)마다 한 번만 분석 (a.g = 분석한 시각) · 실수는 문법 종류(tag)별 한 줄씩
+export function saveGrammar(results) {
+  results.forEach(r => {
+    const a = db.attempts.find(x => x.id === r.aid); if (a) a.g = Date.now();
+    (r.errors || []).forEach(e => db.mistakes.push({ id: uid(), at: a?.at || Date.now(), aid: r.aid, uttId: a?.uttId || null, said: r.said, fixed: r.fixed, ko: r.ko || '', ...e, practice: [] }));
+  });
+  if (db.mistakes.length > 2000) db.mistakes = db.mistakes.slice(-2000);
+  save();
+}
+export function gramResult(id, ok) { const m = db.mistakes.find(x => x.id === id); if (!m) return; m.practice = [...(m.practice || []), { at: Date.now(), ok: !!ok }]; m.updatedAt = Date.now(); save(); }
+export function deleteMistake(id) { db.mistakes = db.mistakes.filter(m => m.id !== id); save(); }
 export const attemptsOf = (uttId, step) => db.attempts.filter(a => a.uttId === uttId && (!step || a.step === step));
 
 // ---------- 저장 표현 ----------
@@ -346,6 +361,7 @@ export function importJSON(text, mode = 'replace') {
     for (const [k, v] of Object.entries(inc.progress)) if (!db.progress[k]) db.progress[k] = v;
     for (const [k, v] of Object.entries(inc.days)) db.days[k] = Math.max(db.days[k] || 0, v);
     const wids = new Set(db.words.map(w => w.id)); db.words = db.words.concat(inc.words.filter(w => !wids.has(w.id)));
+    const mids = new Set(db.mistakes.map(m => m.id)); db.mistakes = db.mistakes.concat((inc.mistakes || []).filter(m => !mids.has(m.id)));
     const lids = new Set(db.talkLogs.map(l => l.id)); db.talkLogs = db.talkLogs.concat(inc.talkLogs.filter(l => !lids.has(l.id))).sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, 400);
   }
   save();
@@ -358,7 +374,7 @@ export function resetAll() { snapshot('내 데이터 초기화'); applyPersonal(
 // · 개인 데이터(계정마다 따로): SAVED · 단어 · 학습 진도 · 기록 · 통화 기록 · 개인 설정
 export const CONTENT_SETTINGS = ['sttFix', 'customSits', 'hiddenSits', 'hiddenPhotos', 'userPhotos'];
 export const LOCAL_ONLY_SETTINGS = ['voiceURI', 'camera']; // 기기마다 다른 값
-const PERSONAL_LISTS = ['saved', 'attempts', 'talkLogs', 'words'];
+const PERSONAL_LISTS = ['saved', 'attempts', 'talkLogs', 'words', 'mistakes'];
 
 // 권한: Firebase를 쓰는 동안엔 관리자만 콘텐츠 수정 가능 (서버 보안 규칙도 같은 기준)
 let role = { cloud: false, admin: false };
