@@ -217,13 +217,13 @@ function editSheet(s, done) {
 const AVS = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
 // ---------- 문법 노트 (SAVED › 문법) ----------
 const ago = t => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? '오늘' : d === 1 ? '어제' : `${d}일 전`; };
+const gprogText = (pg, n) => pg ? (pg.wait ? `AI가 잠깐 쉬는 중… 곧 이어서 해요 · ${pg.done} / ${pg.total}` : `자동으로 분석하고 있어요… ${pg.done} / ${pg.total}`)
+  : n && GT.cooling() ? `AI 사용량이 차서 쉬는 중 · 남은 ${n}문장은 조금 뒤 자동으로 이어서 해요` : n ? `남은 ${n}문장 곧 자동으로 분석해요` : '말한 문장은 자동으로 분석돼요';
 function gramHTML() {
-  const st = GT.stats(), ms = D.get().mistakes, nNew = GT.pendingNew().length, nOld = GT.pendingOld().length, ai = aiOn();
+  const st = GT.stats(), nPend = GT.pending().length, ai = aiOn(), pg = GT.progress();
   const sum = `<div class="g-sum"><div class="g-sum-n"><div><b>${GT.analyzedCount()}</b><span>분석한 문장</span></div><div><b>${GT.mistakeCount()}</b><span>찾은 실수</span></div><div><b>${st.filter(s => s.fixed).length}</b><span>거의 고친 문법</span></div></div>
     ${!ai ? '<p class="g-note">문법 분석은 AI 키가 있어야 해요 · SETTINGS › AI</p>'
-      : GT.isRunning() ? '<p class="g-note" id="gprog">분석하고 있어요…</p>'
-      : `${nNew ? `<button class="btn sm block" id="gnew">${ic('sparkle')} 새로 말한 문장 ${nNew}개 분석</button>` : ''}${nOld ? `<button class="btn sm soft block mt8" id="gold">${ic('refresh')} 예전 기록 ${nOld}개 전부 분석하기</button><p class="g-note">AI 무료 사용량을 써요${nOld > 16 ? ` · ${Math.ceil(nOld / 8 * 8 / 60)}분쯤 걸려요 · 이 화면을 켜 두세요` : ''}</p>` : ''}${!nNew && !nOld ? '<p class="g-note">말한 문장은 모이면 자동으로 분석돼요</p>' : ''}`}
-    <p class="g-note" id="gprog2"></p></div>`;
+      : `<p class="g-note" id="gprog">${gprogText(pg, nPend)}</p>${!pg && !GT.isRunning() && nPend && GT.cooling() ? `<button class="link-sm" id="gnow">${ic('refresh')} 지금 다시 해보기</button>` : ''}`}</div>`;
   if (gtag) {
     const s = st.find(x => x.tag === gtag); const T = GT.TAG[gtag];
     if (!s || !T) { gtag = ''; return gramHTML(); }
@@ -247,16 +247,8 @@ function gramHTML() {
 }
 function bindGram(root) {
   const re = () => saved(root);
-  const run = async (list, patient = false) => {
-    const p = $('#gprog2', root); $$('#gnew,#gold', root).forEach(b => b.disabled = true);
-    if (p) p.textContent = `분석하고 있어요… 0 / ${list.length}`;
-    const r = await GT.analyze(list, (d, n, wait) => { const q = $('#gprog2', root); if (q) q.textContent = wait ? `AI가 잠깐 쉬는 중… 곧 이어서 해요 · ${d} / ${n}` : `분석하고 있어요… ${d} / ${n}`; }, { patient });
-    if (r.error && r.error !== 'busy') toast(r.done ? `${r.done}문장까지 분석했어요 · 나머지는 잠시 뒤에 버튼을 다시 눌러줘요` : 'AI 분석을 못 했어요 · 잠시 뒤에 다시 해줘요');
-    else if (r.done) toast(`${r.done}문장 분석 완료!`);
-    if (view === 'gram' && root.isConnected && $('.g-sum', root)) re();
-  };
-  $('#gnew', root) && ($('#gnew', root).onclick = () => run(GT.pendingNew()));
-  $('#gold', root) && ($('#gold', root).onclick = () => run(GT.pendingOld().sort((a, b) => (b.at || 0) - (a.at || 0)), true));
+  $('#gnow', root) && ($('#gnow', root).onclick = () => { GT.autoRun(true); re(); });
+  if (!GT.isRunning() && GT.pending().length && !GT.cooling()) GT.autoRun(); // 문법 탭을 열면 바로 시작
   $$('[data-gt]', root).forEach(b => b.onclick = () => { gtag = b.dataset.gt; re(); window.scrollTo(0, 0); });
   $('#gback', root) && ($('#gback', root).onclick = () => { gtag = ''; re(); });
   const pick = list => { const seen = new Set(); return list.filter(m => { const k = canon(m.fixed); if (seen.has(k)) return false; seen.add(k); return true; }); };
@@ -264,6 +256,14 @@ function bindGram(root) {
   $('#gweak', root) && ($('#gweak', root).onclick = () => { const w = GT.stats().filter(s => !s.fixed).slice(0, 3); const items = w.flatMap(s => pick(s.list).slice(0, 4)); review(root, items.slice(0, 10).map(m => ({ t: 'g', id: m.id }))); });
   $$('.g-item', root).forEach(row => swipeDelete(row, () => { D.deleteMistake(row.dataset.mid); toast('지웠어요'); re(); }));
 }
+// 자동 분석 진행: 숫자만 바꾸고, 한 묶음 끝날 때마다 목록도 새로 (상세 화면을 보고 있을 땐 숫자만)
+let gLast = -1;
+window.addEventListener('b2u:gramprog', () => {
+  const r = document.querySelector('.saved-scr'); if (!r || view !== 'gram') return;
+  const pg = GT.progress(), q = r.querySelector('#gprog');
+  if (pg && q && (gtag || pg.done === gLast || !pg.done)) { q.textContent = gprogText(pg, GT.pending().length); gLast = pg.done; return; }
+  gLast = pg ? pg.done : -1; if (r.parentElement) { const y = window.scrollY; saved(r.parentElement); window.scrollTo(0, y); }
+});
 window.addEventListener('b2u:grammar', () => { const r = document.querySelector('.saved-scr'); if (r && view === 'gram') { const root = r.parentElement; if (root) saved(root); } });
 
 function review(root, items) {

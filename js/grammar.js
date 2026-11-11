@@ -81,7 +81,7 @@ export const pendingNew = () => { const s = since(); return pending().filter(a =
 export const pendingOld = () => { const s = since(); return pending().filter(a => (a.at || 0) < s); };
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
-let running = null;
+let running = null, lastSay = 0; // lastSay: 방금 말했으면 (CHAT·CALL 피드백이 먼저) 분석은 잠깐 기다림
 export const isRunning = () => !!running;
 // list: 분석할 시도들 · onStep(done, total)
 export async function analyze(list, onStep, { patient = false } = {}) {
@@ -97,22 +97,38 @@ export async function analyze(list, onStep, { patient = false } = {}) {
       if (r.error) { error = r.error; break; }
       D.saveGrammar(r.results);
       done += chunk.length; onStep?.(done, list.length);
-      if (patient && i + 8 < list.length) await sleep(4500); // 분당 요청 수를 넘지 않게 천천히
+      if (patient && i + 8 < list.length) { await sleep(4500); while (Date.now() - lastSay < 15000) await sleep(3000); } // 분당 요청 수를 넘지 않게 천천히 · 말하는 중이면 양보
     }
   })();
   try { await running; } finally { running = null; }
   window.dispatchEvent(new Event('b2u:grammar'));
   return { error, done };
 }
-// 새로 말한 문장: 6개 이상 모이면 조용히 분석
-let t = null;
-window.addEventListener('b2u:attempt', () => { clearTimeout(t); t = setTimeout(() => { const p = pendingNew(); if (p.length >= 6 && aiOn()) analyze(p.slice(0, 24)); }, 8000); });
+// 자동 분석: 버튼 없이 — 앱을 켜면 아직 분석 안 한 문장 전부(예전 기록 포함), 새로 말할 때마다 조금 뒤에 이어서
+// · 말하는 중엔 기다렸다가 20초 조용하면 한 번에 묶어서 (AI 요청 수 아끼기) · 사용 한도에 걸리면 10분 쉬고 자동으로 다시
+let prog = null, coolUntil = 0, t = null;
+export const progress = () => prog; // {done, total, wait} | null
+export const cooling = () => Date.now() < coolUntil;
+export async function autoRun(force = false) {
+  if (running || prog || !aiOn() || (!force && cooling())) return;
+  const list = pending().sort((a, b) => (b.at || 0) - (a.at || 0)); if (!list.length) return;
+  const tell = () => window.dispatchEvent(new Event('b2u:gramprog'));
+  prog = { done: 0, total: list.length, wait: false }; tell();
+  const r = await analyze(list, (done, total, wait) => { prog = { done, total, wait: !!wait }; tell(); }, { patient: true });
+  if (r.error && r.error !== 'busy') { coolUntil = Date.now() + (r.error === 'quota' ? 600000 : 120000); schedule(coolUntil - Date.now() + 1000); }
+  prog = null; tell();
+}
+function schedule(ms) { clearTimeout(t); t = setTimeout(() => { if (document.visibilityState === 'visible') autoRun(); }, ms); }
+window.addEventListener('b2u:attempt', () => { lastSay = Date.now(); schedule(20000); });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && pending().length) schedule(6000); });
+schedule(6000);
 
 // 통계: 종류별 실수 수 · 최근 2주 vs 그 전 2주 · 연습 연속 성공(새 실수가 생기면 0부터)
 export function stats() {
   const ms = D.get().mistakes, now = Date.now(), W2 = 14 * 864e5;
   const by = new Map();
-  ms.forEach(m => { const t = fixTag(m); if (!TAG[t]) return; if (!by.has(t)) by.set(t, []); by.get(t).push(m); }); // 예전에 잘못 분류된 것도 볼 때 바로잡음
+  const seen = new Set(); // 두 기기에서 같은 문장을 각각 분석했을 때 겹친 것은 한 번만
+  ms.forEach(m => { const t = fixTag(m); if (!TAG[t]) return; const key = `${m.aid}|${t}|${m.wrong}|${m.right}`; if (m.aid && seen.has(key)) return; seen.add(key); if (!by.has(t)) by.set(t, []); by.get(t).push(m); }); // 예전에 잘못 분류된 것도 볼 때 바로잡음
   return [...by.entries()].map(([tag, list]) => {
     const ev = [];
     list.forEach(m => { ev.push({ at: m.at || 0, ok: false }); (m.practice || []).forEach(p => ev.push(p)); });
