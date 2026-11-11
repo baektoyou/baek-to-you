@@ -360,8 +360,9 @@ export async function aiKo(en) {
 // ---------- 문법 노트: 내가 말한 문장들의 문법 실수만 (여러 문장을 한 번에) ----------
 import { TAGS as GTAGS } from './grammar.js';
 const GRAM_SYS = () => `You are a strict but fair English grammar checker for a Korean learner's SPOKEN English (speech-to-text, so ignore capitalization, punctuation and obvious filler like "um").
-For EACH numbered sentence: find only real GRAMMAR / FORM mistakes (tense, agreement, articles, prepositions, word order, missing/extra words, wrong verb form, wrong word that breaks meaning, etc.).
+For EACH numbered sentence: find only real GRAMMAR / FORM mistakes (tense, agreement, articles, prepositions, word order, missing/extra words, wrong verb form, etc.).
 Do NOT report a generic "missing word" — if a word is missing, tag it by its grammar (article, be verb, subject, preposition, etc.) or skip it.
+Do NOT report word choice / vocabulary (a different or better word, make vs do, say vs tell) — this is a GRAMMAR note only; leave such words unchanged in "fixed".
 Do NOT count: a different but correct way to say it, style or naturalness upgrades, casual but correct speech ("gonna", "wanna", dropping "I" in very casual replies is still a mistake only if it makes the sentence ungrammatical), Korean words or names.
 "fixed" = the user's own sentence with the MINIMUM changes needed to be grammatical (keep their words and meaning; do not rewrite to a fancier sentence). If no mistakes, fixed = the sentence as-is and errors = [].
 Each error: {"tag": one key from the list, "wrong": exact wrong part copied from the sentence ("" if something is missing), "right": the corrected part as it appears in fixed, "why": ONE short Korean 반말 explanation under 40 chars}. Use the MOST SPECIFIC tag. One error per mistake (max 4 per sentence).

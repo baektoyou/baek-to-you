@@ -364,7 +364,6 @@ export function videoEditor(root, vid) {
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
-      <button class="btn sm" id="add-u">${ic('plus')} 문장 추가</button>
       <button class="btn sm soft" id="rep-j">${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
     </div>
@@ -459,7 +458,6 @@ export function videoEditor(root, vid) {
     else { const sh = sheet(`<h3>JSON 전체</h3><p class="sheet-p">자동 복사가 막혔어요. 아래를 길게 눌러 전체 선택 → 복사해주세요.</p><textarea class="textarea mono" readonly>${esc(json)}</textarea>`); $('textarea', sh).select(); }
   };
   $('#rep-j', root).onclick = () => jsonSheet(v, 'replace', reload);
-  $('#add-u', root).onclick = () => uttSheet(v, null, reload); // 시간·한국어·영어를 직접 써서 한 문장 추가
   return () => pl.destroy();
 }
 
@@ -526,36 +524,22 @@ function jsonSheet(v, mode, done) {
   };
 }
 
-// ---------- 문장 직접 추가 / 한 문장을 둘로 나누기 ----------
-// split = 나눌 문장: 나눌 시간(기본 가운데)을 정하고 앞·뒤 문장을 각각 적음 → 앞 문장은 그대로(저장 연결 유지), 뒤 문장은 새로 추가
+// ---------- 한 문장을 둘로 나누기 ----------
+// 나눌 시간(기본 가운데)을 정하고 앞·뒤 문장을 각각 적음 → 앞 문장은 그대로(저장 연결 유지), 뒤 문장은 새로 추가
 function uttSheet(v, split, done, pl = null) {
-  const us = D.uttsOf(v.id), last = us[us.length - 1];
-  const s0 = split ? split.start : (last ? last.end : 0), e0 = split ? split.end : s0 + 4;
-  const mid = split ? Math.round((split.start + split.end) / 2 * 10) / 10 : 0;
+  const mid = Math.round((split.start + split.end) / 2 * 10) / 10;
   const nat = u => u.en.natural || u.en.easy || u.en.advanced || '';
   const f = (id, label, val, cls = '') => `<label class="field"><span>${label}</span><textarea class="textarea ${cls}" id="${id}" rows="2">${esc(val)}</textarea></label>`;
-  const sh = sheet(split
-    ? `<h3>둘로 나누기</h3><p class="sheet-p">${fmtD(split.start)} ~ ${fmtD(split.end)} 구간을 나눌 시간에서 둘로 나눠요.</p>
+  const sh = sheet(`<h3>둘로 나누기</h3><p class="sheet-p">${fmtD(split.start)} ~ ${fmtD(split.end)} 구간을 나눌 시간에서 둘로 나눠요.</p>
       <div class="field"><span>나눌 시간</span><div class="timepick"><input class="input" id="sp" value="${fmtD(mid)}" inputmode="decimal">${pl ? '<button class="btn xs soft" id="spnow">지금</button>' : ''}</div></div>
       <p class="label mt12">앞 문장 · ${fmtD(split.start)} ~ <span id="sp1"></span></p>${f('k1', '한국어', split.ko)}${f('e1', '영어', nat(split), 'en')}
       <p class="label mt12">뒤 문장 · <span id="sp2"></span> ~ ${fmtD(split.end)}</p>${f('k2', '한국어', '')}${f('e2', '영어', '', 'en')}
-      <button class="btn block mt12" id="ok">나누기</button>`
-    : `<h3>문장 추가</h3>
-      <div class="two"><div class="field"><span>시작</span><input class="input" id="st" value="${fmtD(s0)}" inputmode="decimal"></div><div class="field"><span>끝</span><input class="input" id="en" value="${fmtD(e0)}" inputmode="decimal"></div></div>
-      ${f('k1', '백현이 한국어 발화', '')}${f('e1', '영어 추천 문장', '', 'en')}
-      <button class="btn block mt12" id="ok">추가하기</button>`);
+      <button class="btn block mt12" id="ok">나누기</button>`);
   const T = id => D.parseTime($('#' + id, sh).value);
   const showSp = () => { const t = T('sp'); $('#sp1', sh).textContent = $('#sp2', sh).textContent = t == null ? '?' : fmtD(t); };
-  if (split) { showSp(); $('#sp', sh).oninput = showSp; $('#spnow', sh) && ($('#spnow', sh).onclick = () => { $('#sp', sh).value = fmtD(Math.round(pl.time() * 10) / 10); showSp(); }); }
+  showSp(); $('#sp', sh).oninput = showSp; $('#spnow', sh) && ($('#spnow', sh).onclick = () => { $('#sp', sh).value = fmtD(Math.round(pl.time() * 10) / 10); showSp(); });
   $('#ok', sh).onclick = () => {
     const k1 = $('#k1', sh).value.trim(), e1 = $('#e1', sh).value.trim();
-    if (!split) {
-      const s = T('st'), e = T('en');
-      if (s == null || e == null || e <= s) return toast('끝 시간이 시작보다 커야 해요');
-      if (!k1 || !e1) return toast('한국어와 영어를 모두 적어주세요');
-      D.upsertUtt({ id: D.uid(), videoId: v.id, start: s, end: e, ko: k1, en: { natural: e1 } });
-      sh.close(); toast('문장을 추가했어요'); return done();
-    }
     const t = T('sp'), k2 = $('#k2', sh).value.trim(), e2 = $('#e2', sh).value.trim();
     if (t == null || t <= split.start || t >= split.end) return toast(`나눌 시간은 ${fmtD(split.start)}와 ${fmtD(split.end)} 사이로 정해줘요`);
     if (!k1 || !e1 || !k2 || !e2) return toast('앞·뒤 문장의 한국어와 영어를 모두 적어주세요');

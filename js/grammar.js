@@ -6,7 +6,7 @@
 import * as D from './store.js';
 import { aiOn, aiGrammar } from './ai.js';
 
-// [key, 이름, 묶음, 짧은 규칙, 예시] · ‘빠진 단어’ 종류는 안 씀 (예전에 모인 것도 안 보임)
+// [key, 이름, 묶음, 짧은 규칙, 예시] · ‘빠진 단어’·‘단어 선택’ 종류는 안 씀 (예전에 모인 것도 안 보임)
 export const TAGS = [
   ['past', '과거형', '시제', '이미 끝난 일은 과거형 (go → went, eat → ate)', 'I went there yesterday.'],
   ['present', '현재형', '시제', '습관·사실은 현재형 (I usually ~ / She likes ~)', 'I usually sleep at 1.'],
@@ -42,7 +42,6 @@ export const TAGS = [
   ['comparative', '비교급 · 최상급', '형용사·부사', '-er than / the -est, 긴 단어는 more/most', "It's better than before."],
   ['adj_adv', '형용사 · 부사', '형용사·부사', '동사를 꾸미면 부사 (-ly), 명사를 꾸미면 형용사', 'You sing so well.'],
   ['adj_ed_ing', '-ed / -ing 형용사', '형용사·부사', '내 기분은 -ed (bored), 원인은 -ing (boring)', "I'm so excited."],
-  ['word_choice', '단어 선택', '단어', '뜻에 맞는 단어 고르기 (make/do, say/tell…)', 'Let me tell you something.'],
   ['spelling', '철자 · 단어 모양', '단어', '단어 모양 바르게 쓰기', 'I received it.']
 ];
 export const TAG = Object.fromEntries(TAGS.map(([k, l, g, r, e]) => [k, { k, label: l, group: g, rule: r, ex: e }]));
@@ -94,4 +93,5 @@ export function stats() {
     return { tag, ...TAG[tag], n: list.length, recent, before, streak, fixed: streak >= 3, list: list.slice().sort((a, b) => (b.at || 0) - (a.at || 0)) };
   }).sort((a, b) => (a.fixed - b.fixed) || (b.recent - a.recent) || (b.n - a.n));
 }
+export const mistakeCount = () => D.get().mistakes.filter(m => TAG[m.tag]).length; // 지금 쓰는 문법 종류만
 export const analyzedCount = () => D.get().attempts.filter(a => a.g).length;

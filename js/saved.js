@@ -4,7 +4,7 @@ import * as D from './store.js';
 import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry, swipeDelete, enterSend, autoFollow } from './ui.js';
 import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn, aiKoMark, aiKo } from './ai.js';
 import * as S from './speech.js';
-import { Player } from './yt.js';
+import { Player, vThumb } from './yt.js';
 import { avatarStyle } from './scene.js';
 import { BH_PROFILE } from './video.js';
 import * as GT from './grammar.js';
@@ -18,6 +18,7 @@ let filter = 'due';
 let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어 | 'gram' 문법
 let gtag = ''; // 문법 노트에서 보고 있는 문법
 let ecat = 'all'; // 표현: all 전체 | video 영상별 | 카테고리 key | none 분류 전
+let evid = null, evx = 0; // 영상별: 고른 영상 id('' = 영상 없음) · 영상 줄 가로 스크롤 위치
 // 상태: 복습전 · 복습중 · (어느 정도 = 다음 복습 시간만) · 복습완료
 const ST = { new: ['복습전', ''], again: ['2일 후 복습', 'mid'], okay: ['2일 후 복습', 'mid'], mastered: ['복습완료', 'ok'] };
 // 상태 옆: 복습할 날이 됐으면 ‘오늘’
@@ -39,7 +40,9 @@ export function saved(root) {
   // 표현: 카테고리로 거르기 (영상별은 묶어서 보여주기만)
   const isE = view === 'expr';
   if (isE && ecat !== 'all' && ecat !== 'video' && ecat !== 'none' && !words.some(w => w.cat === ecat)) ecat = 'all';
-  const shownW = !isE || ecat === 'all' || ecat === 'video' ? words : ecat === 'none' ? words.filter(w => !XC.CAT[w.cat]) : words.filter(w => w.cat === ecat);
+  const vg = isE && ecat === 'video' ? videoGroups(words) : null; // 영상별: 위에서 영상을 고르면 그 영상 표현만
+  if (vg && !vg.some(g => g.k === evid)) evid = vg[0]?.k ?? null;
+  const shownW = vg ? (vg.find(g => g.k === evid)?.list || []) : !isE || ecat === 'all' ? words : ecat === 'none' ? words.filter(w => !XC.CAT[w.cat]) : words.filter(w => w.cat === ecat);
   const items = isW ? shownW : lists[filter];
   const todo = items.filter(x => x.status !== 'mastered'); // ‘이 목록 복습하기’는 복습완료 빼고
   const nE = db.words.filter(w => w.kind !== 'word').length, nW = db.words.length - nE;
@@ -53,9 +56,9 @@ export function saved(root) {
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button><button data-v="gram" class="${view === 'gram' ? 'on' : ''}">문법 <em>${GT.stats().filter(s => !s.fixed).length}</em></button></div>
     ${view === 'gram' ? gramHTML() : `
-    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${isE && ecat !== 'all' && ecat !== 'video' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : ''}</div>${isE && words.length ? ecatHTML(words) : ''}`
+    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${vg ? '이 영상 ' : isE && ecat !== 'all' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : ''}</div>${isE && words.length ? ecatHTML(words) : ''}${vg ? vstripHTML(vg) : ''}`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
-    ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}${isE && ecat === 'video' ? byVideoHTML(items) : `<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`}`
+    ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}`}
   </div>`;
   // 삭제: 왼쪽으로 밀면 ‘삭제’
@@ -66,6 +69,8 @@ export function saved(root) {
   $$('[data-v]', root).forEach(b => b.onclick = () => { view = b.dataset.v; gtag = ''; saved(root); });
   if (view === 'gram') bindGram(root);
   $$('[data-ec]', root).forEach(b => b.onclick = () => { ecat = b.dataset.ec; saved(root); });
+  const vs = $('.ec-vs', root); if (vs) { vs.scrollLeft = evx; vs.onscroll = () => { evx = vs.scrollLeft; }; $('.ec-v.on', vs)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  $$('[data-ev]', root).forEach(b => b.onclick = () => { evid = b.dataset.ev; saved(root); });
   $('#ecrun', root) && ($('#ecrun', root).onclick = async () => {
     const b = $('#ecrun', root), list = XC.uncats(); b.disabled = true; b.textContent = `분류하고 있어요… 0 / ${list.length}`;
     const r = await XC.classify(list, (d, n) => { const x = $('#ecrun', root); if (x) x.textContent = `분류하고 있어요… ${d} / ${n}`; });
@@ -140,11 +145,14 @@ function wordVideo(w) {
   const u = D.get().utts.find(u => (' ' + String(natOf(u)).toLowerCase().replace(/[^a-z' ]/g, ' ') + ' ').includes(' ' + t + ' '));
   return u ? D.video(u.videoId) : null;
 }
-function byVideoHTML(items) {
+function videoGroups(words) {
   const g = new Map();
-  items.forEach(w => { const v = wordVideo(w); const k = v ? v.id : ''; if (!g.has(k)) g.set(k, { v, list: [] }); g.get(k).list.push(w); });
-  const groups = [...g.values()].sort((a, b) => (!a.v) - (!b.v) || b.list.length - a.list.length);
-  return groups.map(({ v, list }) => `<div class="ec-vh"><b>${esc(v ? v.title.split('\n')[0] : '영상 없음')}</b><small>${list.length}개</small></div><div class="slist">${list.map(wordHTML).join('')}</div>`).join('');
+  words.forEach(w => { const v = wordVideo(w); const k = v ? v.id : ''; if (!g.has(k)) g.set(k, { k, v, list: [] }); g.get(k).list.push(w); });
+  return [...g.values()].sort((a, b) => (!a.v) - (!b.v) || b.list.length - a.list.length);
+}
+// 영상별: 영상 썸네일 줄 (가로로 넘기기) → 누르면 아래에 그 영상 표현만
+function vstripHTML(groups) {
+  return `<div class="ec-vs">${groups.map(({ k, v, list }) => `<button class="ec-v ${k === evid ? 'on' : ''}" data-ev="${k}"><span class="ec-vt" ${v ? `style="background-image:url('${esc(vThumb(v))}')"` : ''}>${v ? '' : ic('bookmark')}<em>${list.length}</em></span><b>${esc(v ? v.title.split('\n')[0] : '영상 없음')}</b></button>`).join('')}</div>`;
 }
 function catSheet(w, done) {
   const sh = sheet(`<h3>카테고리</h3><p class="sheet-p en">${esc(w.text)}</p><div class="goal-ch">${XC.CATS.map(([k, l]) => `<button class="chip ${w.cat === k ? 'on' : ''}" data-ck="${k}">${esc(l)}</button>`).join('')}</div>`);
@@ -211,7 +219,7 @@ const MAXRUN = 48; // 예전 기록은 한 번에 최대 48문장 (AI 무료 사
 const ago = t => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? '오늘' : d === 1 ? '어제' : `${d}일 전`; };
 function gramHTML() {
   const st = GT.stats(), ms = D.get().mistakes, nNew = GT.pendingNew().length, nOld = GT.pendingOld().length, ai = aiOn();
-  const sum = `<div class="g-sum"><div class="g-sum-n"><div><b>${GT.analyzedCount()}</b><span>분석한 문장</span></div><div><b>${ms.length}</b><span>찾은 실수</span></div><div><b>${st.filter(s => s.fixed).length}</b><span>거의 고친 문법</span></div></div>
+  const sum = `<div class="g-sum"><div class="g-sum-n"><div><b>${GT.analyzedCount()}</b><span>분석한 문장</span></div><div><b>${GT.mistakeCount()}</b><span>찾은 실수</span></div><div><b>${st.filter(s => s.fixed).length}</b><span>거의 고친 문법</span></div></div>
     ${!ai ? '<p class="g-note">문법 분석은 AI 키가 있어야 해요 · SETTINGS › AI</p>'
       : GT.isRunning() ? '<p class="g-note" id="gprog">분석하고 있어요…</p>'
       : `${nNew ? `<button class="btn sm block" id="gnew">${ic('sparkle')} 새로 말한 문장 ${nNew}개 분석</button>` : ''}${nOld ? `<button class="btn sm soft block mt8" id="gold">${ic('refresh')} 예전 기록 ${nOld}개 분석하기${nOld > MAXRUN ? ` (이번에 ${MAXRUN}개)` : ''}</button><p class="g-note">AI 무료 사용량을 써요 · 8문장씩 묶어서 분석해요</p>` : ''}${!nNew && !nOld ? '<p class="g-note">말한 문장은 모이면 자동으로 분석돼요</p>' : ''}`}
