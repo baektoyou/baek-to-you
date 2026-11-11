@@ -224,7 +224,7 @@ The learner asks a question about English (meaning, nuance, how to say something
 Return ONLY JSON: {"answer": "...", "expressions": [{"en": short useful chunk, "ko": meaning}] (0–3)}`;
 export async function aiAsk(q, ctx = {}) {
   if (!aiOn()) return { error: 'off' };
-  const a = await callAI(QA_SYS, [ctx.ko ? `Current Baekhyun line (Korean): ${clip(ctx.ko)}` : '', ctx.en ? `Its English: ${clip(ctx.en)}` : '', `Learner question: ${clip(q, 600)}`].filter(Boolean).join('\n'), { temp: 0.5 });
+  const a = await callAI(QA_SYS, [ctx.note ? clip(ctx.note, 500) : '', ctx.ko ? `${ctx.note ? 'Meaning' : 'Current Baekhyun line'} (Korean): ${clip(ctx.ko)}` : '', ctx.en && !ctx.note ? `Its English: ${clip(ctx.en)}` : '', `Learner question: ${clip(q, 600)}`].filter(Boolean).join('\n'), { temp: 0.5 });
   if (!ok(a) || !a.answer) return { error: a?.error || 'parse' };
   return { answer: bhTone(String(a.answer)), xs: (a.expressions || []).map(x => ({ text: cleanX(x?.en), ko: cleanX(x?.ko) })).filter(x => goodChunk(x.text)).slice(0, 3) };
 }
@@ -332,6 +332,23 @@ export async function aiExprSay({ expr, ko = '', avoid = [] }) {
   return null;
 }
 
+// 표현 복습: 저장한 표현 ‘그 부분만’ 한국어로 보여주고 그 부분만 영어로 말하기
+// · 한국어 자막에서 그 부분을 떼면 영어 표현과 안 맞을 수 있어서, 영어 표현에 맞게 한국어를 다듬어 줌
+const EXKO_SYS = `${BH_VOICE}
+You write the Korean cue for reviewing ONE saved English expression (a part of a sentence, not the whole sentence).
+Input: the expression; optionally the English sentence it came from, that sentence's Korean subtitle, and the learner's saved meaning.
+Return ONLY JSON {"ko": ..., "en": ...}
+"ko" = natural casual Korean (반말, his tone) that means EXACTLY the expression as it is used in that sentence — ONLY that part. Start from the wording of the Korean subtitle, but REWRITE it whenever the subtitle part does not match the English expression exactly (meaning missing, extra words from the rest of the sentence, different scope or tense). It must make sense on its own. Max 30 characters. No English in it.
+"en" = the exact English chunk the learner should say for that Korean: the expression itself, copied from the sentence when it appears there. If the expression has a placeholder (~, something, someone, one's), fill it with the words from the sentence (or a simple natural example) so it can be said aloud, and make "ko" match that filled chunk.`;
+export async function aiExprKo({ expr, meaning = '', en = '', ko = '' }) {
+  if (!aiOn() || !expr) return null;
+  const a = await callAI(EXKO_SYS, [`Expression: ${clip(expr, 80)}`, en ? `English sentence: ${clip(en, 200)}` : '', ko ? `Korean subtitle: ${clip(ko, 160)}` : '', meaning ? `Saved meaning: ${clip(meaning, 80)}` : ''].filter(Boolean).join('\n'), { temp: 0.2, ms: 12000 });
+  if (!ok(a) || !a.ko) return null;
+  const core = String(expr).toLowerCase().split(/~|\.\.\.|…|\(|\bsomething\b|\bsomeone\b|\bsb\b|\bsth\b|\bone's\b/)[0].replace(/[^a-z' ]/g, '').trim().split(' ').slice(0, 2).join(' ');
+  const e = cleanX(a.en).slice(0, 120);
+  return { ko: bhTone(cleanX(a.ko)).slice(0, 60), en: e && (!core || e.toLowerCase().includes(core)) && e.split(/\s+/).length <= String(expr).split(/\s+/).length + 6 ? e : String(expr) };
+}
+
 // 영상 대사(한국어 자막)에서 저장한 영어 표현에 해당하는 부분 찾기 → 한국어 문장에 밑줄
 const KOMARK_SYS = `You align an English expression with its Korean translation.
 Given a Korean subtitle line, its English original, and an English expression used in it, return ONLY JSON {"mark": the EXACT shortest substring of the Korean line that expresses that English expression (copy characters exactly, no paraphrase), or "" if none}`;
@@ -368,7 +385,7 @@ Do NOT count: a different but correct way to say it, style or naturalness upgrad
 Each error: {"tag": one key from the list, "wrong": exact wrong part copied from the sentence ("" if something is missing), "right": the corrected part as it appears in fixed, "why": ONE short Korean 반말 explanation under 40 chars}. Use the MOST SPECIFIC tag. One error per mistake (max 4 per sentence).
 Choose the tag by WHAT KIND of word changed between "wrong" and "right", never by which letters are involved:
 - article_a / article_the ONLY when the separate WORD a / an / the is missing, extra, or swapped (e.g. "I have cat" → "a cat"). A letter "a" inside another word is NOT an article.
-- spelling ONLY when the same word is intended but its letters are wrong ("beutiful" → "beautiful"). Because this is speech-to-text, SKIP misspellings that are just a recognition glitch or sound identical (their/there is a real mistake only if the grammar is wrong).
+- Do NOT report spelling at all ("beutiful" → "beautiful" is not an error here): this is speech, so a misspelled word is a recognition glitch — silently keep/correct it in "fixed" without an error entry.
 - If an ending changes (-s, -ed, -ing), tag the grammar reason (plural, agreement, past, verb_form…), not spelling.
 "why" must explain the same thing the tag says.
 Tags: ${GTAGS.map(t => `${t[0]}=${t[1]}`).join(', ')}
@@ -396,16 +413,18 @@ export async function aiGrammar(items) {
 
 // ---------- 표현 카테고리: 저장한 영어 표현을 쓰임별로 (여러 개를 한 번에) ----------
 import { CATS as XCATS } from './excat.js';
-const XCAT_SYS = () => `Classify each saved English expression (from a K-pop idol's casual talk, saved by a Korean learner) into ONE category by how it is USED in conversation.
-Categories: ${XCATS.map(c => `${c[0]} = ${c[1]}${c[2] ? ` (e.g. ${c[2]})` : ''}`).join('; ')}.
-Prefer the most useful specific category; use "phrasal" for phrasal verbs / verb+preposition chunks; use "etc" only if nothing fits.
-Return ONLY JSON {"cats": [{"i": number, "cat": "key"}, ...]}`;
-export async function aiExprCat(items) {
+const XCAT_SYS = extra => `Classify each saved English expression (from a K-pop idol's casual talk, saved by a Korean learner) into ONE category by how it is USED in conversation.
+Categories: ${XCATS.map(c => `${c[0]} = ${c[1]}${c[2] ? ` (e.g. ${c[2]})` : ''}`).join('; ')}. ("fans" = things he says to his fans, 에리)
+${extra.length ? `Extra categories the learner already has (use the Korean name itself as the value): ${extra.join(', ')}.` : ''}
+Prefer the most useful specific category; use "phrasal" for phrasal verbs / verb+preposition chunks.
+If NONE of the categories fits and you would otherwise answer "etc", you may create a NEW category instead: a short Korean noun label of 2–4 characters naming a clear conversational use (e.g. 인사, 약속, 음식, 사과). Reuse an existing extra category whenever possible, create new ones sparingly, and still use "etc" for one-off items.
+Return ONLY JSON {"cats": [{"i": number, "cat": "key or Korean label"}, ...]}`;
+export async function aiExprCat(items, extra = []) {
   if (!aiOn()) return { error: 'off' };
   const user = items.map((x, i) => `${i + 1}. ${clip(x.text, 120)}${x.ko ? ` (뜻: ${clip(x.ko, 60)})` : ''}`).join('\n');
-  let a = await callAI(XCAT_SYS(), user, { temp: 0.1, ms: 25000 });
-  if (!ok(a) && ['timeout', 'network', 'parse'].includes(a?.error)) a = await callAI(XCAT_SYS(), user, { temp: 0.1, ms: 25000 });
+  let a = await callAI(XCAT_SYS(extra), user, { temp: 0.1, ms: 25000 });
+  if (!ok(a) && ['timeout', 'network', 'parse'].includes(a?.error)) a = await callAI(XCAT_SYS(extra), user, { temp: 0.1, ms: 25000 });
   if (!ok(a)) return { error: a?.error || 'parse' };
-  const keys = new Set(XCATS.map(c => c[0])); const res = Array.isArray(a.cats) ? a.cats : [];
-  return { cats: items.map((_, i) => { const c = (res.find(y => +y.i === i + 1) || {}).cat; return keys.has(c) ? c : ''; }) };
+  const res = Array.isArray(a.cats) ? a.cats : [];
+  return { cats: items.map((_, i) => String((res.find(y => +y.i === i + 1) || {}).cat || '').trim()) }; // 검증(기본 key · 새 이름)은 excat.js cleanCat
 }

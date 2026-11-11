@@ -4,20 +4,25 @@ import * as D from './store.js';
 import { aiOn, aiExprCat } from './ai.js';
 
 export const CATS = [
-  ['react', '리액션·감탄', 'omg, no way, that makes sense'],
-  ['feel', '기분·감정', "I'm so excited, it hit different"],
-  ['daily', '일상·하루 얘기', 'grab a bite, call it a day'],
-  ['cheer', '칭찬·응원', "you nailed it, I'm proud of you"],
-  ['ask', '질문하기', 'how was your day, what do you think'],
-  ['suggest', '부탁·제안', 'why don\'t we, could you'],
-  ['link', '이유·연결', 'because of that, by the way, anyway'],
+  ['react', '리액션', 'omg, no way, that makes sense'],
+  ['feel', '감정', "I'm so excited, it hit different"],
+  ['daily', '일상', 'grab a bite, call it a day'],
+  ['cheer', '칭찬', "you nailed it, I'm proud of you"],
+  ['ask', '질문', 'how was your day, what do you think'],
+  ['suggest', '부탁', 'why don\'t we, could you'],
+  ['link', '연결', 'because of that, by the way, anyway'],
   ['phrasal', '구동사', 'look forward to, end up, figure out'],
-  ['fans', '팬한테 하는 말', 'thank you for waiting, I missed you'],
+  ['fans', '에리에게', 'thank you for waiting, I missed you'],
   ['etc', '기타', '']
 ];
 export const CAT = Object.fromEntries(CATS.map(([k, l]) => [k, l]));
-export const isExpr = w => w.kind !== 'word';
-export const uncats = () => D.get().words.filter(w => isExpr(w) && !CAT[w.cat]);
+// 기본 10개에 안 맞으면 새 카테고리가 생김: words[].cat 에 이름(한글) 그대로 저장 · AI가 만들거나 내가 직접
+export const MAX_CUSTOM = 12;
+export const cleanCat = t => { const s = String(t || '').trim().replace(/\s+/g, ' '); if (CAT[s]) return s; const k = CATS.find(c => c[1] === s)?.[0]; if (k) return k; return /^[가-힣A-Za-z·/ ]{1,8}$/.test(s) && !['all', 'video', 'none', '전체', '영상별', '분류 전'].includes(s) ? s : ''; };
+export const label = c => CAT[c] || String(c || '');
+export const customs = () => [...new Set(D.get().words.map(w => w.cat).filter(c => c && !CAT[c]))];
+export const isExpr = w => !!w; // 단어·표현 구분 없이 전부 표현 (예전 ‘단어’도 카테고리 분류)
+export const uncats = () => D.get().words.filter(w => !w.cat);
 
 let running = null;
 export const catRunning = () => !!running;
@@ -27,9 +32,9 @@ export async function classify(list, onStep) {
   running = (async () => {
     for (let i = 0; i < list.length; i += 20) {
       const chunk = list.slice(i, i + 20);
-      const r = await aiExprCat(chunk.map(w => ({ text: w.text, ko: w.ko || '' })));
+      const r = await aiExprCat(chunk.map(w => ({ text: w.text, ko: w.ko || '' })), customs());
       if (r.error) { error = r.error; break; }
-      chunk.forEach((w, j) => { const c = r.cats[j]; if (CAT[c]) D.updateWord(w.id, { cat: c }); });
+      chunk.forEach((w, j) => { let c = cleanCat(r.cats[j]); if (c && !CAT[c] && !customs().includes(c) && customs().length >= MAX_CUSTOM) c = 'etc'; if (c) D.updateWord(w.id, { cat: c }); });
       done += chunk.length; onStep?.(done, list.length);
     }
   })();

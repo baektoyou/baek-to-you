@@ -6,7 +6,7 @@
 import * as D from './store.js';
 import { aiOn, aiGrammar } from './ai.js';
 
-// [key, 이름, 묶음, 짧은 규칙, 예시] · ‘빠진 단어’·‘단어 선택’ 종류는 안 씀 (예전에 모인 것도 안 보임)
+// [key, 이름, 묶음, 짧은 규칙, 예시] · ‘빠진 단어’·‘단어 선택’·‘철자’ 종류는 안 씀 (예전에 모인 것도 안 보임)
 export const TAGS = [
   ['past', '과거형', '시제', '이미 끝난 일은 과거형 (go → went, eat → ate)', 'I went there yesterday.'],
   ['present', '현재형', '시제', '습관·사실은 현재형 (I usually ~ / She likes ~)', 'I usually sleep at 1.'],
@@ -41,8 +41,7 @@ export const TAGS = [
   ['conditional', 'if 조건문 · 가정', '문장', 'if 뒤엔 현재형으로 미래 / 가정은 과거형', "If it rains, I'll stay home."],
   ['comparative', '비교급 · 최상급', '형용사·부사', '-er than / the -est, 긴 단어는 more/most', "It's better than before."],
   ['adj_adv', '형용사 · 부사', '형용사·부사', '동사를 꾸미면 부사 (-ly), 명사를 꾸미면 형용사', 'You sing so well.'],
-  ['adj_ed_ing', '-ed / -ing 형용사', '형용사·부사', '내 기분은 -ed (bored), 원인은 -ing (boring)', "I'm so excited."],
-  ['spelling', '철자 · 단어 모양', '단어', '단어 모양 바르게 쓰기', 'I received it.']
+  ['adj_ed_ing', '-ed / -ing 형용사', '형용사·부사', '내 기분은 -ed (bored), 원인은 -ing (boring)', "I'm so excited."]
 ];
 export const TAG = Object.fromEntries(TAGS.map(([k, l, g, r, e]) => [k, { k, label: l, group: g, rule: r, ex: e }]));
 // AI가 붙인 종류 바로잡기: 실제로 바뀐 단어를 보고 판단 (예: 단어 속 글자 a가 틀린 철자 실수가 ‘관사’로 들어가는 것 방지)

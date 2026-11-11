@@ -261,7 +261,7 @@ export function phrasePicker(el, sentence, { marks = [], onSave, onUnmark } = {}
   const render = () => {
     const lo = Math.min(a, b), hi = Math.max(a, b);
     el.innerHTML = `<div class="picker"><p class="pick-words en">${words.map((w, i) => `<button type="button" data-i="${i}" class="${a >= 0 && i >= lo && i <= hi ? 'sel' : ''} ${isMarked(i) ? 'mk' : ''}">${esc(w)}</button>`).join(' ')}</p>
-      <div class="pick-bar ${a >= 0 ? 'on' : ''}">${a >= 0 ? `<span class="pick-cur en">${esc(phrase())}</span><button class="btn sm soft" data-x="word">${ic('word')} 단어로</button><button class="btn sm" data-x="expr">${ic('marker')} 표현 저장</button>` : `<span class="pick-tip">외우고 싶은 단어를 눌러요 · 두 번째로 누른 곳까지 이어서 선택돼요</span>`}</div>
+      <div class="pick-bar ${a >= 0 ? 'on' : ''}">${a >= 0 ? `<span class="pick-cur en">${esc(phrase())}</span><button class="btn sm" data-x="expr">${ic('marker')} 표현 저장</button>` : `<span class="pick-tip">외우고 싶은 단어를 눌러요 · 두 번째로 누른 곳까지 이어서 선택돼요</span>`}</div>
       ${marks.length ? `<div class="pick-marks">${marks.map(m => `<span class="hchip on en">${esc(m)}<button type="button" data-un="${esc(m)}" aria-label="표시 지우기">${ic('x')}</button></span>`).join('')}</div>` : ''}</div>`;
     $$('[data-i]', el).forEach(btn => btn.onclick = () => {
       const i = +btn.dataset.i;

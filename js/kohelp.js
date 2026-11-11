@@ -77,6 +77,6 @@ export const ASK_KO = {
 
 // 채팅에 넣을 도움말 카드
 export function helpHTML(res) {
-  if (!res.items.length) return `<div class="help"><span class="cor-l">‘${esc(res.q)}’ 영어로</span><p class="help-none">앱 사전에서 찾지 못했어요. SAVED › 단어에 뜻과 함께 추가해 두면 다음부터 알려줄게요.</p></div>`;
+  if (!res.items.length) return `<div class="help"><span class="cor-l">‘${esc(res.q)}’ 영어로</span><p class="help-none">앱 사전에서 찾지 못했어요. SAVED › 표현에 뜻과 함께 추가해 두면 다음부터 알려줄게요.</p></div>`;
   return `<div class="help"><span class="cor-l">‘${esc(res.q)}’ 영어로</span>${res.items.map(it => `<div class="nat-s"><p class="en">${esc(it.en)}${it.note ? `<small>${esc(it.note)}</small>` : ''}</p><button class="sv" type="button" data-sw="${esc(it.en)}" data-ko="${esc(it.ko)}" aria-label="저장">${ic('bookmark')}</button></div>`).join('')}</div>`;
 }
