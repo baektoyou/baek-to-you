@@ -76,11 +76,15 @@ const keepWarm = vid => { const m = location.hash.match(/^#\/(video|study)\/([^/
 export function resumeOf(vid) {
   const us = D.uttsOf(vid); if (!us.length) return null;
   const r = (D.get().settings.chatResume || {})[vid];
-  if (r) { const i = us.findIndex(u => u.id === r.u); if (i >= 0) return r.done ? (us[i + 1] ? { u: us[i + 1], i: i + 1, cont: true } : null) : { u: us[i], i, cont: true }; }
+  // step: 멈춘 단계 (read = 보면서 따라 말하기부터 · recall = 안 보고 말하기부터) · 없으면 그 문장 처음(말하기)부터
+  if (r) { const i = us.findIndex(u => u.id === r.u); if (i >= 0) return r.done ? (us[i + 1] ? { u: us[i + 1], i: i + 1, cont: true } : null) : { u: us[i], i, cont: true, step: r.step || '', said: r.said || '', f: r.f || null }; }
   const p = D.get().progress; let last = -1; us.forEach((u, i) => { if (p[u.id]?.steps?.check || p[u.id]?.steps?.speak) last = i; });
   return last >= 0 && us[last + 1] ? { u: us[last + 1], i: last + 1, cont: true } : null;
 }
-const setResume = (vid, u, done) => { const all = { ...(D.get().settings.chatResume || {}) }; all[vid] = { u, done, at: Date.now() }; D.setSetting('chatResume', all); };
+const setResume = (vid, u, done, extra = {}) => { const all = { ...(D.get().settings.chatResume || {}) }; all[vid] = { u, done, at: Date.now(), ...extra }; D.setSetting('chatResume', all); };
+const STEP_KO = { read: '보면서 따라 말하기', recall: '안 보고 말하기' };
+let resumeFrom = null; // 영상 화면 ‘이어서 말하기’ → CHAT: 멈춘 단계부터
+const plainF = f => { try { const o = JSON.parse(JSON.stringify(f)); return JSON.stringify(o).length < 6000 ? o : null; } catch { return null; } };
 
 export function videoDetail(root, vid) {
   const v = D.video(vid); if (!v) { location.hash = '#/video'; return; }
@@ -91,7 +95,7 @@ export function videoDetail(root, vid) {
     <header class="top"><a class="icon-btn" href="#/video" aria-label="뒤로">${ic('back')}</a><h2>${esc(title1)}</h2>${D.canEdit() ? `<a class="icon-btn" href="#/settings/video/${v.id}" aria-label="영상 관리">${ic('edit')}</a>` : '<span class="icon-btn ghost"></span>'}</header>
     <div class="vthumb hero-thumb hero-pl" id="hero" style="background-image:url('${thumbOf(v)}')"></div>
     ${String(v.title || '').includes('\n') ? `<p class="vd-title">${esc(v.title)}</p>` : ''}
-    ${us.length ? `<button class="resume-btn" id="resume">${ic('play')}<span class="grow"><b>${rs ? '이어서 말하기' : '처음부터 말하기'}</b><small>${rs ? `${rs.i + 1}번째 문장부터 · ${esc(rs.u.ko)}` : `1번째 문장부터 · ${esc(us[0].ko)}`}</small></span>${ic('next')}</button>` : ''}
+    ${us.length ? `<button class="resume-btn" id="resume">${ic('play')}<span class="grow"><b>${rs ? '이어서 말하기' : '처음부터 말하기'}</b><small>${rs ? `${rs.i + 1}번째 문장${rs.step ? ` · ${STEP_KO[rs.step]}부터` : '부터'} · ${esc(rs.u.ko)}` : `1번째 문장부터 · ${esc(us[0].ko)}`}</small></span>${ic('next')}</button>` : ''}
     <div class="row between sub-row"><span class="label">SENTENCES · ${us.length}</span><a class="link-sm" href="${ytLink(v.ytId)}" target="_blank" rel="noopener">${ic('external')} YouTube</a></div>
     ${us.length ? `<div class="ulist">${us.map(u => {
       const st = db.progress[u.id]?.steps || {}; const n = STEPS.filter(s => stepDone(st, s)).length;
@@ -103,7 +107,7 @@ export function videoDetail(root, vid) {
   // 문장을 누르는 순간 재생 시작 (사용자 동작 안) → CHAT 화면으로
   const go = u => { D.markStep(u.id, 'listen'); W.start = { id: u.id, p: W.pl.playSegment(v.ytId, u.start, u.end) }; location.hash = `#/study/${u.id}`; };
   $$('[data-u]', root).forEach(a => a.onclick = e => { e.preventDefault(); const u = D.utt(a.dataset.u); if (u) go(u); });
-  $('#resume', root) && ($('#resume', root).onclick = () => go(rs ? rs.u : us[0]));
+  $('#resume', root) && ($('#resume', root).onclick = () => { resumeFrom = rs?.step ? rs : null; go(rs ? rs.u : us[0]); });
   return () => { if (!keepWarm(vid)) dropWarm(); };
 }
 
@@ -256,8 +260,8 @@ export function study(root, uttId) {
     : { kind: 'mine', level: 'mine', uttId: x.id, ko: x.ko, text: t, before: said || '', en: { easy: '', natural: t, advanced: '' }, ytId: v.ytId, start: x.start, videoId: v.id, videoTitle: v.title };
   const accBadge = (el, a) => { const b = $('.m-bub', el); b && b.insertAdjacentHTML('beforeend', `<em class="acc-b ${a >= 85 ? 'hi' : ''}">${a}%</em>`); };
 
-  async function run(x) {
-    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; setLpCtx({ ko: x.ko }); setResume(v.id, x.id, false); ta.placeholder = '영어로 말하거나 입력해요';
+  async function run(x, from = null) {
+    u = x; const i = idxOf(x); const target = natOf(x), ko = x.ko; setLpCtx({ ko: x.ko }); if (!from) setResume(v.id, x.id, false); ta.placeholder = '영어로 말하거나 입력해요';
     $('#cvi', root).textContent = `${i + 1} / ${list.length}`;
     if (location.hash !== `#/study/${x.id}`) history.replaceState(null, '', `#/study/${x.id}`);
     if (th.children.length) sys(`${i + 1} / ${list.length}`);
@@ -266,19 +270,31 @@ export function study(root, uttId) {
     lastWho = ''; const kb = add('bh', `<span class="ko">${brSent(ko)}</span>`);
     kb.classList.add('replay'); kb.onclick = () => { if (!cap) playU(x); }; // 멘트 누르면 그 장면 바로 재생
     onEnded = y => { if (y === x) addChip(['다시 듣기', 'replay', 'line', { tap: () => playU(x), stay: true }]); };
-    await chips([['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [target] }]], { replay: true }); if (dead) return;
-    const said = await askInput('영어로 말해봐요', [target]); if (dead) return;
-    D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
-    const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
-    const f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
-    // 백현이 반응(교정 설명 포함 · 일반 말풍선) → 학습 카드
-    if (f.feedback) await bhSay(f.feedback); if (dead) return;
-    const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, patternKo: x.patternKo, said }));
-    bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
+    let said, f;
+    if (from) {
+      // 이어서: 말하기는 이미 했으니 지난번 학습 카드(있으면)부터 → 멈춘 단계로
+      said = from.said || ''; f = from.f;
+      sys(`멈췄던 ‘${STEP_KO[from.step]}’부터 이어서 할게!`);
+      if (f) { const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, patternKo: x.patternKo, said })); bindCompare(el, saveItem(x, said)); }
+    } else {
+      await chips([['영어로 말해볼게', 'go', 'pri', { mic: true, targets: [target] }]], { replay: true }); if (dead) return;
+      said = await askInput('영어로 말해봐요', [target]); if (dead) return;
+      D.addAttempt({ uttId: x.id, step: 'speak', text: said }); D.markStep(x.id, 'speak');
+      const typ = add('bh', '<span class="typing3"><i></i><i></i><i></i></span>', 'typing');
+      f = await smartFeedback({ mode: 'translate', said, target, ko: x.ko, pattern: x.pattern }); typ.remove(); lastWho = ''; if (dead) return;
+      // 백현이 반응(교정 설명 포함 · 일반 말풍선) → 학습 카드
+      if (f.feedback) await bhSay(f.feedback); if (dead) return;
+      const el = learn(coachHTML(f, { rec: target, recKo: x.ko, pattern: x.pattern, patternKo: x.patternKo, said }));
+      bindCompare(el, saveItem(x, said)); D.markStep(x.id, 'check');
+    }
+    // 여기까지 했으면 다음엔 ‘보면서 따라 말하기’부터
+    const keep = plainF(f);
+    if (!from) setResume(v.id, x.id, false, { step: 'read', said, f: keep });
     const check = s2 => smartFeedback({ mode: 'translate', said: s2, target, ko: x.ko, pattern: x.pattern });
     // 보면서 따라 말하기(정확도 %) → 안 보고 말하기(블러 · 정확도 % + 백현이 멘트) → 맞으면 칭찬하고 다음
     let read = false;
     const showRead = async () => { const re = await bh(`<span class="bub-tag">이거 보고 한번 해봐!</span><span class="en big lp">${lpHTML(target)}</span><span class="say-sub">${esc(x.ko)}</span>`); bindLongPress(re); return re; };
+    if (from?.step === 'recall') { read = true; await showRead(); if (dead) return; }
     for (;;) {
       const k = await chips(read
         ? [['안 보고 말하기', 'recall', 'pri', { mic: true, targets: [target], tap: () => th.classList.add('veil') }], NEXT(x)]
@@ -288,6 +304,7 @@ export function study(root, uttId) {
         await showRead(); if (dead) return;
         const t1 = await askInput('보면서 말해봐요', [target]); if (dead) return;
         D.addAttempt({ uttId: x.id, step: 'read', text: t1 }); D.markStep(x.id, 'read');
+        setResume(v.id, x.id, false, { step: 'recall', said, f: keep }); // 다음엔 ‘안 보고 말하기’부터
         accBadge([...$$('.msg2.me', th)].pop(), diff(t1, target).score);
         continue;
       }
@@ -319,6 +336,7 @@ export function study(root, uttId) {
     run(nx);
   }
   if (warmStart) pending = { u, p: warmStart.p.then(r => { if (r === 'ended') onEnded?.(u); return r; }) };
-  run(u);
+  const from = resumeFrom && resumeFrom.u.id === u.id ? resumeFrom : null; resumeFrom = null;
+  run(u, from);
   return () => { dead = true; cap?.stop(); W.on = null; pl.stop(); if (!keepWarm(v.id)) dropWarm(); root.removeEventListener('pointerdown', unmute, { capture: true }); document.body.classList.remove('no-tab'); };
 }

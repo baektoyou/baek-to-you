@@ -364,7 +364,7 @@ export function videoEditor(root, vid) {
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
-      <button class="btn sm" id="add-j">${ic('plus')} JSON으로 추가</button>
+      <button class="btn sm" id="add-u">${ic('plus')} 문장 추가</button>
       <button class="btn sm soft" id="rep-j">${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
     </div>
@@ -385,12 +385,13 @@ export function videoEditor(root, vid) {
     const body = $('.ue-body', row), old = body.innerHTML;
     row.classList.add('editing');
     body.innerHTML = `<textarea class="textarea ue-ko" rows="2" aria-label="한국어 발화">${esc(u.ko)}</textarea><textarea class="textarea en ue-en" rows="2" aria-label="영어 추천 문장">${esc(u.en.natural || u.en.easy || u.en.advanced || '')}</textarea>
-      <div class="row gap6 ue-acts"><button class="btn xs" data-ua="save">저장</button><button class="btn xs soft" data-ua="play">${ic('play')} 듣기</button><button class="btn xs soft" data-ua="cancel">취소</button><a class="link-sm" href="#/settings/utt/${v.id}/${u.id}">자세히</a></div>`;
+      <div class="row gap6 ue-acts"><button class="btn xs" data-ua="save">저장</button><button class="btn xs soft" data-ua="play">${ic('play')} 듣기</button><button class="btn xs soft" data-ua="split">${ic('cut')} 둘로 나누기</button><button class="btn xs soft" data-ua="cancel">취소</button><a class="link-sm" href="#/settings/utt/${v.id}/${u.id}">자세히</a></div>`;
     $$('textarea', body).forEach(t => { const fit = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }; fit(); t.oninput = fit; });
     $('.ue-ko', body).focus();
     row.close = () => { row.classList.remove('editing'); body.innerHTML = old; row.close = null; };
     $('[data-ua="cancel"]', body).onclick = () => row.close();
     $('[data-ua="play"]', body).onclick = () => pl.playSegment(v.ytId, u.start, u.end);
+    $('[data-ua="split"]', body).onclick = () => uttSheet(v, u, reload, pl);
     $('[data-ua="save"]', body).onclick = () => {
       const ko = $('.ue-ko', body).value.trim(), nat = $('.ue-en', body).value.trim();
       if (!ko || !nat) return toast('한국어와 영어를 모두 적어주세요');
@@ -458,7 +459,7 @@ export function videoEditor(root, vid) {
     else { const sh = sheet(`<h3>JSON 전체</h3><p class="sheet-p">자동 복사가 막혔어요. 아래를 길게 눌러 전체 선택 → 복사해주세요.</p><textarea class="textarea mono" readonly>${esc(json)}</textarea>`); $('textarea', sh).select(); }
   };
   $('#rep-j', root).onclick = () => jsonSheet(v, 'replace', reload);
-  $('#add-j', root).onclick = () => jsonSheet(v, 'add', reload); // 기존 문장은 그대로 두고 새 문장만 더하기
+  $('#add-u', root).onclick = () => uttSheet(v, null, reload); // 시간·한국어·영어를 직접 써서 한 문장 추가
   return () => pl.destroy();
 }
 
@@ -522,6 +523,45 @@ function jsonSheet(v, mode, done) {
       toast(mode === 'replace' ? `${r.added}개로 교체했어요${r.detached ? ` · SAVED ${r.detached}개 연결 해제` : ''}` : `${r.added}개 문장을 추가했어요`);
       s.close(); done();
     } catch (e) { toast('적용 실패 · 기존 데이터는 그대로예요'); }
+  };
+}
+
+// ---------- 문장 직접 추가 / 한 문장을 둘로 나누기 ----------
+// split = 나눌 문장: 나눌 시간(기본 가운데)을 정하고 앞·뒤 문장을 각각 적음 → 앞 문장은 그대로(저장 연결 유지), 뒤 문장은 새로 추가
+function uttSheet(v, split, done, pl = null) {
+  const us = D.uttsOf(v.id), last = us[us.length - 1];
+  const s0 = split ? split.start : (last ? last.end : 0), e0 = split ? split.end : s0 + 4;
+  const mid = split ? Math.round((split.start + split.end) / 2 * 10) / 10 : 0;
+  const nat = u => u.en.natural || u.en.easy || u.en.advanced || '';
+  const f = (id, label, val, cls = '') => `<label class="field"><span>${label}</span><textarea class="textarea ${cls}" id="${id}" rows="2">${esc(val)}</textarea></label>`;
+  const sh = sheet(split
+    ? `<h3>둘로 나누기</h3><p class="sheet-p">${fmtD(split.start)} ~ ${fmtD(split.end)} 구간을 나눌 시간에서 둘로 나눠요.</p>
+      <div class="field"><span>나눌 시간</span><div class="timepick"><input class="input" id="sp" value="${fmtD(mid)}" inputmode="decimal">${pl ? '<button class="btn xs soft" id="spnow">지금</button>' : ''}</div></div>
+      <p class="label mt12">앞 문장 · ${fmtD(split.start)} ~ <span id="sp1"></span></p>${f('k1', '한국어', split.ko)}${f('e1', '영어', nat(split), 'en')}
+      <p class="label mt12">뒤 문장 · <span id="sp2"></span> ~ ${fmtD(split.end)}</p>${f('k2', '한국어', '')}${f('e2', '영어', '', 'en')}
+      <button class="btn block mt12" id="ok">나누기</button>`
+    : `<h3>문장 추가</h3>
+      <div class="two"><div class="field"><span>시작</span><input class="input" id="st" value="${fmtD(s0)}" inputmode="decimal"></div><div class="field"><span>끝</span><input class="input" id="en" value="${fmtD(e0)}" inputmode="decimal"></div></div>
+      ${f('k1', '백현이 한국어 발화', '')}${f('e1', '영어 추천 문장', '', 'en')}
+      <button class="btn block mt12" id="ok">추가하기</button>`);
+  const T = id => D.parseTime($('#' + id, sh).value);
+  const showSp = () => { const t = T('sp'); $('#sp1', sh).textContent = $('#sp2', sh).textContent = t == null ? '?' : fmtD(t); };
+  if (split) { showSp(); $('#sp', sh).oninput = showSp; $('#spnow', sh) && ($('#spnow', sh).onclick = () => { $('#sp', sh).value = fmtD(Math.round(pl.time() * 10) / 10); showSp(); }); }
+  $('#ok', sh).onclick = () => {
+    const k1 = $('#k1', sh).value.trim(), e1 = $('#e1', sh).value.trim();
+    if (!split) {
+      const s = T('st'), e = T('en');
+      if (s == null || e == null || e <= s) return toast('끝 시간이 시작보다 커야 해요');
+      if (!k1 || !e1) return toast('한국어와 영어를 모두 적어주세요');
+      D.upsertUtt({ id: D.uid(), videoId: v.id, start: s, end: e, ko: k1, en: { natural: e1 } });
+      sh.close(); toast('문장을 추가했어요'); return done();
+    }
+    const t = T('sp'), k2 = $('#k2', sh).value.trim(), e2 = $('#e2', sh).value.trim();
+    if (t == null || t <= split.start || t >= split.end) return toast(`나눌 시간은 ${fmtD(split.start)}와 ${fmtD(split.end)} 사이로 정해줘요`);
+    if (!k1 || !e1 || !k2 || !e2) return toast('앞·뒤 문장의 한국어와 영어를 모두 적어주세요');
+    D.upsertUtt({ ...split, end: t, ko: k1, en: { ...split.en, natural: e1 } });
+    D.upsertUtt({ id: D.uid(), videoId: v.id, start: t, end: split.end, ko: k2, en: { natural: e2 } });
+    sh.close(); toast('둘로 나눴어요'); done();
   };
 }
 
