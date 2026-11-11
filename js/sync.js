@@ -24,7 +24,8 @@ function safeGet(k) { try { return localStorage.getItem(k); } catch { return nul
 function safeSet(k, v) { try { localStorage.setItem(k, v); return true; } catch { return false; } }
 function safeDel(k) { try { localStorage.removeItem(k); } catch { } }
 const baseKey = uid => 'baek-to-you:syncbase:' + uid;
-const loadJ = k => { try { return JSON.parse(localStorage.getItem(k) || 'null'); } catch { return null; } };
+// 기준본(큰 사본)은 IndexedDB (store.bigGet/bigSet)
+const loadJ = k => { try { return JSON.parse(D.bigGet(k) || 'null'); } catch { return null; } };
 const sig = d => JSON.stringify(d);
 
 // Firebase를 쓰면 처음부터 "관리자만 수정" 모드 (확인 전엔 수정 버튼 숨김)
@@ -80,12 +81,13 @@ export async function init() {
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') poll(); else flushSoon(); });
   window.addEventListener('online', () => enqueue(async () => { await pullContent(); if (user) await fullSync(); }));
   window.addEventListener('focus', poll);
-  window.addEventListener('b2u:reset', () => { if (user) safeDel(baseKey(user.uid)); });
+  window.addEventListener('b2u:reset', () => { if (user) D.bigDel(baseKey(user.uid)); });
   clearInterval(pollT); pollT = setInterval(() => document.visibilityState === 'visible' && poll(), POLL_MS);
 }
 
 // 로그인 상태가 바뀔 때: ① 이전 계정 데이터 보관 ② 이 계정 데이터 펼치기 ③ 관리자 확인 ④ 공용 콘텐츠·내 데이터 동기화
 async function onUser(u) {
+  await D.bigReady;
   clearTimeout(pushT); clearTimeout(cPushT); pushT = cPushT = null;
   ready = false; user = u; knownRev = null; lastSig = null;
   const prev = D.accountKey(), next = u ? u.uid : 'guest';
@@ -93,7 +95,7 @@ async function onUser(u) {
     D.stashPersonal(prev);
     let p = D.loadStash(next);
     // 로그인 안 하고 쓰던 기록 → 처음 로그인하는 계정으로 옮김 (이 기기에 그 계정 기록이 없을 때만)
-    if (!p && u && prev === 'guest' && D.hasPersonal(D.getPersonal())) { p = D.getPersonal(); safeSet('baek-to-you:personal:guest', JSON.stringify(D.emptyPersonal())); }
+    if (!p && u && prev === 'guest' && D.hasPersonal(D.getPersonal())) { p = D.getPersonal(); D.bigSet('baek-to-you:personal:guest', D.emptyPersonal()); }
     D.clearSnapshot();
     D.setAccountKey(next);
     D.applyPersonal(p || D.emptyPersonal());
@@ -139,7 +141,7 @@ export async function deleteMyData() {
   await (chain = chain.then(async () => {
     const snap = await fb.getDocs(fb.collection(fs, 'users', user.uid, 'chunks'));
     const b = fb.writeBatch(fs); snap.forEach(d => b.delete(d.ref)); b.delete(metaRef()); await b.commit();
-    knownRev = 0; lastSig = null; safeDel(baseKey(user.uid));
+    knownRev = 0; lastSig = null; D.bigDel(baseKey(user.uid));
     ready = false; D.applyPersonal(D.emptyPersonal()); D.clearSnapshot(); ready = true;
     lastSig = sig(onlyPersonal(D.getPersonal()));
     announce(); done();
@@ -156,7 +158,7 @@ export async function deleteAccount(password) {
   const uid = u.uid;
   await deleteMyData();
   await fb.deleteUser(u); // requires-recent-login이면 여기서 오류 → 화면에서 비밀번호 확인 후 다시
-  ['baek-to-you:personal:' + uid, baseKey(uid), 'baek-to-you:aikeys:' + uid].forEach(safeDel);
+  ['baek-to-you:personal:' + uid, baseKey(uid)].forEach(D.bigDel); safeDel('baek-to-you:aikeys:' + uid);
   if (safeGet('b2u:admin') === uid) safeDel('b2u:admin');
   if (safeGet('b2u:lastUid') === uid) safeDel('b2u:lastUid');
 }
@@ -232,6 +234,7 @@ function done() { lastSyncAt = Date.now(); safeSet('b2u:lastSync', lastSyncAt); 
 const CONTENT = () => store(['content', 'main']);
 const CBASE = 'baek-to-you:contentbase';
 async function pullContent(attempt = 0) {
+  await D.bigReady;
   if (!fs) return;
   const remote = await pull(CONTENT());
   const local = onlyContent(D.getContent());
@@ -252,7 +255,7 @@ async function pullContent(attempt = 0) {
   if (!sameData(merged, local)) { D.applyContent(merged); announce(); }
   await fetchPhotos(merged);
   cRev = remote.rev;
-  if (sameData(merged, rdata)) { cSig = sig(merged); safeSet(CBASE, sig(merged)); return; }
+  if (sameData(merged, rdata)) { cSig = sig(merged); D.bigSet(CBASE, sig(merged)); return; }
   try { await pushContent(); } catch (e) { if (e.conflict && attempt < 3) return pullContent(attempt + 1); throw e; }
 }
 async function pushContent() {
@@ -262,7 +265,7 @@ async function pushContent() {
   if (sig(data) === cSig) return;
   set('syncing', '콘텐츠를 모든 사용자에게 올리는 중');
   cRev = await push(CONTENT(), data, cRev, { by: user.uid });
-  cSig = sig(data); safeSet(CBASE, cSig); done();
+  cSig = sig(data); D.bigSet(CBASE, cSig); done();
 }
 function scheduleContentPush() {
   clearTimeout(cPushT);
@@ -313,6 +316,7 @@ async function shrink(blob) {
 
 // ---------- 내 학습 데이터 ----------
 async function fullSync(attempt = 0) {
+  await D.bigReady;
   if (!user) return;
   set('syncing');
   const S = store(['users', user.uid]);
@@ -322,8 +326,8 @@ async function fullSync(attempt = 0) {
   let merged = rdata ? onlyPersonal(mergeData({ ...local, videos: [], utts: [] }, { ...rdata, videos: [], utts: [] }, loadJ(baseKey(user.uid)))) : local;
   if (!sameData(merged, local)) { D.applyPersonal(merged); merged = onlyPersonal(D.getPersonal()); announce(); }
   knownRev = remote ? remote.rev : 0;
-  if (rdata && sameData(merged, rdata) && !remote.data.videos) { lastSig = sig(merged); safeSet(baseKey(user.uid), sig(merged)); done(); return; }
-  try { knownRev = await push(S, merged, knownRev); lastSig = sig(merged); safeSet(baseKey(user.uid), lastSig); done(); }
+  if (rdata && sameData(merged, rdata) && !remote.data.videos) { lastSig = sig(merged); D.bigSet(baseKey(user.uid), sig(merged)); done(); return; }
+  try { knownRev = await push(S, merged, knownRev); lastSig = sig(merged); D.bigSet(baseKey(user.uid), lastSig); done(); }
   catch (e) { if (e.conflict && attempt < 3) return fullSync(attempt + 1); throw e; }
 }
 function schedulePush() {
@@ -342,7 +346,7 @@ async function pushLocal() {
   if (sig(data) === lastSig) { if (state !== 'synced') done(); return; }
   if (knownRev == null) return fullSync();
   set('syncing');
-  try { knownRev = await push(store(['users', user.uid]), data, knownRev); lastSig = sig(data); safeSet(baseKey(user.uid), lastSig); done(); }
+  try { knownRev = await push(store(['users', user.uid]), data, knownRev); lastSig = sig(data); D.bigSet(baseKey(user.uid), lastSig); done(); }
   catch (e) { if (e.conflict) return fullSync(); throw e; }
 }
 function poll() {

@@ -73,15 +73,49 @@ function normSaved(s, d = db) {
   return out;
 }
 
-let saveTimer;
+// ---------- 큰 보조 데이터는 IndexedDB로 (localStorage 5MB 한도 보호) ----------
+// 되돌리기 스냅샷 · 동기화 기준본 · 다른 계정 보관본은 앱 데이터 전체 사본이라 localStorage에 두면 금방 가득 참
+const BIG_PREFIX = ['baek-to-you:snapshot', 'baek-to-you:syncbase:', 'baek-to-you:contentbase', 'baek-to-you:personal:'];
+const isBig = k => BIG_PREFIX.some(p => k.startsWith(p));
+const bigCache = new Map();
+const bigDB = (() => { let p; return () => p || (p = new Promise((res, rej) => { const r = indexedDB.open('baek-to-you-kv', 1); r.onupgradeneeded = () => r.result.createObjectStore('kv'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); })); })();
+const bigTx = async (mode, fn) => { const d = await bigDB(); return new Promise((res, rej) => { const t = d.transaction('kv', mode); const q = fn(t.objectStore('kv')); t.oncomplete = () => res(q?.result); t.onerror = () => rej(t.error); }); };
+export const bigGet = k => bigCache.get(k) ?? null;
+export function bigSet(k, v) { const s = typeof v === 'string' ? v : JSON.stringify(v); bigCache.set(k, s); bigTx('readwrite', st => st.put(s, k)).catch(() => { }); }
+export function bigDel(k) { bigCache.delete(k); bigTx('readwrite', st => st.delete(k)).catch(() => { }); }
+// 예전 버전이 localStorage에 둔 큰 사본 → IndexedDB로 옮기고 지움 (없어진 채팅 기록도 정리)
+function freeLocal() {
+  const moved = [];
+  try {
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const k = localStorage.key(i); if (!k) continue;
+      if (k.startsWith('baek-to-you:dm:') || k.startsWith('baek-to-you:dm-meta:')) { localStorage.removeItem(k); continue; }
+      if (isBig(k)) { const v = localStorage.getItem(k); if (v != null) moved.push([k, v]); localStorage.removeItem(k); }
+    }
+  } catch { }
+  return moved;
+}
+export const bigReady = (async () => {
+  const moved = freeLocal();
+  try {
+    await bigTx('readonly', st => { const r = st.openCursor(); r.onsuccess = () => { const c = r.result; if (c) { if (!bigCache.has(c.key)) bigCache.set(c.key, c.value); c.continue(); } }; return null; });
+  } catch { }
+  moved.forEach(([k, v]) => bigSet(k, v));
+})();
+
+let saveTimer, warned = false;
 export function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(flush, 60);
   listeners.forEach(fn => fn());
 }
 function flush() {
-  try { localStorage.setItem(KEY, JSON.stringify(db)); }
-  catch (e) { alert('저장 공간이 부족해요. SETTINGS에서 백업 후 기록을 정리해주세요.'); }
+  const s = JSON.stringify(db);
+  try { localStorage.setItem(KEY, s); return; } catch { }
+  // 가득 찼으면: 큰 사본을 IndexedDB로 옮겨 자리를 만들고 한 번 더
+  freeLocal().forEach(([k, v]) => bigSet(k, v));
+  try { localStorage.setItem(KEY, s); return; } catch { }
+  if (!warned) { warned = true; alert('저장 공간이 부족해요. SETTINGS › DATA에서 백업 파일을 받아두고, 안 쓰는 영상 썸네일·통화 사진을 정리해주세요.'); }
 }
 window.addEventListener('pagehide', () => { clearTimeout(saveTimer); flush(); });
 export const onChange = fn => listeners.add(fn);
@@ -92,17 +126,17 @@ export function bump() { const t = today(); db.days[t] = (db.days[t] || 0) + 1; 
 
 // ---------- 안전장치: 위험한 작업 직전 자동 스냅샷 (1개) ----------
 export function snapshot(reason) {
-  try { localStorage.setItem(SNAP, JSON.stringify({ at: Date.now(), reason, data: db })); return true; }
+  try { bigSet(SNAP, { at: Date.now(), reason, data: db }); return true; }
   catch { return false; }
 }
-export function snapshotInfo() { try { const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); return s ? { at: s.at, reason: s.reason } : null; } catch { return null; } }
+export function snapshotInfo() { try { const s = JSON.parse(bigGet(SNAP) || 'null'); return s ? { at: s.at, reason: s.reason } : null; } catch { return null; } }
 export function restoreSnapshot() {
-  const s = JSON.parse(localStorage.getItem(SNAP) || 'null'); if (!s?.data) throw new Error('되돌릴 기록이 없어요');
+  const s = JSON.parse(bigGet(SNAP) || 'null'); if (!s?.data) throw new Error('되돌릴 기록이 없어요');
   const d = migrate(s.data);
   if (!canEdit()) { d.videos = db.videos; d.utts = db.utts; CONTENT_SETTINGS.forEach(k => (d.settings[k] = db.settings[k])); } // 일반 사용자는 내 데이터만 되돌림
-  db = d; localStorage.removeItem(SNAP); save();
+  db = d; bigDel(SNAP); save();
 }
-export const clearSnapshot = () => { try { localStorage.removeItem(SNAP); } catch { } }; // 계정 바꿀 때 (이전 계정 데이터가 남지 않게)
+export const clearSnapshot = () => bigDel(SNAP); // 계정 바꿀 때 (이전 계정 데이터가 남지 않게)
 
 // ---------- 영상 ----------
 export function addVideo(ytId, title) { if (!gate('addVideo')) return null;
@@ -362,9 +396,9 @@ export const emptyPersonal = () => { const d = defaults(); const st = { ...d.set
 export const hasPersonal = p => !!p && (PERSONAL_LISTS.some(k => (p[k] || []).length) || Object.keys(p.progress || {}).length > 0);
 // 계정별 개인 데이터 보관 (이 기기) — 계정을 바꿔도 다른 사람 기록이 보이지 않게
 const PKEY = k => 'baek-to-you:personal:' + k;
-export function stashPersonal(k) { try { localStorage.setItem(PKEY(k), JSON.stringify(getPersonal())); } catch { } }
-export function loadStash(k) { try { return JSON.parse(localStorage.getItem(PKEY(k)) || 'null'); } catch { return null; } }
-export function dropStash(k) { try { localStorage.removeItem(PKEY(k)); } catch { } }
+export function stashPersonal(k) { try { bigSet(PKEY(k), getPersonal()); } catch { } }
+export function loadStash(k) { try { return JSON.parse(bigGet(PKEY(k)) || 'null'); } catch { return null; } }
+export function dropStash(k) { bigDel(PKEY(k)); }
 const pick = (o, keys) => { const r = {}; keys.forEach(k => { if (o[k] !== undefined) r[k] = o[k]; }); return r; };
 export const normalize = d => migrate(JSON.parse(JSON.stringify(d || {})));
 // 예전 함수 (호환)
