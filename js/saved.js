@@ -5,7 +5,7 @@ import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePic
 import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn, aiKoMark, aiKo } from './ai.js';
 import * as S from './speech.js';
 import { Player, vThumb } from './yt.js';
-import { avatarStyle } from './scene.js';
+import { avatarStyle, isLive } from './scene.js';
 import { BH_PROFILE } from './video.js';
 import * as GT from './grammar.js';
 import * as XC from './excat.js';
@@ -17,7 +17,9 @@ import { judgeReply, questionFor } from './judge.js';
 let filter = 'due';
 let view = 'sent'; // 'sent' 문장 | 'expr' 표현 | 'word' 단어 | 'gram' 문법
 let gtag = ''; // 문법 노트에서 보고 있는 문법
+let ggrp = ''; // 문법 목록: 묶음(시제·동사·명사…) · '' = 전체
 let ecat = 'all'; // 표현: all 전체 | video 영상별 | 카테고리 key | none 분류 전
+let evtab = 'chat'; // 영상별: chat | call 영상
 let evid = null, evx = 0; // 영상별: 고른 영상 id('' = 영상 없음) · 영상 줄 가로 스크롤 위치
 // 상태: 복습전 · 복습중 · (어느 정도 = 다음 복습 시간만) · 복습완료
 const ST = { new: ['복습전', ''], again: ['2일 후 복습', 'mid'], okay: ['2일 후 복습', 'mid'], mastered: ['복습완료', 'ok'] };
@@ -40,7 +42,10 @@ export function saved(root) {
   // 표현: 카테고리로 거르기 (영상별은 묶어서 보여주기만)
   const isE = view === 'expr';
   if (isE && ecat !== 'all' && ecat !== 'video' && ecat !== 'none' && !words.some(w => w.cat === ecat)) ecat = 'all';
-  const vg = isE && ecat === 'video' ? videoGroups(words) : null; // 영상별: 위에서 영상을 고르면 그 영상 표현만
+  const vgAll = isE && ecat === 'video' ? videoGroups(words) : null; // 영상별: CHAT / CALL로 나누고, 위에서 영상을 고르면 그 영상 표현만
+  const inTab = (g, t) => t === 'call' ? !!g.v && isLive(g.v) : !g.v || !isLive(g.v); // ‘영상 없음’은 CHAT 쪽에
+  if (vgAll && !vgAll.some(g => inTab(g, evtab)) && vgAll.length) evtab = evtab === 'call' ? 'chat' : 'call';
+  const vg = vgAll && vgAll.filter(g => inTab(g, evtab));
   if (vg && !vg.some(g => g.k === evid)) evid = vg[0]?.k ?? null;
   const shownW = vg ? (vg.find(g => g.k === evid)?.list || []) : !isE || ecat === 'all' ? words : ecat === 'none' ? words.filter(w => !XC.CAT[w.cat]) : words.filter(w => w.cat === ecat);
   const items = isW ? shownW : lists[filter];
@@ -57,7 +62,7 @@ export function saved(root) {
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button><button data-v="gram" class="${view === 'gram' ? 'on' : ''}">문법 <em>${GT.stats().filter(s => !s.fixed).length}</em></button></div>
     ${view === 'gram' ? gramHTML() : `
-    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${vg ? '이 영상 오늘 ' : isE && ecat !== 'all' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : vg && items.length ? '<span class="ec-nodue">이 영상은 오늘 복습할 게 없어</span>' : ''}</div>${isE && words.length ? ecatHTML(words) : ''}${vg ? vstripHTML(vg) : ''}`
+    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${vg ? '이 영상 오늘 ' : isE && ecat !== 'all' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : vg && items.length ? '<span class="ec-nodue">이 영상은 오늘 복습할 게 없어</span>' : ''}</div>${isE && words.length ? ecatHTML(words) : ''}${vg ? `<div class="ec-tab">${['chat', 'call'].map(t => { const gs = vgAll.filter(g => inTab(g, t)); return `<button data-et="${t}" class="${evtab === t ? 'on' : ''}" ${gs.length ? '' : 'disabled'}>${t.toUpperCase()} <em>${gs.reduce((n, g) => n + g.list.length, 0)}</em></button>`; }).join('')}</div>${vstripHTML(vg)}` : ''}`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
     ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}`}
@@ -71,6 +76,7 @@ export function saved(root) {
   if (view === 'gram') bindGram(root);
   $$('[data-ec]', root).forEach(b => b.onclick = () => { ecat = b.dataset.ec; saved(root); });
   const vs = $('.ec-vs', root); if (vs) { vs.scrollLeft = evx; vs.onscroll = () => { evx = vs.scrollLeft; }; $('.ec-v.on', vs)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }
+  $$('[data-et]', root).forEach(b => b.onclick = () => { evtab = b.dataset.et; evid = null; evx = 0; saved(root); });
   $$('[data-ev]', root).forEach(b => b.onclick = () => { evid = b.dataset.ev; saved(root); });
   $('#ecrun', root) && ($('#ecrun', root).onclick = async () => {
     const b = $('#ecrun', root), list = XC.uncats(); b.disabled = true; b.textContent = `분류하고 있어요… 0 / ${list.length}`;
@@ -240,8 +246,13 @@ function gramHTML() {
   if (!st.length) return `${sum}<div class="empty"><span class="empty-ic">${ic('check')}</span><b>${GT.analyzedCount() ? '아직 찾은 문법 실수가 없어요' : '아직 분석한 문장이 없어요'}</b><p>CHAT·CALL·복습에서 영어로 말하면 여기에 모여요</p></div>`;
   const max = Math.max(...st.map(s => s.n));
   const weak = st.filter(s => !s.fixed).slice(0, 3);
-  return `${sum}${weak.length ? `<button class="btn block mb12" id="gweak">${ic('play')} 약한 문법 모아 연습 (${weak.map(s => s.label.split(' (')[0]).join(' · ')})</button>` : ''}
-    <div class="g-list">${st.map(s => `<button class="g-row ${s.fixed ? 'fixed' : ''}" data-gt="${s.tag}"><div class="grow"><div class="g-row-t"><b>${esc(s.label)}</b><small>${esc(s.group)}</small>${s.fixed ? '<i class="g-badge">거의 고쳤어</i>' : ''}</div>
+  // 묶음 칩: 전체 · 시제 · 동사 · 명사 … (실수가 있는 묶음만 · 숫자 = 실수 수)
+  const grps = [...new Set(GT.TAGS.map(t => t[2]))].map(g => [g, st.filter(s => s.group === g).reduce((n, s) => n + s.n, 0)]).filter(x => x[1]);
+  if (ggrp && !grps.some(x => x[0] === ggrp)) ggrp = '';
+  const chips = grps.length > 1 ? `<div class="tabs-scroll"><div class="seg ecat"><button data-gg="" class="${ggrp ? '' : 'on'}">전체 <em>${st.reduce((n, s) => n + s.n, 0)}</em></button>${grps.map(([g, n]) => `<button data-gg="${esc(g)}" class="${ggrp === g ? 'on' : ''}">${esc(g)} <em>${n}</em></button>`).join('')}</div></div>` : '';
+  const shown = ggrp ? st.filter(s => s.group === ggrp) : st;
+  return `${sum}${weak.length ? `<button class="btn block mb12" id="gweak">${ic('play')} 약한 문법 모아 연습 (${weak.map(s => s.label.split(' (')[0]).join(' · ')})</button>` : ''}${chips}
+    <div class="g-list">${shown.map(s => `<button class="g-row ${s.fixed ? 'fixed' : ''}" data-gt="${s.tag}"><div class="grow"><div class="g-row-t"><b>${esc(s.label)}</b>${ggrp ? '' : `<small>${esc(s.group)}</small>`}${s.fixed ? '<i class="g-badge">거의 고쳤어</i>' : ''}</div>
       <div class="g-bar"><i style="width:${Math.max(6, s.n / max * 100)}%"></i></div></div>
       <div class="g-n"><b>${s.n}</b><small>${s.recent > s.before ? '▲' : s.recent < s.before ? '▼' : ''} 최근 ${s.recent}</small></div>${ic('next')}</button>`).join('')}</div>`;
 }
@@ -249,6 +260,7 @@ function bindGram(root) {
   const re = () => saved(root);
   $('#gnow', root) && ($('#gnow', root).onclick = () => { GT.autoRun(true); re(); });
   if (!GT.isRunning() && GT.pending().length && !GT.cooling()) GT.autoRun(); // 문법 탭을 열면 바로 시작
+  $$('[data-gg]', root).forEach(b => b.onclick = () => { ggrp = b.dataset.gg; re(); });
   $$('[data-gt]', root).forEach(b => b.onclick = () => { gtag = b.dataset.gt; re(); window.scrollTo(0, 0); });
   $('#gback', root) && ($('#gback', root).onclick = () => { gtag = ''; re(); });
   const pick = list => { const seen = new Set(); return list.filter(m => { const k = canon(m.fixed); if (seen.has(k)) return false; seen.add(k); return true; }); };
