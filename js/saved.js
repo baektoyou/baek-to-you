@@ -44,7 +44,8 @@ export function saved(root) {
   if (vg && !vg.some(g => g.k === evid)) evid = vg[0]?.k ?? null;
   const shownW = vg ? (vg.find(g => g.k === evid)?.list || []) : !isE || ecat === 'all' ? words : ecat === 'none' ? words.filter(w => !XC.CAT[w.cat]) : words.filter(w => w.cat === ecat);
   const items = isW ? shownW : lists[filter];
-  const todo = items.filter(x => x.status !== 'mastered'); // ‘이 목록 복습하기’는 복습완료 빼고
+  const dueWid = new Set(dueW.map(w => w.id));
+  const todo = vg ? items.filter(w => dueWid.has(w.id)) : items.filter(x => x.status !== 'mastered'); // ‘이 목록 복습하기’는 복습완료 빼고 · 영상별은 오늘 복습할 날짜가 된 것만
   const nE = db.words.filter(w => w.kind !== 'word').length, nW = db.words.length - nE;
   // 개수: 오늘 복습(복습전 + 날짜 된 2일 후) · 2일 후 복습(아직 날짜 안 된 것) · 복습완료 — 문장·표현·단어 모두
   const all = [...db.saved, ...db.words], dueIds = new Set([...due, ...dueW].map(x => x.id));
@@ -56,7 +57,7 @@ export function saved(root) {
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button><button data-v="gram" class="${view === 'gram' ? 'on' : ''}">문법 <em>${GT.stats().filter(s => !s.fixed).length}</em></button></div>
     ${view === 'gram' ? gramHTML() : `
-    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${vg ? '이 영상 ' : isE && ecat !== 'all' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : ''}</div>${isE && words.length ? ecatHTML(words) : ''}${vg ? vstripHTML(vg) : ''}`
+    ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${vg ? '이 영상 오늘 ' : isE && ecat !== 'all' ? '이 카테고리 ' : ''}${todo.length}개 복습</button>` : vg && items.length ? '<span class="ec-nodue">이 영상은 오늘 복습할 게 없어</span>' : ''}</div>${isE && words.length ? ecatHTML(words) : ''}${vg ? vstripHTML(vg) : ''}`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
     ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}`}
@@ -215,14 +216,13 @@ function editSheet(s, done) {
 // 답하면 바로 채팅 안에 내 문장(작게) → 추천 문장(크게, 고친 부분만 연핑크) → 이유 한 줄
 const AVS = s => `<span class="m-av ph" style="${avatarStyle(BH_PROFILE, s)}"></span>`;
 // ---------- 문법 노트 (SAVED › 문법) ----------
-const MAXRUN = 48; // 예전 기록은 한 번에 최대 48문장 (AI 무료 사용량 보호)
 const ago = t => { const d = Math.floor((Date.now() - t) / 864e5); return d <= 0 ? '오늘' : d === 1 ? '어제' : `${d}일 전`; };
 function gramHTML() {
   const st = GT.stats(), ms = D.get().mistakes, nNew = GT.pendingNew().length, nOld = GT.pendingOld().length, ai = aiOn();
   const sum = `<div class="g-sum"><div class="g-sum-n"><div><b>${GT.analyzedCount()}</b><span>분석한 문장</span></div><div><b>${GT.mistakeCount()}</b><span>찾은 실수</span></div><div><b>${st.filter(s => s.fixed).length}</b><span>거의 고친 문법</span></div></div>
     ${!ai ? '<p class="g-note">문법 분석은 AI 키가 있어야 해요 · SETTINGS › AI</p>'
       : GT.isRunning() ? '<p class="g-note" id="gprog">분석하고 있어요…</p>'
-      : `${nNew ? `<button class="btn sm block" id="gnew">${ic('sparkle')} 새로 말한 문장 ${nNew}개 분석</button>` : ''}${nOld ? `<button class="btn sm soft block mt8" id="gold">${ic('refresh')} 예전 기록 ${nOld}개 분석하기${nOld > MAXRUN ? ` (이번에 ${MAXRUN}개)` : ''}</button><p class="g-note">AI 무료 사용량을 써요 · 8문장씩 묶어서 분석해요</p>` : ''}${!nNew && !nOld ? '<p class="g-note">말한 문장은 모이면 자동으로 분석돼요</p>' : ''}`}
+      : `${nNew ? `<button class="btn sm block" id="gnew">${ic('sparkle')} 새로 말한 문장 ${nNew}개 분석</button>` : ''}${nOld ? `<button class="btn sm soft block mt8" id="gold">${ic('refresh')} 예전 기록 ${nOld}개 전부 분석하기</button><p class="g-note">AI 무료 사용량을 써요${nOld > 16 ? ` · ${Math.ceil(nOld / 8 * 8 / 60)}분쯤 걸려요 · 이 화면을 켜 두세요` : ''}</p>` : ''}${!nNew && !nOld ? '<p class="g-note">말한 문장은 모이면 자동으로 분석돼요</p>' : ''}`}
     <p class="g-note" id="gprog2"></p></div>`;
   if (gtag) {
     const s = st.find(x => x.tag === gtag); const T = GT.TAG[gtag];
@@ -247,16 +247,16 @@ function gramHTML() {
 }
 function bindGram(root) {
   const re = () => saved(root);
-  const run = async list => {
+  const run = async (list, patient = false) => {
     const p = $('#gprog2', root); $$('#gnew,#gold', root).forEach(b => b.disabled = true);
     if (p) p.textContent = `분석하고 있어요… 0 / ${list.length}`;
-    const r = await GT.analyze(list, (d, n) => { const q = $('#gprog2', root); if (q) q.textContent = `분석하고 있어요… ${d} / ${n}`; });
-    if (r.error && r.error !== 'busy') toast(r.done ? `${r.done}문장까지 분석했어요 · 나머지는 잠시 뒤에 다시` : 'AI 분석을 못 했어요 · 잠시 뒤에 다시 해줘요');
+    const r = await GT.analyze(list, (d, n, wait) => { const q = $('#gprog2', root); if (q) q.textContent = wait ? `AI가 잠깐 쉬는 중… 곧 이어서 해요 · ${d} / ${n}` : `분석하고 있어요… ${d} / ${n}`; }, { patient });
+    if (r.error && r.error !== 'busy') toast(r.done ? `${r.done}문장까지 분석했어요 · 나머지는 잠시 뒤에 버튼을 다시 눌러줘요` : 'AI 분석을 못 했어요 · 잠시 뒤에 다시 해줘요');
     else if (r.done) toast(`${r.done}문장 분석 완료!`);
     if (view === 'gram' && root.isConnected && $('.g-sum', root)) re();
   };
   $('#gnew', root) && ($('#gnew', root).onclick = () => run(GT.pendingNew()));
-  $('#gold', root) && ($('#gold', root).onclick = () => run(GT.pendingOld().sort((a, b) => (b.at || 0) - (a.at || 0)).slice(0, MAXRUN)));
+  $('#gold', root) && ($('#gold', root).onclick = () => run(GT.pendingOld().sort((a, b) => (b.at || 0) - (a.at || 0)), true));
   $$('[data-gt]', root).forEach(b => b.onclick = () => { gtag = b.dataset.gt; re(); window.scrollTo(0, 0); });
   $('#gback', root) && ($('#gback', root).onclick = () => { gtag = ''; re(); });
   const pick = list => { const seen = new Set(); return list.filter(m => { const k = canon(m.fixed); if (seen.has(k)) return false; seen.add(k); return true; }); };

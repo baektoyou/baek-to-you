@@ -358,7 +358,7 @@ export async function aiKo(en) {
 }
 
 // ---------- 문법 노트: 내가 말한 문장들의 문법 실수만 (여러 문장을 한 번에) ----------
-import { TAGS as GTAGS } from './grammar.js';
+import { TAGS as GTAGS, fixTag } from './grammar.js';
 const GRAM_SYS = () => `You are a strict but fair English grammar checker for a Korean learner's SPOKEN English (speech-to-text, so ignore capitalization, punctuation and obvious filler like "um").
 For EACH numbered sentence: find only real GRAMMAR / FORM mistakes (tense, agreement, articles, prepositions, word order, missing/extra words, wrong verb form, etc.).
 Do NOT report a generic "missing word" — if a word is missing, tag it by its grammar (article, be verb, subject, preposition, etc.) or skip it.
@@ -366,6 +366,11 @@ Do NOT report word choice / vocabulary (a different or better word, make vs do, 
 Do NOT count: a different but correct way to say it, style or naturalness upgrades, casual but correct speech ("gonna", "wanna", dropping "I" in very casual replies is still a mistake only if it makes the sentence ungrammatical), Korean words or names.
 "fixed" = the user's own sentence with the MINIMUM changes needed to be grammatical (keep their words and meaning; do not rewrite to a fancier sentence). If no mistakes, fixed = the sentence as-is and errors = [].
 Each error: {"tag": one key from the list, "wrong": exact wrong part copied from the sentence ("" if something is missing), "right": the corrected part as it appears in fixed, "why": ONE short Korean 반말 explanation under 40 chars}. Use the MOST SPECIFIC tag. One error per mistake (max 4 per sentence).
+Choose the tag by WHAT KIND of word changed between "wrong" and "right", never by which letters are involved:
+- article_a / article_the ONLY when the separate WORD a / an / the is missing, extra, or swapped (e.g. "I have cat" → "a cat"). A letter "a" inside another word is NOT an article.
+- spelling ONLY when the same word is intended but its letters are wrong ("beutiful" → "beautiful"). Because this is speech-to-text, SKIP misspellings that are just a recognition glitch or sound identical (their/there is a real mistake only if the grammar is wrong).
+- If an ending changes (-s, -ed, -ing), tag the grammar reason (plural, agreement, past, verb_form…), not spelling.
+"why" must explain the same thing the tag says.
 Tags: ${GTAGS.map(t => `${t[0]}=${t[1]}`).join(', ')}
 "Meaning" (Korean) is only a hint of what they wanted to say.
 Return ONLY JSON {"results": [{"i": number, "fixed": "...", "errors": [...]}, ...]}`;
@@ -382,7 +387,8 @@ export async function aiGrammar(items) {
       const r = res.find(y => +y.i === i + 1) || {};
       const fixed = String(r.fixed || x.said).trim();
       const errors = (Array.isArray(r.errors) ? r.errors : []).filter(e => e && keys.has(e.tag) && String(e.right || '').trim())
-        .slice(0, 4).map(e => ({ tag: e.tag, wrong: String(e.wrong || '').trim(), right: String(e.right || '').trim(), why: String(e.why || '').trim() }));
+        .slice(0, 4).map(e => ({ tag: e.tag, wrong: String(e.wrong || '').trim(), right: String(e.right || '').trim(), why: String(e.why || '').trim() }))
+        .map(e => ({ ...e, tag: fixTag(e) })).filter(e => keys.has(e.tag)); // 바뀐 단어와 안 맞는 종류는 바로잡거나 버림
       return { aid: x.aid, said: x.said, ko: x.ko, fixed, errors: fixed.toLowerCase().replace(/[^a-z']/g, '') === String(x.said).toLowerCase().replace(/[^a-z']/g, '') ? [] : errors };
     })
   };

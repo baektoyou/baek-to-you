@@ -45,6 +45,31 @@ export const TAGS = [
   ['spelling', '철자 · 단어 모양', '단어', '단어 모양 바르게 쓰기', 'I received it.']
 ];
 export const TAG = Object.fromEntries(TAGS.map(([k, l, g, r, e]) => [k, { k, label: l, group: g, rule: r, ex: e }]));
+// AI가 붙인 종류 바로잡기: 실제로 바뀐 단어를 보고 판단 (예: 단어 속 글자 a가 틀린 철자 실수가 ‘관사’로 들어가는 것 방지)
+// · 관사 = a/an/the 라는 ‘단어’가 빠지거나 더해지거나 바뀐 것만 · 한 단어 안의 글자만 다르면 철자
+const ART = new Set(['a', 'an', 'the']);
+const toks = t => String(t || '').toLowerCase().match(/[a-z']+/g) || [];
+const lev = (a, b) => { const d = Array.from({ length: a.length + 1 }, (_, i) => [i]); for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] !== b[j - 1])); return d[a.length][b.length]; };
+export function fixTag(e) {
+  const tag = e.tag, W = toks(e.wrong), R = toks(e.right);
+  const only = (A, B) => { const b = B.slice(); return A.filter(x => { const i = b.indexOf(x); if (i < 0) return true; b.splice(i, 1); return false; }); };
+  const dw = only(W, R), dr = only(R, W); // 틀린 쪽에만 있는 단어 · 고친 쪽에만 있는 단어
+  const artDiff = [...dw, ...dr].filter(x => ART.has(x));
+  const isArt = tag === 'article_a' || tag === 'article_the';
+  if (isArt && artDiff.length) return artDiff.includes('the') ? 'article_the' : 'article_a';
+  // 한 단어가 비슷한 한 단어로 바뀜 (글자만 다름) → 철자 / 어미만 다르면 그 문법
+  const near = dw.length === 1 && dr.length === 1 && !ART.has(dw[0]) && !ART.has(dr[0]) && lev(dw[0], dr[0]) <= Math.max(1, Math.floor(Math.max(dw[0].length, dr[0].length) / 3));
+  if (isArt && !artDiff.length) {
+    if (!near) return (W.length || R.length) && (dw.length || dr.length) ? '' : tag; // 관사가 안 바뀌었는데 관사로 분류 → 알 수 없으면 버림
+    const [a, b] = dw[0].length <= dr[0].length ? [dw[0], dr[0]] : [dr[0], dw[0]];
+    if (b === a + 's' || b === a + 'es') return 'plural';
+    if (b === a + 'ed' || b === a + 'd' || b === a + 'ing') return 'verb_form';
+    return 'spelling';
+  }
+  if (tag === 'spelling' && !dw.filter(x => !ART.has(x)).length && !dr.filter(x => !ART.has(x)).length && artDiff.length) return artDiff.includes('the') ? 'article_the' : 'article_a';
+  return tag;
+}
 const PROD = new Set(['speak', 'recall', 'review', 'review-retry', 'apply', 'express-recall', 'sp-call', 'sp-retry', 'sp-long']);
 const START_KEY = 'gramSince';
 
@@ -55,20 +80,24 @@ export function since() { let s = D.get().settings[START_KEY]; if (!s) { s = Dat
 export const pendingNew = () => { const s = since(); return pending().filter(a => (a.at || 0) >= s); };
 export const pendingOld = () => { const s = since(); return pending().filter(a => (a.at || 0) < s); };
 
+const sleep = ms => new Promise(r => setTimeout(r, ms));
 let running = null;
 export const isRunning = () => !!running;
 // list: 분석할 시도들 · onStep(done, total)
-export async function analyze(list, onStep) {
+export async function analyze(list, onStep, { patient = false } = {}) {
   if (running || !aiOn() || !list.length) return { error: !aiOn() ? 'off' : running ? 'busy' : '', done: 0 };
   let done = 0, error = '';
   running = (async () => {
     for (let i = 0; i < list.length; i += 8) {
       const chunk = list.slice(i, i + 8);
       const items = chunk.map(a => { const u = a.uttId && D.utt(a.uttId); return { aid: a.id, said: a.text, ko: u?.ko || '' }; });
-      const r = await aiGrammar(items);
+      let r = await aiGrammar(items);
+      // 전부 분석(patient): 무료 사용량(분당 횟수)에 걸리면 잠깐 쉬었다가 이어서 · 그래도 안 되면 거기까지 저장하고 멈춤
+      for (let w = 0; patient && r.error === 'quota' && w < 3; w++) { onStep?.(done, list.length, true); await sleep(25000); r = await aiGrammar(items); }
       if (r.error) { error = r.error; break; }
       D.saveGrammar(r.results);
       done += chunk.length; onStep?.(done, list.length);
+      if (patient && i + 8 < list.length) await sleep(4500); // 분당 요청 수를 넘지 않게 천천히
     }
   })();
   try { await running; } finally { running = null; }
@@ -83,7 +112,7 @@ window.addEventListener('b2u:attempt', () => { clearTimeout(t); t = setTimeout((
 export function stats() {
   const ms = D.get().mistakes, now = Date.now(), W2 = 14 * 864e5;
   const by = new Map();
-  ms.forEach(m => { if (!TAG[m.tag]) return; if (!by.has(m.tag)) by.set(m.tag, []); by.get(m.tag).push(m); });
+  ms.forEach(m => { const t = fixTag(m); if (!TAG[t]) return; if (!by.has(t)) by.set(t, []); by.get(t).push(m); }); // 예전에 잘못 분류된 것도 볼 때 바로잡음
   return [...by.entries()].map(([tag, list]) => {
     const ev = [];
     list.forEach(m => { ev.push({ at: m.at || 0, ok: false }); (m.practice || []).forEach(p => ev.push(p)); });
@@ -93,5 +122,5 @@ export function stats() {
     return { tag, ...TAG[tag], n: list.length, recent, before, streak, fixed: streak >= 3, list: list.slice().sort((a, b) => (b.at || 0) - (a.at || 0)) };
   }).sort((a, b) => (a.fixed - b.fixed) || (b.recent - a.recent) || (b.n - a.n));
 }
-export const mistakeCount = () => D.get().mistakes.filter(m => TAG[m.tag]).length; // 지금 쓰는 문법 종류만
+export const mistakeCount = () => D.get().mistakes.filter(m => TAG[fixTag(m)]).length; // 지금 쓰는 문법 종류만
 export const analyzedCount = () => D.get().attempts.filter(a => a.g).length;
