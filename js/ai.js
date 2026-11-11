@@ -361,6 +361,7 @@ export async function aiKo(en) {
 import { TAGS as GTAGS } from './grammar.js';
 const GRAM_SYS = () => `You are a strict but fair English grammar checker for a Korean learner's SPOKEN English (speech-to-text, so ignore capitalization, punctuation and obvious filler like "um").
 For EACH numbered sentence: find only real GRAMMAR / FORM mistakes (tense, agreement, articles, prepositions, word order, missing/extra words, wrong verb form, wrong word that breaks meaning, etc.).
+Do NOT report a generic "missing word" — if a word is missing, tag it by its grammar (article, be verb, subject, preposition, etc.) or skip it.
 Do NOT count: a different but correct way to say it, style or naturalness upgrades, casual but correct speech ("gonna", "wanna", dropping "I" in very casual replies is still a mistake only if it makes the sentence ungrammatical), Korean words or names.
 "fixed" = the user's own sentence with the MINIMUM changes needed to be grammatical (keep their words and meaning; do not rewrite to a fancier sentence). If no mistakes, fixed = the sentence as-is and errors = [].
 Each error: {"tag": one key from the list, "wrong": exact wrong part copied from the sentence ("" if something is missing), "right": the corrected part as it appears in fixed, "why": ONE short Korean 반말 explanation under 40 chars}. Use the MOST SPECIFIC tag. One error per mistake (max 4 per sentence).
@@ -384,4 +385,20 @@ export async function aiGrammar(items) {
       return { aid: x.aid, said: x.said, ko: x.ko, fixed, errors: fixed.toLowerCase().replace(/[^a-z']/g, '') === String(x.said).toLowerCase().replace(/[^a-z']/g, '') ? [] : errors };
     })
   };
+}
+
+// ---------- 표현 카테고리: 저장한 영어 표현을 쓰임별로 (여러 개를 한 번에) ----------
+import { CATS as XCATS } from './excat.js';
+const XCAT_SYS = () => `Classify each saved English expression (from a K-pop idol's casual talk, saved by a Korean learner) into ONE category by how it is USED in conversation.
+Categories: ${XCATS.map(c => `${c[0]} = ${c[1]}${c[2] ? ` (e.g. ${c[2]})` : ''}`).join('; ')}.
+Prefer the most useful specific category; use "phrasal" for phrasal verbs / verb+preposition chunks; use "etc" only if nothing fits.
+Return ONLY JSON {"cats": [{"i": number, "cat": "key"}, ...]}`;
+export async function aiExprCat(items) {
+  if (!aiOn()) return { error: 'off' };
+  const user = items.map((x, i) => `${i + 1}. ${clip(x.text, 120)}${x.ko ? ` (뜻: ${clip(x.ko, 60)})` : ''}`).join('\n');
+  let a = await callAI(XCAT_SYS(), user, { temp: 0.1, ms: 25000 });
+  if (!ok(a) && ['timeout', 'network', 'parse'].includes(a?.error)) a = await callAI(XCAT_SYS(), user, { temp: 0.1, ms: 25000 });
+  if (!ok(a)) return { error: a?.error || 'parse' };
+  const keys = new Set(XCATS.map(c => c[0])); const res = Array.isArray(a.cats) ? a.cats : [];
+  return { cats: items.map((_, i) => { const c = (res.find(y => +y.i === i + 1) || {}).cat; return keys.has(c) ? c : ''; }) };
 }

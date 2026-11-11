@@ -6,7 +6,7 @@
 import * as D from './store.js';
 import { aiOn, aiGrammar } from './ai.js';
 
-// [key, 이름, 묶음, 짧은 규칙, 예시]
+// [key, 이름, 묶음, 짧은 규칙, 예시] · ‘빠진 단어’ 종류는 안 씀 (예전에 모인 것도 안 보임)
 export const TAGS = [
   ['past', '과거형', '시제', '이미 끝난 일은 과거형 (go → went, eat → ate)', 'I went there yesterday.'],
   ['present', '현재형', '시제', '습관·사실은 현재형 (I usually ~ / She likes ~)', 'I usually sleep at 1.'],
@@ -35,7 +35,6 @@ export const TAGS = [
   ['question', '의문문 만들기', '문장', '조동사/be를 주어 앞으로 (Do you ~? / Are you ~?)', 'Did you eat?'],
   ['negative', '부정문', '문장', "don't/doesn't/didn't + 동사원형", "I didn't know that."],
   ['missing_subject', '주어 빠짐', '문장', '영어는 주어를 거의 빼지 않아요 (I, it)', "It's so good."],
-  ['missing_word', '빠진 단어', '문장', '문장에 꼭 필요한 단어 넣기', "I'm going to the store."],
   ['extra_word', '필요 없는 단어', '문장', '겹치거나 불필요한 단어 빼기', 'I went home.'],
   ['conjunction', '접속사 (because·so·when)', '문장', '두 문장을 이을 땐 접속사 하나로', "I'm tired because I worked a lot."],
   ['relative', '관계사 (who·that·which)', '문장', '명사를 뒤에서 꾸밀 때 who/that/which', 'The song that I like.'],

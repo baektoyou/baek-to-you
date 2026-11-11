@@ -231,7 +231,7 @@ export function toggleHard(id) { const s = db.saved.find(x => x.id === id); if (
 function normWord(w) {
   const srs = { interval: 0, reps: 0, lapses: 0, due: Date.now(), ...(w.srs || {}) };
   return { id: w.id || uid(), text: String(w.text || '').trim(), ko: w.ko || '', note: w.note || '', q: w.q || '', srcId: w.srcId || null, kind: w.kind || 'expr',
-    status: w.status || 'new', srs, history: arrOf(w.history), made: arrOf(w.made), createdAt: w.createdAt || Date.now(), updatedAt: w.updatedAt || 0 };
+    status: w.status || 'new', srs, history: arrOf(w.history), made: arrOf(w.made), createdAt: w.createdAt || Date.now(), updatedAt: w.updatedAt || 0, cat: w.cat || '' };
 }
 export function saveWord(item) {
   const t = normText(item.text); if (!t) return { item: null, dup: false };
