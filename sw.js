@@ -2,7 +2,7 @@
 // · 앱 파일: 항상 서버에 재검증(no-cache) → 최신 배포가 바로 반영, 오프라인이면 캐시 사용
 // · 배포할 때 버전을 바꿀 필요 없음. 이 파일을 바꿨을 때만 새 워커가 설치되고 페이지가 한 번 새로고침돼요.
 // · 사용자 데이터(localStorage·IndexedDB)는 건드리지 않아요. 정리하는 건 'baek-to-you' 앱 캐시뿐.
-const SHELL_CACHE = 'baek-to-you-shell-v40';
+const SHELL_CACHE = 'baek-to-you-shell-v42';
 const FONT_CACHE = 'baek-to-you-fonts-v1';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/style.css',

@@ -1839,3 +1839,6 @@ svg path.fl{fill:currentColor}
 .cl-goal{color:#111}
 /* 줄바꿈: 글자 수를 재서 억지로 끊지 않고 브라우저가 자연스럽게 (한국어는 단어 단위, 마지막 줄에 한 단어만 남는 것 방지) */
 .m-bub,.m-bub .en,.m-bub .ko,.dc-b p,.dc-ko,.vm p,.ex-en,.ex-bub,.say-en,.say-ko,.say-sub,.rv-ko2,.kit-q,.kit-ko{word-break:keep-all;overflow-wrap:break-word;text-wrap:pretty}
+/* CHAT 입력줄: 마이크 · AI 질문 아이콘 높이·세로 정렬 맞춤 */
+.composer .cp-q{width:40px;height:40px;align-self:flex-end}
+.composer .cp-mic{align-self:flex-end}

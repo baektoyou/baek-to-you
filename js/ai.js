@@ -348,3 +348,11 @@ export async function aiKoMark({ ko, en, expr }) {
   return r;
 }
 
+
+// 저장한 영어 문장의 자연스러운 한국어 뜻 (복습: 한국어 보고 영어로 말하기)
+const KO_SYS = `Translate the English sentence into natural casual Korean (반말, how a close friend would say it). Return ONLY JSON {"ko": "..."}`;
+export async function aiKo(en) {
+  if (!aiOn() || !en) return '';
+  const a = await callAI(KO_SYS, clip(en, 400), { temp: 0.2, ms: 12000 });
+  return ok(a) ? cleanX(a.ko) : '';
+}

@@ -2,7 +2,7 @@
 // · 문장 복습 / 표현·단어 복습 모두 같은 화면: 질문 → 영어로 대답 → 자연스러운 피드백 → (맞히면 자동 복습 완료) → 마지막에만 익숙함 선택
 import * as D from './store.js';
 import { esc, $, $$, ic, toast, h, sheet, confirmSheet, ytLink, natOf, phrasePicker, hintBox, cmpHTML, bindCompare, setLpCtx, recSentHTML, lpHTML, bindLongPress, bhLines, AI_MARK, checkRetry, swipeDelete, enterSend, autoFollow } from './ui.js';
-import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn, aiKoMark } from './ai.js';
+import { smartFeedback, aiReplyLine, fixAddr, aiExprSay, aiOn, aiKoMark, aiKo } from './ai.js';
 import * as S from './speech.js';
 import { Player } from './yt.js';
 import { avatarStyle } from './scene.js';
@@ -35,14 +35,18 @@ export function saved(root) {
   const items = isW ? words : lists[filter];
   const todo = items.filter(x => x.status !== 'mastered'); // ‘이 목록 복습하기’는 복습완료 빼고
   const nE = db.words.filter(w => w.kind !== 'word').length, nW = db.words.length - nE;
+  // 개수: 오늘 복습(복습전 + 날짜 된 2일 후) · 2일 후 복습(아직 날짜 안 된 것) · 복습완료 — 문장·표현·단어 모두
+  const all = [...db.saved, ...db.words], dueIds = new Set([...due, ...dueW].map(x => x.id));
+  const later = all.filter(x => (x.status === 'okay' || x.status === 'again') && !dueIds.has(x.id)).length;
+  const mastered = all.filter(x => x.status === 'mastered').length;
   root.innerHTML = `<div class="screen saved-scr">
     <header class="top"><h1 class="page-title">Saved</h1></header>
-    <div class="stats-strip"><div><b class="${due.length ? 'accent' : ''}">${due.length}</b><span>복습할 문장</span></div><div><b class="${dueW.length ? 'accent' : ''}">${dueW.length}</b><span>복습할 표현·단어</span></div><div><b>${db.saved.filter(s => s.status === 'mastered').length}</b><span>익힌 문장</span></div></div>
+    <div class="stats-strip"><div><b class="${due.length + dueW.length ? 'accent' : ''}">${due.length + dueW.length}</b><span>오늘 복습</span></div><div><b>${later}</b><span>2일 후 복습</span></div><div><b>${mastered}</b><span>복습완료</span></div></div>
     <button class="review-btn" id="go" ${due.length || dueW.length ? '' : 'disabled'}>${due.length || dueW.length ? '오늘 복습 시작' : '오늘 복습 끝'}${ic('next')}</button>
     <div class="view-sw"><button data-v="sent" class="${view === 'sent' ? 'on' : ''}">문장 <em>${db.saved.length}</em></button><button data-v="expr" class="${view === 'expr' ? 'on' : ''}">표현 <em>${nE}</em></button><button data-v="word" class="${view === 'word' ? 'on' : ''}">단어 <em>${nW}</em></button></div>
     ${isW ? `<div class="w-tools"><button class="btn sm soft" id="addw">${ic('plus')} ${view === 'word' ? '단어' : '표현'} 추가</button>${todo.length ? `<button class="btn sm" id="pw">${ic('play')} ${todo.length}개 복습</button>` : ''}</div>`
       : `<div class="tabs-scroll"><div class="seg">${FILTERS.map(([k, l]) => `<button data-f="${k}" class="${filter === k ? 'on' : ''}">${l}</button>`).join('')}</div></div><p class="f-cap">${FILTERS.find(f => f[0] === filter)[2]}</p>`}
-    ${items.length ? `${!isW && filter !== 'due' && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
+    ${items.length ? `${!isW && todo.length ? `<button class="link-sm practice-all" id="pa">${ic('play')} 이 목록 ${todo.length}개 복습하기</button>` : ''}<div class="slist">${items.map(isW ? wordHTML : itemHTML).join('')}</div>`
       : `<div class="empty"><span class="empty-ic">${ic(isW ? 'marker' : 'bookmark')}</span><b>${!isW && filter === 'due' ? '지금 복습할 게 없어요' : isW ? `아직 저장한 ${view === 'word' ? '단어' : '표현'}가 없어요` : '아직 문장이 없어요'}</b><p>${!isW && filter === 'due' ? '다음 복습 시간이 되면 여기에 나타나요' : isW ? 'CHAT·CALL에서 추천 표현을 누르면 저장돼요' : 'CHAT·CALL에서 추천 문장을 누르면 저장돼요'}</p></div>`}
   </div>`;
   // 삭제: 왼쪽으로 밀면 ‘삭제’
@@ -244,9 +248,10 @@ function review(root, items) {
     return us.find(u => w.note && lc(natOf(u)) === lc(w.note)) || us.find(u => (' ' + lc(natOf(u)).replace(/[^a-z' ]/g, ' ') + ' ').includes(' ' + t + ' ')) || null;
   };
   const kindOf = (it, x) => {
-    if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; return { mode: 'reply' }; }
+    // ‘이 표현 써서 말해봐’(답장 연습)는 없음: 영상 대사 → 백현이 말 영어로 · 없으면 한국어 뜻 보고 영어로
+    if (it.t === 's') { const u = x.uttId && D.utt(x.uttId); const v = u && D.video(u.videoId); if (u && u.ko) return { mode: 'say', u, v }; return { mode: 'ko' }; }
     const u = uttForWord(x); if (u) return { mode: 'say', u, v: D.video(u.videoId), expr: x.text };
-    return aiOn() ? { mode: 'gen', expr: x.text } : { mode: 'reply' };
+    return aiOn() ? { mode: 'gen', expr: x.text } : { mode: 'ko' };
   };
   const next = () => { i++; if (dead) return; if (i >= queue.length) summary(); else card(); };
 
@@ -255,12 +260,12 @@ function review(root, items) {
     const x = isW ? D.get().words.find(w => w.id === it.id) : D.get().saved.find(s => s.id === it.id);
     if (!x) return next();
     const k = kindOf(it, x);
-    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'reply' ? '백현이에게 답장' : '백현이의 말 영어로'}`;
+    $('#cvi', root).textContent = `${i + 1} / ${queue.length} · ${k.mode === 'ko' ? '한국어 보고 영어로' : '백현이의 말 영어로'}`;
     $('#mt', root).style.width = `${(i / queue.length) * 100}%`;
     if (th.children.length) sys(`${i + 1} / ${queue.length}`);
     if (k.mode === 'say') return say(it, x, k);
     if (k.mode === 'gen') return gen(it, x, k);
-    return reply(it, x);
+    return koSay(it, x);
   }
 
   // ---- ① 백현이의 말 영어로 표현하기 ----
@@ -290,7 +295,7 @@ function review(root, items) {
     const t0 = typing();
     const line = await aiExprSay({ expr, ko: x.ko || '', avoid: lines }); if (dead) return;
     t0.remove();
-    if (!line) return reply(it, x); // AI가 못 만들면 답장 연습으로
+    if (!line) return koSay(it, x); // AI가 못 만들면 한국어 뜻 보고 말하기
     lines.push(line.ko); lastWho = '';
     setLpCtx({ ko: line.ko });
     const koHTML = line.mark ? esc(line.ko).replace(esc(line.mark), `<u class="rv-mark">${esc(line.mark)}</u>`) : esc(line.ko);
@@ -299,7 +304,22 @@ function review(root, items) {
     await turn(it, x, { target, mode: 'say', ko: line.ko, targets: [target, expr], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: expr, keywords: [] }); }, check: said => smartFeedback({ mode: 'translate', said, target, ko: line.ko, pattern: expr, expr }), rec: () => target, hl: [expr], save: false });
   }
 
-  // ---- ② 백현이에게 답장하기 ----
+  // ---- ② 한국어 뜻 보고 영어로 (영상 대사가 없는 문장·표현) ----
+  async function koSay(it, x) {
+    const isW = it.t === 'w';
+    plw.classList.add('hide'); pl?.pause();
+    const target = isW ? x.text : enOf(x);
+    let ko = x.ko || '';
+    if (!ko && aiOn()) { const t0 = typing(); ko = await aiKo(target); if (dead) return; t0.remove(); if (ko && !isW) D.updateSaved(x.id, { ko }); }
+    lastWho = '';
+    if (ko) add('bh', `<span class="ko rv-ko2">${esc(ko)}</span><span class="rv-ask">영어로 말해볼래?</span>`);
+    else { const b = add('bh', `<span class="bub-tag">이거 보고 한번 해봐!</span><span class="en big lp">${lpHTML(target)}</span>`); bindLongPress(b); }
+    const pat = isW ? x.text : (splitPatterns(x.pattern)[0] || '');
+    await turn(it, x, { target, mode: 'say', ko, targets: [target], hint: () => { lastWho = ''; const hb = add('bh', `<span class="bub-tag">힌트</span><div class="bub-hint"></div>`); hintBox($('.bub-hint', hb), target, { pattern: pat, keywords: [] }); },
+      check: said => smartFeedback({ mode: 'translate', said, target, ko, pattern: pat, expr: isW ? x.text : '' }), rec: () => target, hl: pat ? [pat] : [], save: false });
+  }
+
+  // ---- (예전) 백현이에게 답장하기 — 지금은 안 씀 ----
   async function reply(it, x) {
     const isW = it.t === 'w';
     plw.classList.add('hide'); pl?.pause();

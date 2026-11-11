@@ -10,8 +10,8 @@ import { talkHint, libFor, TALK_HINTS, improve } from './feedback.js';
 import { judgeReply, judgeTranslation, bestReply, keyExpressions } from './judge.js';
 import { appQuestion, detectTopics } from './talk-engine.js';
 import { ASK_KO } from './kohelp.js';
-import { pickVideo, pickPhoto, conceptOf, sceneOf, mountPhoto, rememberPhoto, callable, situations, matchesSit, isLive, voiceOk, avatarStyle } from './scene.js';
-import { vThumb } from './yt.js';
+import { pickVideo, pickPhoto, photo, loadUserPhotos, conceptOf, sceneOf, mountPhoto, rememberPhoto, callable, situations, matchesSit, isLive, voiceOk, avatarStyle } from './scene.js';
+import { vThumb, thumb } from './yt.js';
 import { BH_PROFILE } from './video.js';
 import { startRing, stopRing, blip, unlock } from './ringtone.js';
 
@@ -144,7 +144,7 @@ export function speak(root) {
 function contentSheet(root, vids) {
   vids = D.sortVideos(vids);
   const sh = sheet(`<h3>나랑 통화할래!?</h3>${D.canEdit() ? '<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p>' : ''}<div class="ct-list sortable" id="clist"></div>`);
-  $('#clist', sh).innerHTML = vids.map(v => `<div class="ct-item" data-id="${v.id}"><span class="ct-th" style="background-image:url('${vThumb(v)}')"></span>
+  $('#clist', sh).innerHTML = vids.map(v => `<div class="ct-item" data-id="${v.id}"><span class="ct-th" style="${v.photo && photo(v.photo) ? faceCover(photo(v.photo)) : `background-image:url('${thumb(v.ytId)}')`}"></span>
     <div class="ct-meta"><b>${esc(String(v.title || '').split('\n')[0])}</b><small>${esc(v.desc || conceptOf(v))}</small></div>
     <div class="ct-ib">${voiceOk(v) ? `<button data-vc="${v.id}" data-voice="1" aria-label="음성통화">${ic('phoneF')}</button>` : ''}<button class="vid" data-vc="${v.id}" aria-label="영상통화">${ic('cam')}</button></div></div>`).join('');
   $$('[data-vc]', sh).forEach(b => b.onclick = () => { unlock(); sh.close(); call(root, 'call', D.video(b.dataset.vc), { voice: !!b.dataset.voice }); });
@@ -203,7 +203,14 @@ function answerFrames(qEn) {
 // ---------- 통화 ----------
 // 전화하기 = 백현이 한국어를 듣고 영어로 번역해서 말하기 (정답 영어는 말하기 전에 안 보여줌)
 // 단계: 백현이 말함(한국어 자막) → 내가 영어로 → 내 문장 교정 + 자연스러운 표현 → [다시 말하기 · 연습 · 다음] → 다음 누르면 다음 구간 재생
-function call(root, mode, v = null, { start = null, voice = false } = {}) {
+// 직접 고른 사진을 직사각형 칸에 얼굴 중심으로
+const faceCover = p => `background-image:url('${p.src}');background-size:cover;background-position:${((p.box[0] + p.box[2]) / 2 * 100).toFixed(0)}% ${((p.box[1] + p.box[3]) / 2 * 100).toFixed(0)}%`;
+// 영상 관리에서 고른 사진이 내가 추가한 사진이면 아직 안 불러왔을 수 있음 → 불러온 뒤 전화 (그 사진이 전화 화면·음성통화 가운데 얼굴)
+function call(root, mode, v = null, opts = {}) {
+  if (v?.photo && !photo(v.photo)) { loadUserPhotos().then(() => callNow(root, mode, v, opts)).catch(() => callNow(root, mode, v, opts)); return; }
+  callNow(root, mode, v, opts);
+}
+function callNow(root, mode, v = null, { start = null, voice = false } = {}) {
   active?.(); active = null;
   voice = !!(voice && mode === 'call' && voiceOk(v)); // 음성통화: 관리자가 지정한 영상만 · 화면은 숨기고 소리만
   let qs = mode === 'long' ? questionPool().map(q => ({ q, s: richScore(q) + Math.random() * 1.5 })).sort((a, b) => b.s - a.s).map(x => x.q) : [];

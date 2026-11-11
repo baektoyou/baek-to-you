@@ -38,7 +38,7 @@ export function settings(root) {
       const chat = db.videos.filter(v => !isLive(v)), callV = db.videos.filter(isLive), list = vtab === 'call' ? callV : chat;
       const shown = D.sortVideos(list).slice(0, 5);
       return `<div class="view-sw"><button data-vt="chat" class="${vtab === 'chat' ? 'on' : ''}">CHAT <em>${chat.length}</em></button><button data-vt="call" class="${vtab === 'call' ? 'on' : ''}">CALL <em>${callV.length}</em></button></div>
-      ${list.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${shown.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
+      ${list.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${shown.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${isLive(v) ? thumb(v.ytId) : vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}
         ${list.length > shown.length ? `<a class="li more" href="#/settings/videos/${vtab}"><span class="grow">전체 ${list.length}개 보기</span>${ic('next')}</a>` : ''}</div>`
         : `<div class="note">${vtab === 'call' ? '라이브 영상이 없어요 · 영상 관리에서 종류를 ‘라이브 · CALL’로 바꿀 수 있어요' : '일반 영상이 없어요'}</div>`}`;
     })() : `<div class="note">위에 YouTube 링크를 붙여넣어 영상을 추가해보세요.</div>`}` : ''}
@@ -347,7 +347,7 @@ export function videoListAll(root, tab = 'call') {
   root.innerHTML = `<div class="screen">
     <header class="top"><a class="icon-btn" href="#/settings" aria-label="뒤로">${ic('back')}</a><h2>${tab === 'call' ? 'CALL' : 'CHAT'} 영상 · ${all.length}</h2><span class="icon-sp"></span></header>
     <div class="view-sw"><a href="#/settings/videos/chat" class="${tab === 'chat' ? 'on' : ''}">CHAT</a><a href="#/settings/videos/call" class="${tab === 'call' ? 'on' : ''}">CALL</a></div>
-    ${all.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${all.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
+    ${all.length ? `<p class="sort-tip">꾹 눌러서 끌면 순서를 바꿀 수 있어요</p><div class="list sortable" id="vsort">${all.map(v => `<a class="li" data-id="${v.id}" href="#/settings/video/${v.id}"><div class="thumb" style="background-image:url('${isLive(v) ? thumb(v.ytId) : vThumb(v)}')"></div><div class="grow"><b class="clamp2">${esc(v.title)}</b><small>${D.uttsOf(v.id).length}문장</small></div>${ic('next')}</a>`).join('')}</div>` : '<div class="note">영상이 없어요</div>'}
   </div>`;
   if (D.canEdit()) dragSort($('#vsort', root), '.li', ids => { D.reorderVideos(ids); toast('순서를 바꿨어요'); });
 }
@@ -364,7 +364,8 @@ export function videoEditor(root, vid) {
     <section class="scene-card" id="scn"></section>
     <div class="row between sec-row"><span class="label">SENTENCES · ${us.length}</span></div>
     <div class="sent-actions">
-      <button class="btn sm" id="rep-j">${ic('refresh')} JSON으로 교체</button>
+      <button class="btn sm" id="add-j">${ic('plus')} JSON으로 추가</button>
+      <button class="btn sm soft" id="rep-j">${ic('refresh')} JSON으로 교체</button>
       <button class="btn sm soft" id="cpj" ${us.length ? '' : 'disabled'}>${ic('copy')} JSON 전체 복사</button>
     </div>
     ${us.length ? `<div class="ulist" id="ul">${us.map(u => `<div class="uitem ued" data-ue="${u.id}"><span class="t">${D.fmt(u.start)}</span><div class="grow ue-body"><div class="ko">${esc(u.ko)}</div><div class="small muted en u-en">${esc(u.en.natural || u.en.easy || '— 영어 예시 없음')}</div></div></div>`).join('')}</div>`
@@ -402,6 +403,9 @@ export function videoEditor(root, vid) {
   const thc = $('#thc', root);
   const drawThumb = () => {
     const cur = D.video(vid);
+    // CALL(통화) 영상은 직접 바꾼 썸네일을 쓰지 않음 → 전화 올 때 사진(직접 고른 사진)이 얼굴로 쓰임
+    if (isLive(cur)) { if (cur.thumb && D.canEdit()) D.updateVideo(vid, { thumb: '' }); thc.classList.add('hide'); thc.innerHTML = ''; return; }
+    thc.classList.remove('hide');
     thc.innerHTML = `<span class="label">영상 썸네일</span>
       <div class="th-row mt8"><span class="th-img" style="background-image:url('${vThumb(cur)}')"></span><div class="grow"><b>${cur.thumb ? '직접 바꾼 썸네일' : 'YouTube 기본 썸네일'}</b><small>CHAT 목록 · CALL 더보기에 보여요</small></div></div>
       <div class="row gap6 mt8"><label class="btn sm soft">${ic('upload')} 이미지 바꾸기<input type="file" id="thf" accept="image/*" class="hide"></label>${cur.thumb ? `<button class="btn sm soft" id="thr">${ic('refresh')} 기본으로</button>` : ''}</div>`;
@@ -431,7 +435,7 @@ export function videoEditor(root, vid) {
         <p class="tiny muted mt8">${times.length ? '고른 시간대에 전화하면 이 영상이 먼저 나와요' : autoT ? '점선은 대본으로 추정한 시간대예요 · 눌러서 정해주세요' : '정하지 않으면 아무 시간대에나 나와요'}</p></div>
       <div class="scene-sec"><span class="label">전화 올 때 사진</span>
         ${(() => { const p = cur.photo && allPhotos().find(x => x.id === cur.photo) || ap.p; return `<div class="ph-cur mt8"><span class="ph-th" style="${thumbStyle(p)}"></span><div class="grow"><b>${cur.photo ? '직접 고른 사진' : '자동'}</b><small>${cur.photo ? '이 사진으로 전화가 와요' : '상황과 가장 비슷한 사진'}</small></div><button class="btn sm soft" id="phchg">바꾸기</button></div>`; })()}</div>` : '<p class="tiny muted mt12">일반 영상은 CHAT에만 보여요.</p>'}`;
-    $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); });
+    $$('[data-kind]', scn).forEach(b => b.onclick = () => { D.updateVideo(vid, { kind: b.dataset.kind }); drawScene(); drawThumb(); });
     $('#vvoice', scn) && ($('#vvoice', scn).onchange = e => { D.updateVideo(vid, { voice: e.target.checked }); toast(e.target.checked ? '음성통화에도 나와요' : '영상통화에서만 나와요'); });
     $('#vdesc', scn) && ($('#vdesc', scn).onchange = e => D.updateVideo(vid, { desc: e.target.value.trim() }));
     // 시간대만 (상황은 고르지 않음): 눌러서 켜고 끄기
@@ -454,6 +458,7 @@ export function videoEditor(root, vid) {
     else { const sh = sheet(`<h3>JSON 전체</h3><p class="sheet-p">자동 복사가 막혔어요. 아래를 길게 눌러 전체 선택 → 복사해주세요.</p><textarea class="textarea mono" readonly>${esc(json)}</textarea>`); $('textarea', sh).select(); }
   };
   $('#rep-j', root).onclick = () => jsonSheet(v, 'replace', reload);
+  $('#add-j', root).onclick = () => jsonSheet(v, 'add', reload); // 기존 문장은 그대로 두고 새 문장만 더하기
   return () => pl.destroy();
 }
 
@@ -486,12 +491,13 @@ function exportUtts(vid) {
 // mode: 'add' (기존 문장 뒤에 추가) | 'replace' (이 영상의 문장만 전부 교체)
 function jsonSheet(v, mode, done) {
   const n = D.uttsOf(v.id).length;
-  const s = sheet(`<h3>JSON으로 교체</h3>
-    <p class="sheet-p">${n ? `이 영상의 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '이 영상에 넣을 문장 JSON을 붙여넣어요.'}</p>
-    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button>${n ? `<button class="btn sm soft" id="ld">${ic('download')} 현재 JSON 불러오기</button>` : ''}<label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
+  const add = mode === 'add';
+  const s = sheet(`<h3>JSON으로 ${add ? '추가' : '교체'}</h3>
+    <p class="sheet-p">${add ? `지금 있는 문장 ${n}개는 그대로 두고, 붙여넣은 문장을 <b>더해요</b>.` : n ? `이 영상의 문장 ${n}개를 새 JSON으로 <b>전부 바꿔요</b>. 다른 영상은 그대로예요.` : '이 영상에 넣을 문장 JSON을 붙여넣어요.'}</p>
+    <div class="row wrap gap6"><button class="btn sm soft" id="cp">${ic('copy')} Claude용 프롬프트 복사</button>${n && !add ? `<button class="btn sm soft" id="ld">${ic('download')} 현재 JSON 불러오기</button>` : ''}<label class="btn sm soft">${ic('upload')} 파일 선택<input type="file" id="file" accept="application/json,.json,.txt" class="hide"></label></div>
     <textarea class="textarea mono" id="js" placeholder='[{"start":"0:12","end":"0:17","ko":"...","natural":"..."}]'></textarea>
     <div id="vres"></div>
-    <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow" id="go" disabled>${n ? '교체하기' : '넣기'}</button></div>`);
+    <div class="row"><button class="btn soft grow" id="chk">검사하기</button><button class="btn grow" id="go" disabled>${add ? '추가하기' : n ? '교체하기' : '넣기'}</button></div>`);
   let checked = null;
   const ta = $('#js', s), out = $('#vres', s), go = $('#go', s);
   const check = () => {
@@ -499,7 +505,7 @@ function jsonSheet(v, mode, done) {
     const linked = mode === 'replace' ? D.savedLinkedTo(v.id) : [];
     const relink = r.ok ? linked.filter(x => r.items.some(i => (i.ko || '').trim() === (D.utt(x.uttId)?.ko || x.ko).trim())).length : 0;
     out.innerHTML = r.ok
-      ? `<div class="vcheck ok">${ic('check')}<div><b>${r.items.length}개 문장 확인 완료</b>${mode === 'replace' ? `<br><small>기존 ${n}개 → 새 ${r.items.length}개로 교체</small>` : ''}
+      ? `<div class="vcheck ok">${ic('check')}<div><b>${r.items.length}개 문장 확인 완료</b>${mode === 'replace' ? `<br><small>기존 ${n}개 → 새 ${r.items.length}개로 교체</small>` : `<br><small>기존 ${n}개 + 새 ${r.items.length}개 = ${n + r.items.length}개</small>`}
         ${linked.length ? `<br><small>SAVED 표현 ${linked.length}개 중 ${relink}개는 같은 한국어 문장으로 다시 연결되고, ${linked.length - relink}개는 내용은 남지만 원본 문장 연결만 끊겨요.</small>` : ''}
         ${r.warns.length ? `<details class="adv"><summary>참고 ${r.warns.length}개</summary><div class="tiny">${r.warns.slice(0, 20).map(esc).join('<br>')}</div></details>` : ''}</div></div>`
       : `<div class="vcheck bad">${ic('x')}<div><b>업로드할 수 없어요 · 기존 데이터는 그대로예요</b><div class="tiny">${r.errors.slice(0, 8).map(esc).join('<br>')}${r.errors.length > 8 ? `<br>외 ${r.errors.length - 8}개` : ''}</div></div></div>`;
