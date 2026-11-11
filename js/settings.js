@@ -384,11 +384,11 @@ export function videoEditor(root, vid) {
     const body = $('.ue-body', row), old = body.innerHTML;
     row.classList.add('editing');
     body.innerHTML = `<textarea class="textarea ue-ko" rows="2" aria-label="한국어 발화">${esc(u.ko)}</textarea><textarea class="textarea en ue-en" rows="2" aria-label="영어 추천 문장">${esc(u.en.natural || u.en.easy || u.en.advanced || '')}</textarea>
-      <div class="row gap6 ue-acts"><button class="btn xs" data-ua="save">저장</button><button class="btn xs soft" data-ua="play">${ic('play')} 듣기</button><button class="btn xs soft" data-ua="split">${ic('cut')} 둘로 나누기</button><button class="btn xs soft" data-ua="cancel">취소</button><a class="link-sm" href="#/settings/utt/${v.id}/${u.id}">자세히</a></div>`;
+      <div class="row gap6 ue-acts"><button class="btn xs" data-ua="save">저장</button><button class="btn xs soft" data-ua="play">${ic('play')} 듣기</button><button class="btn xs soft" data-ua="split">${ic('cut')} 둘로 나누기</button><button class="btn xs soft danger-t" data-ua="del">${ic('trash')} 삭제</button><a class="link-sm" href="#/settings/utt/${v.id}/${u.id}">자세히</a></div>`;
     $$('textarea', body).forEach(t => { const fit = () => { t.style.height = 'auto'; t.style.height = t.scrollHeight + 'px'; }; fit(); t.oninput = fit; });
     $('.ue-ko', body).focus();
     row.close = () => { row.classList.remove('editing'); body.innerHTML = old; row.close = null; };
-    $('[data-ua="cancel"]', body).onclick = () => row.close();
+    $('[data-ua="del"]', body).onclick = async () => { if (await confirmSheet('이 문장을 삭제할까요?', '삭제')) { D.deleteUtt(u.id); toast('문장을 삭제했어요'); reload(); } }; // 수정 취소는 다른 문장을 누르면 닫힘
     $('[data-ua="play"]', body).onclick = () => pl.playSegment(v.ytId, u.start, u.end);
     $('[data-ua="split"]', body).onclick = () => uttSheet(v, u, reload, pl);
     $('[data-ua="save"]', body).onclick = () => {

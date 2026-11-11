@@ -1916,3 +1916,6 @@ svg path.fl{fill:currentColor}
 .cl-goal{color:var(--ink2);font-weight:400}
 .cl-goal b{font-weight:600;color:var(--ink2)}
 .cl-goal svg{color:var(--muted)}
+
+.btn.danger-t{color:var(--danger)}
+.btn.danger-t svg{color:var(--danger)}
